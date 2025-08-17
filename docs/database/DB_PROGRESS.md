@@ -254,3 +254,82 @@ flowchart TD
 
 ### Canon updates for P0002
 Canon updates for P0002 → interfaces: 0, constraints: 0, flows: 0
+
+---
+
+## 0003 — RLS Helper Functions
+
+### Inputs consulted
+- `docs/database/tasks.md` — Task 03 specification: create `infra/supabase/migrations/0003_helpers.sql` with two STABLE, SECURITY INVOKER helpers returning `uuid` and NULL on missing/invalid claims.
+- `docs/database/design_brief.md` — Confirms strict RLS everywhere, fail-closed policies, and use of standard helpers for tenant/user context.
+- `docs/database/database_context_pack.md` — Guardrails on idempotency, transactions, additive-only, and canonical migration sequence.
+- Cheat Sheets (stubs for now): `docs/database/cheat sheets/interfaces.md`, `constraints.md`, `critical_flows.md` (no new items for this step).
+
+Execution Context Rule honored: outputs aligned with Design Brief → Context Pack → Cheat Sheets. No invariant conflicts.
+
+### Reasoning and intermediate steps
+- Defined helpers as `LANGUAGE sql`, `STABLE`, `SECURITY INVOKER` so they execute in caller context and are safe for RLS predicates.
+- Implemented NULL-on-missing behavior by extracting claims via `auth.jwt()->>'tenant_id'` / `->>'sub'` and returning NULL when absent or invalid.
+- Hardened UUID parsing using a case-insensitive regex; only valid UUIDs cast to `uuid` to avoid exceptions in policies.
+- Used `CREATE OR REPLACE FUNCTION` and wrapped the migration in `BEGIN; … COMMIT;` for idempotency and transactional safety.
+- Avoided the JSONB key-existence `?` operator and instead used NULL-safe `->>` extraction for broader compatibility and clarity.
+
+### Actions taken (outputs produced)
+- Created migration: `infra/supabase/migrations/0003_helpers.sql` defining:
+  - `public.current_tenant_id()` → returns tenant UUID from JWT `tenant_id` claim or NULL on missing/invalid.
+  - `public.current_user_id()` → returns user UUID from JWT `sub` claim or NULL on missing/invalid.
+- Both helpers: `STABLE`, `SECURITY INVOKER`, `RETURNS uuid`, `RETURNS NULL ON NULL INPUT`, transactional and idempotent.
+
+### Plain-language description
+Supabase injects an authenticated request’s JWT into Postgres, readable via `auth.jwt()`. These helpers parse `tenant_id` and `sub` from that JSON and return them as UUIDs. If claims are missing or malformed, they return NULL so RLS comparisons (e.g., `tenant_id = current_tenant_id()`) fail closed by default.
+
+### Rationale and connection to the Design Brief
+- The Brief mandates deny-by-default RLS and standards-based helpers. Returning NULL on bad claims ensures policies remain fail-closed.
+- Using SQL functions keeps policies readable and repeatable across tables and future prompts (P0014–P0016).
+
+### Decisions made
+- Use regex validation before UUID cast to prevent runtime errors inside policies.
+- Prefer `->>` extraction over `?` existence checks; both are safe, but `->>` is simpler and still NULL-safe.
+- Keep functions in `public` schema per Brief’s conventions for shared helpers.
+
+### Pitfalls / tricky parts
+- `auth.jwt()` may be NULL (anon role); `->>` safely yields NULL, making helpers return NULL—desired for deny-by-default.
+- Policies must avoid `IS NOT NULL` misuses that could accidentally allow access; comparisons using `=` with NULL remain deny-by-default.
+- STRICT/`RETURNS NULL ON NULL INPUT` has no effect for no-arg functions but is included to meet the spec and future-proof API.
+
+### Questions for Future Me
+- Will any service accounts use non-UUID `sub`? If so, add a separate helper or compatibility layer rather than weakening validation.
+- Should we expose these helpers via generated client types or document them in app-layer auth docs? Likely when policies land (P0014–P0016).
+
+### State Snapshot (after P0003)
+- Extensions: pgcrypto, citext, btree_gist, pg_trgm
+- Enums: booking_status, payment_status, membership_role, resource_type, notification_channel, notification_status, payment_method
+- Tables: none yet
+- Functions: `public.current_tenant_id()`, `public.current_user_id()` (created)
+- Triggers: none
+- Policies (RLS): none yet (enable at P0014)
+- Indexes: none
+- Migrations present: `0001_extensions.sql`, `0002_types.sql`, `0003_helpers.sql`
+- Tests (pgTAP): none yet
+- Documentation: this file updated with P0003 details
+
+### Visual representation (repo paths and helpers after P0003)
+```mermaid
+flowchart TD
+  A[repo root] --> B[docs/]
+  B --> B1[database/]
+  B1 --> B2[DB_PROGRESS.md]
+  B --> C[canon/]
+  C --> C1[interfaces.md]
+  C --> C2[constraints.md]
+  C --> C3[critical_flows.md]
+  A --> D[infra/]
+  D --> E[supabase/]
+  E --> F[migrations/]
+  F --> G1[0001_extensions.sql]
+  F --> G2[0002_types.sql]
+  F --> G3[0003_helpers.sql]
+```
+
+### Canon updates for P0003
+Canon updates for P0003 → interfaces: 0, constraints: 0, flows: 0

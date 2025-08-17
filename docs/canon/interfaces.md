@@ -87,3 +87,7 @@ Count: 0
 ### P0002 — Interfaces
 - No new schema interfaces introduced in this prompt. Defined enum types for bookings, payments, memberships, resources, and notifications; downstream API/event DTOs will mirror these values.
 Count: 0
+
+### P0003 — Interfaces
+- No new external API/event interfaces introduced in this prompt. Added JWT-based RLS helpers used by policies: `public.current_tenant_id()` and `public.current_user_id()` (NULL on missing/invalid claims).
+Count: 0

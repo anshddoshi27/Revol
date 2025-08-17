@@ -127,3 +127,7 @@ Count: 0
 ### P0002 — Constraints
 - None introduced in this prompt (enum definitions only; constraints arrive with tables and flows in later prompts).
 Count: 0
+
+### P0003 — Constraints
+- None introduced in this prompt. Added JWT-derived helper functions for RLS (`public.current_tenant_id()`, `public.current_user_id()`); constraints will appear alongside tables and policies in later prompts.
+Count: 0

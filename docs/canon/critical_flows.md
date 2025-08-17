@@ -109,3 +109,7 @@ Count: 0
 ### P0002 — Critical Flows
 - None introduced in this prompt (enum definitions only; flows arrive with tables and workers in later prompts).
 Count: 0
+
+### P0003 — Critical Flows
+- None introduced in this prompt. Added JWT-based RLS helper functions (`public.current_tenant_id()`, `public.current_user_id()`) that will be referenced by policies and enforced across flows starting in later prompts.
+Count: 0

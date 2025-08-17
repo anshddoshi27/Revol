@@ -2,6 +2,34 @@
 
 **Goal:** Production-grade, strictly isolated multi-tenant schema with offline-safe idempotency, overlap guarantees, payments boundaries, auditing, notifications, usage quotas, and comprehensive RLS. All work is produced by executing prompts 00–19 in sequence from the integrated Cursor pack. These prompts define the complete canonical schema — there is no separate post-0019 migration phase.
 
+## Execution Context Rule
+
+When carrying out any task or generating files, migrations, or tests, **the AI executor (Cursor, Windsurf, or equivalent)** must always ground its work in all three canonical knowledge sources:
+
+1. **Design Brief** → final schema, enumerations, policies, constraints, and post-0019 amendments  
+2. **Context Pack** → guardrails, invariants, canon appends, migration sequence 00–19, CI rules  
+3. **Cheat Sheets** →  
+   - `interfaces.md` (contract surfaces, enums, tables, helpers)  
+   - `constraints.md` (CHECKs, uniques, exclusions, NOT NULLs, partials)  
+   - `critical_flows.md` (multi-step flows, precedence, triggers, lifecycle order)
+
+### Executor Obligations
+- **Load all three** into context before implementing.  
+- **Check alignment**: ensure outputs match the Design Brief and do not violate Context Pack invariants or Cheat Sheet entries.  
+- **Resolve conflicts with this priority order:**  
+  1. Design Brief (final authoritative)  
+  2. Context Pack (guardrails)  
+  3. Cheat Sheets (coverage/expansion)  
+- **Fail safe**: if any invariant or constraint would be broken, do not produce the output—surface the violation instead.  
+- **Emit canon updates** (interfaces/constraints/flows counts) after each step, ensuring they reflect knowledge across all sources.
+
+### Human Reviewers’ Role
+- Confirm that each PR shows evidence the executor applied all three sources (citations to Brief, Pack, Cheat Sheets).  
+- Reject outputs that rely only on partial context or contradict the Brief/Pack/Cheat Sheets.  
+- CI should enforce by checking for presence of:  
+  - Canon update blocks with counts  
+  - “Execution Context Rule” mention in `docs/DB_PROGRESS.md`
+
 ## 1) Canonical Multitenancy Model
 
 Tenant resolution (canonical): Path-based `/b/{slug}`. No domains table.

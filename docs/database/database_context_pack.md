@@ -13,11 +13,39 @@ Migrations **00–19** are the canonical core. Post-0019 changes must be additiv
 
 ---
 
-# How to Use This Cursor Pack (00–19) to Build Tithi’s Database
+# How to Use This Context Pack to Build Tithi’s Database
 
 This pack is a step-by-step set of Cursor prompts that generate a production-grade, path-based multi-tenant schema on Supabase/Postgres with RLS everywhere, strict idempotency, booking overlap guarantees, notifications, quotas, auditing, and hardened policies. For each step, paste the prompt into Cursor and output exactly what the step asks for (file paths, fenced blocks, and docs updates). Keep migrations idempotent and wrapped in `BEGIN; … COMMIT;`. Append rationale to `docs/DB_PROGRESS.md` at every step.
 
 ---
+
+## Execution Context Rule
+
+When carrying out any task or generating files, migrations, or tests, **the AI executor (Cursor, Windsurf, or equivalent)** must always ground its work in all three canonical knowledge sources:
+
+1. **Design Brief** → final schema, enumerations, policies, constraints, and post-0019 amendments  
+2. **Context Pack** → guardrails, invariants, canon appends, migration sequence 00–19, CI rules  
+3. **Cheat Sheets** →  
+   - `interfaces.md` (contract surfaces, enums, tables, helpers)  
+   - `constraints.md` (CHECKs, uniques, exclusions, NOT NULLs, partials)  
+   - `critical_flows.md` (multi-step flows, precedence, triggers, lifecycle order)
+
+### Executor Obligations
+- **Load all three** into context before implementing.  
+- **Check alignment**: ensure outputs match the Design Brief and do not violate Context Pack invariants or Cheat Sheet entries.  
+- **Resolve conflicts with this priority order:**  
+  1. Design Brief (final authoritative)  
+  2. Context Pack (guardrails)  
+  3. Cheat Sheets (coverage/expansion)  
+- **Fail safe**: if any invariant or constraint would be broken, do not produce the output—surface the violation instead.  
+- **Emit canon updates** (interfaces/constraints/flows counts) after each step, ensuring they reflect knowledge across all sources.
+
+### Human Reviewers’ Role
+- Confirm that each PR shows evidence the executor applied all three sources (citations to Brief, Pack, Cheat Sheets).  
+- Reject outputs that rely only on partial context or contradict the Brief/Pack/Cheat Sheets.  
+- CI should enforce by checking for presence of:  
+  - Canon update blocks with counts  
+  - “Execution Context Rule” mention in `docs/DB_PROGRESS.md`
 
 ## Ground Rules from the Context Pack (read once, follow always)
 
@@ -127,6 +155,111 @@ Future changes must be additive, not breaking. Extend with new migrations, do no
 Following these prompts and the context pack yields a production-ready, path-based multi-tenant database for Tithi, with robust RLS, safe offline flows, strict booking guarantees, PCI-clean payments, reliable notifications/eventing, and auditable operations—ready for real-world scale.
 
 ---
+
+## Canon Appends & Coverage Guide (STRICT)
+
+**When this applies:** every prompt **P0000 → P0019 (core)** and any **post-0019 additive migration**.  
+**Goal:** never miss a contract, rule, or flow defined by the pack (enums, RLS, overlap, idempotency, outbox, PCI, etc.).
+
+---
+
+### A. What to output in every prompt
+
+Immediately after the normal SQL and `docs/DB_PROGRESS.md` update, append three fenced Markdown blocks:
+
+1. **docs/canon/interfaces.md**  
+   - Section: `### P000N — Interfaces`  
+   - Bullet **every new interface** created in this prompt (see coverage list).  
+   - End with: `Count: X` (exact number of bullets).
+
+2. **docs/canon/constraints.md**  
+   - Section: `### P000N — Constraints`  
+   - Bullet **every new CHECK / UNIQUE / PARTIAL UNIQUE / EXCLUDE / NOT NULL / FK / DEFERRABLE** rule.  
+   - End with: `Count: Y`.
+
+3. **docs/canon/critical_flows.md**  
+   - Section: `### P000N — Critical Flows`  
+   - Bullet **every new flow/trigger/procedure** (3–6 lines; include precedence/order if relevant).  
+   - End with: `Count: Z`.
+
+In `docs/DB_PROGRESS.md` (this prompt’s section), append:  
+`Canon updates for P000N → interfaces: X, constraints: Y, flows: Z`.
+
+**Strict instruction:** Before deciding what to add, **consult the Coverage Lists below**.  
+If something matches any example shape, include it. This step is **mandatory**.
+
+---
+
+### B. Coverage list — Interfaces (must be considered)
+
+An “interface” is any contract surface other code depends on.
+
+- **Schema:** tables, views/materialized views, enums, domains, composite types, sequences, identity columns.  
+- **RLS & access:** standard tenant policies, special cross-tenant cases, role grants/visibility.  
+- **Helpers & APIs:** `public.current_tenant_id()`, `public.current_user_id()`, `public.now_utc()`.  
+- **Triggers/contracts:** `touch_updated_at`, `sync_booking_status`, `fill_booking_tz`, `log_audit`.  
+- **Time & TZ:** UTC storage, required `booking_tz` (NEW→resource→tenant→error).  
+- **Idempotency:** booking `(tenant_id, client_generated_id)`, payment/provider idempotency keys, webhook inbox PKs.  
+- **No-overlap indexing:** EXCLUDE shapes, public availability read models.  
+- **Eventing:** webhook inbox (idempotent), `events_outbox` topics/payload skeleton, delivery states.  
+- **Catalog/CRM:** `customer_metrics` read model, search vectors, category/active flags.  
+- **Monetary/PCI:** integer cents, provider IDs only, Stripe Connect metadata, no PAN in DB.  
+- **Naming conventions:** deterministic triggers/functions, snake_case, generated columns (e.g., `start_date`).  
+
+**Examples:**  
+- Enums: `booking_status`, `payment_status`, `membership_role`, `resource_type`, `notification_*`, `payment_method`.  
+- Helper functions: STABLE, SECURITY INVOKER, NULL-safe.  
+- Eventing: `events_outbox(tenant_id, event_code, payload, status)`, webhook inbox `(provider, id)` PK.  
+
+---
+
+### C. Coverage list — Constraints (must be considered)
+
+Anything the database enforces:
+
+- **PK/FK & actions:** explicit FKs with `ON DELETE`/`ON UPDATE`; deferrable when needed.  
+- **UNIQUE & partial UNIQUE:** soft-delete aware `(… WHERE deleted_at IS NULL)`; idempotency uniques; provider/idempotency partials.  
+- **EXCLUDE (overlap):** resource/time exclusion for active statuses; post-0019 booking_items exclusion.  
+- **CHECKs & ranges:** `start_at < end_at`, availability minutes within `[0..1440]`, ISO DOW 1–7, XOR (coupons), no self-referrals, event code format.  
+- **NOT NULL & defaults:** required timestamps, cents, booking_tz.  
+- **Security/visibility:** RLS deny-by-default, FORCE RLS, soft-deleted visibility rules.  
+- **Indices mandated by UX:** tenant/time/status/reschedules, services category/active, outbox status/ready_at.  
+
+**Examples:**  
+- Availability: `dow BETWEEN 1 AND 7`, `start_minute < end_minute`.  
+- Bookings: EXCLUDE `(resource_id, tstzrange(...))` for active statuses; `start_at < end_at`.  
+- Coupons: XOR rule; amount > 0.  
+- Gift cards: balance non-negative.  
+- Referrals: unique pairs + code unique.  
+- Notifications: dedupe key partial unique.  
+
+---
+
+### D. Coverage list — Critical Flows (must be considered)
+
+Multi-step logic where order/precedence matters. Write each in 3–6 lines.
+
+- **Booking lifecycle:** status sync (canceled > no_show), overlap prevention, reschedule handling, attendee counts.  
+- **Timezone resolution:** `booking_tz` fill order; deterministic wall-time; DST-safe.  
+- **Payments:** auth→capture; refunds; idempotency/replay safety; no-show fee logic.  
+- **Promotions:** apply in order (gift card → percent → amount); enforce XOR; floor at zero.  
+- **Availability generation:** rules + exceptions + booking exclusion → 15-min slots.  
+- **Notifications:** template→queue; retries; dedupe via `(tenant_id, channel, dedupe_key)`.  
+- **RLS enforcement:** deny-by-default; tenant policies; special tables (tenants, users, memberships, themes, billing, quotas).  
+- **Eventing:** inbox idempotency; outbox exactly-once semantics; retries/backoff.  
+- **Audit & retention:** AFTER I/U/D logs; nightly purge; GDPR scrubbing.  
+- **Quotas:** app-managed counters; enforcement points; no DB autoincrement.  
+
+---
+
+### E. Anchors & CI (guardrails)
+
+- Every canon file must have `### P000N — …` for each prompt.  
+- Bullet counts (X/Y/Z) must match the summary line in `DB_PROGRESS.md`.  
+- CI should fail if a prompt number is missing or counts mismatch.  
+
+---
+
 
 ## Non-Negotiables (Invariants)
 

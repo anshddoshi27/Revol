@@ -123,3 +123,7 @@ Output:
 ### P0001 — Constraints
 - None introduced in this prompt (extensions only).
 Count: 0
+
+### P0002 — Constraints
+- None introduced in this prompt (enum definitions only; constraints arrive with tables and flows in later prompts).
+Count: 0

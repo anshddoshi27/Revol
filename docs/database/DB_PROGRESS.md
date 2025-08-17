@@ -169,3 +169,88 @@ flowchart TD
 
 ### Canon updates for P0001
 Canon updates for P0001 → interfaces: 0, constraints: 0, flows: 0
+
+---
+
+## 0002 — Types
+
+### Inputs consulted
+- `docs/database/tasks.md` — Task 02 specification enumerating all required enums, their exact values, and ordering; mandates `BEGIN; … COMMIT;` and idempotent `CREATE TYPE IF NOT EXISTS`.
+- `docs/database/design_brief.md` — Final authoritative source confirming enum sets for bookings, payments, memberships, resources, notifications, and payment methods; stresses immutability of enum ordering and values.
+- `docs/database/database_context_pack.md` — Guardrails and invariants: additive-only migrations, transactional integrity, and canon updates. Notes later usage of these enums in tables, policies, and flows.
+- Cheat Sheets (currently stubs): `docs/database/cheat sheets/interfaces.md`, `constraints.md`, `critical_flows.md` (no new entries for this step).
+
+Execution Context Rule honored: aligned outputs to Design Brief → Context Pack → Cheat Sheets. No invariant conflicts found.
+
+### Reasoning and intermediate steps
+- Enumerations are foundational primitives used by later tables and triggers (bookings, payments, notifications). They must be correct, stable, and ordered now; later edits to enum sets are disallowed.
+- For idempotency and safe re-runs, we used `CREATE TYPE IF NOT EXISTS` for each enum and wrapped all statements in a single transaction.
+- Names mirror domain language from the Brief. Values are lower_snake_case; ordering reflects lifecycle progression where applicable (e.g., `pending → confirmed → checked_in → completed` and terminal states).
+- Chose add-only posture: no indexes, tables, constraints, or policies introduced here; those come in subsequent prompts that reference these types.
+
+### Actions taken (outputs produced)
+- Created migration: `infra/supabase/migrations/0002_types.sql` containing `BEGIN; … COMMIT;` and definitions for:
+  - `booking_status` = {pending, confirmed, checked_in, completed, canceled, no_show, failed}
+  - `payment_status` = {requires_action, authorized, captured, refunded, canceled, failed}
+  - `membership_role` = {owner, admin, staff, viewer}
+  - `resource_type` = {staff, room}
+  - `notification_channel` = {email, sms, push}
+  - `notification_status` = {queued, sent, failed}
+  - `payment_method` = {card, cash, apple_pay, paypal, other}
+
+### Plain-language description
+We introduced typed status/role/channel/method enums to standardize states across bookings, payments, memberships, resources, and notifications. These enforce valid values at the DB layer and enable concise constraints, policies, and flows later (e.g., overlap rules depend on “active” booking statuses).
+
+### Rationale and where each enum is used
+- `booking_status` — Captures the booking lifecycle. Active set `{pending, confirmed, checked_in}` participates in the no-overlap exclusion (later in P0008). Terminal states `{completed, canceled, no_show, failed}` exclude records from overlap checks and drive notifications.
+- `payment_status` — Models payment orchestration: from `requires_action` and `authorized`, to `captured` and post-settlement outcomes (`refunded`, `canceled`, `failed`). Used in payments/billing tables (P0009) and flows.
+- `membership_role` — Tenant roles: `owner`, `admin`, `staff`, `viewer`. Guides special and standard RLS policies (P0015–P0016) and UI affordances.
+- `resource_type` — Differentiates schedulable resources: `staff` vs `room`. Used in resources/services mapping and availability (P0005–P0007).
+- `notification_channel` — Outbound channels supported by the notifications subsystem: `email`, `sms`, `push` (introduced here; used in P0011).
+- `notification_status` — Worker/queue state: `queued`, `sent`, `failed`. Used by notifications outbox/queue (P0011) and observability.
+- `payment_method` — Tender methods permitted by policy and UX: `card`, `cash`, `apple_pay`, `paypal`, `other`. Used in payments (P0009) and reporting.
+
+### Decisions made
+- Locked exact value ordering to preserve semantic progression and ensure deterministic behavior in constraints and business logic.
+- Used `IF NOT EXISTS` for idempotency across environments; one transaction to avoid partial creation.
+- Aligned naming and spellings with the Brief (`apple_pay`, not `applepay`; `no_show`, not `no-show`).
+
+### Pitfalls / tricky parts
+- PostgreSQL enums cannot have members reordered or removed. Adding new values later requires careful additive migrations and potential casting; design avoids that by defining the complete sets now per Brief.
+- Downstream constraints will rely on subsets (e.g., “active” booking statuses). Any drift would risk overlap logic or policy edge cases.
+- Cross-system serialization must mirror DB enums exactly in APIs and events to avoid invalid state writes.
+
+### Questions for Future Me
+- Do we foresee new channels (e.g., WhatsApp) or payment methods (e.g., bank_transfer)? If so, plan an additive pattern (new enum + compatibility views) instead of mutating existing enums.
+- Should we expose these enums via generated types in `/src/types/` to keep client/server contracts in lockstep? Likely when interfaces stabilize.
+
+### State Snapshot (after P0002)
+- Extensions: pgcrypto, citext, btree_gist, pg_trgm
+- Enums: booking_status, payment_status, membership_role, resource_type, notification_channel, notification_status, payment_method (created)
+- Tables: none created yet
+- Functions/Triggers: none yet
+- Policies (RLS): none yet
+- Indexes: none
+- Migrations present: `0001_extensions.sql`, `0002_types.sql`
+- Tests (pgTAP): none yet
+- Documentation: this file updated with P0002 details
+
+### Visual representation (repo paths and types after P0002)
+```mermaid
+flowchart TD
+  A[repo root] --> B[docs/]
+  B --> B1[database/]
+  B1 --> B2[DB_PROGRESS.md]
+  B --> C[canon/]
+  C --> C1[interfaces.md]
+  C --> C2[constraints.md]
+  C --> C3[critical_flows.md]
+  A --> D[infra/]
+  D --> E[supabase/]
+  E --> F[migrations/]
+  F --> G1[0001_extensions.sql]
+  F --> G2[0002_types.sql]
+```
+
+### Canon updates for P0002
+Canon updates for P0002 → interfaces: 0, constraints: 0, flows: 0

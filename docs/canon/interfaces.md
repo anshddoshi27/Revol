@@ -83,3 +83,7 @@ Output:
 ### P0001 — Interfaces
 - No new schema interfaces introduced in this prompt. Enabled PostgreSQL extensions to support future features: `pgcrypto`, `citext`, `btree_gist`, `pg_trgm`.
 Count: 0
+
+### P0002 — Interfaces
+- No new schema interfaces introduced in this prompt. Defined enum types for bookings, payments, memberships, resources, and notifications; downstream API/event DTOs will mirror these values.
+Count: 0

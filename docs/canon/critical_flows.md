@@ -105,3 +105,7 @@ Output:
 ### P0001 — Critical Flows
 - None introduced in this prompt. Extensions enable future triggers/functions and exclusion constraints.
 Count: 0
+
+### P0002 — Critical Flows
+- None introduced in this prompt (enum definitions only; flows arrive with tables and workers in later prompts).
+Count: 0

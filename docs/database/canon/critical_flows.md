@@ -147,3 +147,7 @@ Count: 0
 ### P0010 — Critical Flows
 - None introduced in this prompt. Added promotions tables (coupons, gift_cards, referrals) with comprehensive constraints for business rule enforcement. Critical flows for coupon application, gift card redemption, and referral reward processing will be implemented at the application layer using these foundational data structures.
 Count: 0
+
+### P0011 — Critical Flows
+- Notification queuing and deduplication: create notification records with event_code FK to notification_event_type lookup; enforce deduplication via partial unique on `(tenant_id, channel, dedupe_key)` where dedupe_key IS NOT NULL; queue for worker consumption via status='queued' and scheduled_at filtering; support retry logic with attempts tracking and configurable max_attempts; validate channel-specific recipients (email for email channel, phone for SMS channel); enable efficient worker queries via indexed status and scheduling fields; triggers: `notification_templates_touch_updated_at`, `notifications_touch_updated_at`.
+Count: 1

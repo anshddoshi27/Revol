@@ -255,3 +255,19 @@ Count: 15
 - CHECK: `referrals_referred_reward_non_negative` (referred_reward_cents >= 0)
 - CHECK: `referrals_valid_status` (status IN ('pending', 'completed', 'expired'))
 Count: 28
+
+### P0011 — Constraints
+- FK: `notification_templates.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `notification_templates.event_code → notification_event_type(code) ON DELETE CASCADE` (event code must exist)
+- FK: `notifications.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `notifications.event_code → notification_event_type(code) ON DELETE CASCADE` (event code must exist)
+- UNIQUE: `notification_templates_tenant_event_channel_uniq(tenant_id, event_code, channel)` (one template per tenant/event/channel)
+- Partial UNIQUE: `notifications_tenant_channel_dedupe_uniq(tenant_id, channel, dedupe_key) WHERE dedupe_key IS NOT NULL` (deduplication constraint)
+- CHECK: `notification_event_type_code_format` (code ~ '^[a-z][a-z0-9_]*$')
+- CHECK: `notifications_scheduled_at_reasonable` (scheduled_at <= now() + interval '1 year')
+- CHECK: `notifications_attempts_non_negative` (attempts >= 0)
+- CHECK: `notifications_max_attempts_positive` (max_attempts > 0)
+- CHECK: `notifications_attempts_lte_max` (attempts <= max_attempts)
+- CHECK: `notifications_email_when_email_channel` (channel != 'email' OR to_email IS NOT NULL)
+- CHECK: `notifications_phone_when_sms_channel` (channel != 'sms' OR to_phone IS NOT NULL)
+Count: 13

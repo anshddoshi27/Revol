@@ -1,7 +1,7 @@
 Title: interfaces.md
 Source of Truth: contracts in /src/types/** and /infra/supabase/migrations/**
 Edit Policy: Append-only; deprecate instead of delete
-Last Updated: 2025-08-17
+Last Updated: 2025-08-19
 
 ## Global Rules
 - Append-only history. If behavior changes, add a new versioned entry and mark the old one Deprecated (keep history).
@@ -85,9 +85,31 @@ Output:
 Count: 0
 
 ### P0002 — Interfaces
-- No new schema interfaces introduced in this prompt. Defined enum types for bookings, payments, memberships, resources, and notifications; downstream API/event DTOs will mirror these values.
-Count: 0
+- Enum: booking_status
+- Enum: membership_role
+- Enum: notification_channel
+- Enum: notification_status
+- Enum: payment_method
+- Enum: payment_status
+- Enum: resource_type
+Count: 7
 
 ### P0003 — Interfaces
-- No new external API/event interfaces introduced in this prompt. Added JWT-based RLS helpers used by policies: `public.current_tenant_id()` and `public.current_user_id()` (NULL on missing/invalid claims).
-Count: 0
+- Function: public.current_tenant_id() → uuid (STABLE, SECURITY INVOKER, NULL-safe)
+- Function: public.current_user_id() → uuid (STABLE, SECURITY INVOKER, NULL-safe)
+Count: 2
+
+### P0004 — Interfaces
+- Function: public.touch_updated_at() → trigger `<table>_touch_updated_at` (keeps `updated_at` fresh on INSERT/UPDATE)
+- Hotfix: `public.touch_updated_at()` updated in `0004_hotfix_touch_updated_at.sql` to use `clock_timestamp()`, guard on presence of `updated_at` column, and ensure monotonic advancement on UPDATE; triggers reasserted idempotently on `tenants`, `users`, `memberships`, `themes`.
+- Table: tenants — fields: `id uuid PK`, `slug text UNIQUE (partial on deleted_at)`, `tz text`, `trust_copy_json jsonb`, `is_public_directory boolean`, `public_blurb text`, `billing_json jsonb`, timestamps, `deleted_at timestamptz`
+- Table: users (global) — fields: `id uuid PK`, `display_name text`, `primary_email citext`, `avatar_url text`, timestamps; no `tenant_id` column by design
+- Table: memberships — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `user_id uuid FK → users(id)`, `role membership_role`, `permissions_json jsonb`, timestamps; UNIQUE `(tenant_id, user_id)`
+- Table: themes (1:1) — fields: `tenant_id uuid PK/FK → tenants(id)`, `brand_color text`, `logo_url text`, `theme_json jsonb`, timestamps
+Count: 5
+
+### P0005 — Interfaces
+- Table: customers — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `display_name text`, `email citext`, `phone text`, `marketing_opt_in boolean`, `notification_preferences jsonb`, `is_first_time boolean`, `pseudonymized_at timestamptz`, `customer_first_booking_at timestamptz`, timestamps, `deleted_at timestamptz`
+- Table: resources — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `type resource_type NOT NULL`, `tz text NOT NULL`, `capacity int NOT NULL`, `metadata jsonb`, `name text NOT NULL DEFAULT ''`, `is_active boolean NOT NULL DEFAULT true`, timestamps, `deleted_at timestamptz`
+- Table: customer_metrics — fields: `tenant_id uuid FK → tenants(id)`, `customer_id uuid FK → customers(id)`, `total_bookings_count int`, `first_booking_at timestamptz`, `last_booking_at timestamptz`, `total_spend_cents int`, `no_show_count int`, `canceled_count int`, timestamps; PK `(tenant_id, customer_id)`
+Count: 3

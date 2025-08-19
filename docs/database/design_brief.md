@@ -84,6 +84,25 @@ payment_method: card, cash, apple_pay, paypal, other
 - **Eventing:** `webhook_events_inbox`, `events_outbox`
 - **RLS:** enabled everywhere, deny by default
 
+## Run 04–07 — Implementation Notes
+
+- 0004 Core tenancy:
+  - Add `public.touch_updated_at()` and attach `<table>_touch_updated_at` triggers.
+  - Tables: `tenants` (slug, tz, billing, soft-delete), global `users`, `memberships` (role + permissions_json), `themes` (1:1).
+  - Path-based tenancy `/b/{slug}`; no `domains` table pre-0019.
+- 0005 Customers & resources:
+  - `customers` (soft-delete, `is_first_time`, PII scrubbing readiness).
+  - `resources` (type enum, tz, capacity, metadata).
+  - Denormalized `customer_metrics` for CRM rollups.
+  - Partial uniques respecting soft-delete (e.g., `(tenant_id, LOWER(email)) WHERE deleted_at IS NULL`).
+- 0006 Services & mapping:
+  - `services` (slug per tenant, category, price/duration, soft-delete) and `service_resources`.
+  - Partial unique `(tenant_id, slug) WHERE deleted_at IS NULL`.
+- 0007 Availability:
+  - `availability_rules` with ISO DOW 1–7, minute bounds, `start_minute < end_minute`.
+  - `availability_exceptions` for closures/windows with validation.
+  - Sets backbone for 15-minute slot generation.
+
 ## 4) Time & Timezone Rules (Final)
 
 Availability DOW: ISO weekday 1–7 (Mon=1…Sun=7). Constraint: `dow BETWEEN 1 AND 7`.

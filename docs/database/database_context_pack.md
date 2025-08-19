@@ -19,6 +19,30 @@ This pack is a step-by-step set of Cursor prompts that generate a production-gra
 
 ---
 
+## Current State Checkpoint (after P0003)
+
+ • Extensions installed: `pgcrypto`, `citext`, `btree_gist`, `pg_trgm` (via `infra/supabase/migrations/0001_extensions.sql`).
+ • Enums created (immutable ordering): `booking_status`, `payment_status`, `membership_role`, `resource_type`, `notification_channel`, `notification_status`, `payment_method` (via `0002_types.sql`).
+ • Helpers available: `public.current_tenant_id()`, `public.current_user_id()` (NULL-safe; UUID regex validation) (via `0003_helpers.sql`).
+
+ Snapshot:
+ - Tables: none yet
+ - RLS: not yet enabled (planned 0014–0016)
+ - Indexes: none yet (planned 0017)
+ - Tests: none yet (planned 0019)
+ - Migrations present: 0001, 0002, 0003
+
+ Env note:
+ - Helpers read `auth.jwt()`; when absent, they return NULL (fail-closed). For local verification, use `postgres`/service-role or set claims.
+
+ Next steps (04–07 guidance):
+ - 0004 — Core tenancy + `touch_updated_at()`; create `tenants`, global `users`, `memberships`, `themes` (1:1). Use partial uniques for soft-deletes where applicable.
+ - 0005 — `customers`, `resources`, `customer_metrics` read model; enforce partial unique on `(tenant_id, LOWER(email))` when `deleted_at IS NULL`.
+ - 0006 — `services` + `service_resources`; per-tenant slug with partial unique on `(tenant_id, slug)` when active.
+ - 0007 — `availability_rules` (DOW 1–7, minute checks) and `availability_exceptions` (closures/windows); validate start/end and ranges.
+
+ All migrations must remain transactional and idempotent, aligned with Brief invariants.
+
 ## Execution Context Rule
 
 When carrying out any task or generating files, migrations, or tests, **the AI executor (Cursor, Windsurf, or equivalent)** must always ground its work in all three canonical knowledge sources:

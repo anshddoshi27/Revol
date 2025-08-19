@@ -253,7 +253,7 @@ flowchart TD
 ```
 
 ### Canon updates for P0002
-Canon updates for P0002 → interfaces: 0, constraints: 0, flows: 0
+Canon updates for P0002 → interfaces: 7, constraints: 0, flows: 0
 
 ---
 
@@ -331,5 +331,421 @@ flowchart TD
   F --> G3[0003_helpers.sql]
 ```
 
-### Canon updates for P0003
-Canon updates for P0003 → interfaces: 0, constraints: 0, flows: 0
+---
+
+## Checkpoint — After P0003
+
+• Extensions installed: `pgcrypto`, `citext`, `btree_gist`, `pg_trgm` (via `infra/supabase/migrations/0001_extensions.sql`).
+• Enums defined (immutable ordering): `booking_status`, `payment_status`, `membership_role`, `resource_type`, `notification_channel`, `notification_status`, `payment_method` (via `0002_types.sql`).
+• Helpers created: `public.current_tenant_id()`, `public.current_user_id()` (NULL-safe; regex-validated UUIDs) (via `0003_helpers.sql`).
+
+State snapshot now:
+- Tables: none yet
+- RLS: not enabled yet (planned at 0014–0016)
+- Indexes: none yet (planned at 0017)
+- Tests: none yet (planned at 0019)
+- Migrations present: 0001, 0002, 0003
+
+Environment note:
+- Helpers rely on `auth.jwt()`; when absent (anon/test), they return NULL, preserving deny-by-default behavior.
+- For verification in non-auth environments, run as `postgres`/service-role or set JWT claims so helpers can resolve UUIDs.
+
+Cumulative canon counts (P0000–P0003): interfaces: 9, constraints: 0, flows: 1
+
+Ready next steps (guidance):
+
+---
+## 0004 — Core Tenancy Schema
+
+### Inputs consulted
+- `docs/database/tasks.md` — Task 04 specification: implement `public.touch_updated_at()` and create `tenants`, `users` (global), `memberships`, `themes`; idempotent, transactional; attach triggers; soft-delete on `tenants` via `deleted_at` and partial unique on `slug`.
+- `docs/database/design_brief.md` — Confirms path-based tenancy (`/b/{slug}`), global users, memberships with `membership_role`, themes 1:1, soft-delete pattern with partial unique indexes, and additive-only migrations. RLS deferred to 0014–0016.
+- `docs/database/database_context_pack.md` — Reinforces invariants: transactions, idempotency, no domains table pre-0019, helper functions behavior, and canon documentation requirements.
+
+Execution Context Rule honored: aligned with Design Brief → Context Pack → Cheat Sheets. No invariant conflicts.
+
+### Reasoning and intermediate steps
+- Wrote a generic `public.touch_updated_at()` trigger fn to set `NEW.updated_at = now()`; attached only to tables that include the column.
+- Followed path-based tenancy: introduced `public.tenants(slug)` with soft-delete via `deleted_at` and a partial unique index on `slug` when not deleted.
+- Kept `public.users` global (no `tenant_id`). Linking is via `public.memberships(tenant_id, user_id)` with role `public.membership_role` and `permissions_json`.
+- Modeled theming as 1:1 with tenants using `public.themes(tenant_id PK/FK)`. All tables have `created_at`/`updated_at` timestamps.
+- Ensured idempotent creation for tables, indexes, and triggers; wrapped entire migration in one transaction.
+- Deferred RLS policies per plan; ensured helpers from P0003 will support fail-closed policies later.
+
+### Actions taken (outputs produced)
+- Created migration: `infra/supabase/migrations/0004_core_tenancy.sql`:
+  - Function: `public.touch_updated_at()` (PL/pgSQL trigger)
+  - Table: `public.tenants` with soft-delete `deleted_at`
+  - Index: partial unique `tenants(slug) WHERE deleted_at IS NULL`
+  - Table: `public.users` (global)
+  - Table: `public.memberships` with FKs to `tenants(id)` and `users(id)`; UNIQUE `(tenant_id, user_id)`
+  - Table: `public.themes` with `tenant_id` as PK and FK to `tenants(id)` (1:1)
+  - Triggers: `<table>_touch_updated_at` on `tenants`, `users`, `memberships`, `themes` (idempotent DO block)
+- Updated canon files:
+  - `docs/database/canon/interfaces.md` → `### P0004 — Interfaces` (Function + 4 tables). Count: 5
+  - `docs/database/canon/constraints.md` → `### P0004 — Constraints` (partial unique, unique, FKs). Count: 6
+  - `docs/database/canon/critical_flows.md` → `### P0004 — Critical Flows` (tenancy resolution; timestamp freshness). Count: 2
+
+### Plain-language description
+We added the core tenancy building blocks. `tenants` anchors the tenant namespace by slug; `users` is global. `memberships` connects users to tenants with a role and optional granular permissions. `themes` stores branding per tenant. A reusable trigger keeps `updated_at` fresh on writes across these tables.
+
+### Rationale and connection to the Design Brief
+- Path-based tenancy keeps routing simple now; domains can be added later (post-0019) without breaking invariants.
+- Global users avoid duplicated identities across tenants; membership captures role/permissions per tenant.
+- Soft-delete with partial unique on `slug` preserves historical records while enforcing uniqueness among active tenants.
+- Generic `touch_updated_at` encourages consistency and low maintenance.
+
+### Decisions made
+- No RLS yet; all RLS/policies will be introduced in P0014–P0016 per plan.
+- Table/column names and trigger names adhere strictly to naming conventions in the Brief.
+- Idempotent DO-block for triggers to avoid duplicate creation on re-runs.
+
+### Pitfalls / tricky parts
+- `touch_updated_at` assumes presence of `updated_at`; we only attach it to tables that define the column.
+- Soft-delete uniqueness requires the partial index scope `WHERE deleted_at IS NULL` to prevent false conflicts.
+
+### Questions for Future Me
+- Should we add audit columns (e.g., created_by) once RLS lands? Likely in later audit tasks.
+- Any need for tenant-scoped uniqueness on `users.primary_email`? Not for global users; tenant-level CRM uniqueness will land with `customers` in P0005.
+
+### State Snapshot (after P0004)
+- Extensions: pgcrypto, citext, btree_gist, pg_trgm
+- Enums: booking_status, payment_status, membership_role, resource_type, notification_channel, notification_status, payment_method
+- Functions: `public.current_tenant_id()`, `public.current_user_id()`, `public.touch_updated_at()`
+- Tables: `public.tenants`, `public.users`, `public.memberships`, `public.themes`
+- Triggers: `tenants_touch_updated_at`, `users_touch_updated_at`, `memberships_touch_updated_at`, `themes_touch_updated_at`
+- Policies (RLS): none yet (planned at P0014–P0016)
+- Indexes: partial unique on `tenants(slug) WHERE deleted_at IS NULL`; unique on `memberships(tenant_id, user_id)`
+- Migrations present: `0001_extensions.sql`, `0002_types.sql`, `0003_helpers.sql`, `0004_core_tenancy.sql`
+- Tests (pgTAP): none yet (planned at P0019)
+- Documentation: this file updated; canon files updated with P0004 sections
+
+### Visual representation (repo paths after P0004)
+```mermaid
+flowchart TD
+  A[repo root] --> B[docs/]
+  B --> B1[database/]
+  B1 --> B2[DB_PROGRESS.md]
+  B --> C[canon/]
+  C --> C1[interfaces.md]
+  C --> C2[constraints.md]
+  C --> C3[critical_flows.md]
+  A --> D[infra/]
+  D --> E[supabase/]
+  F --> G3[0003_helpers.sql]
+  F --> G4[0004_core_tenancy.sql]
+
+### Canon updates for P0004
+Canon updates for P0004 → interfaces: 5, constraints: 6, flows: 2
+
+---
+## Checkpoint — After P0004
+
+• Extensions installed: `pgcrypto`, `citext`, `btree_gist`, `pg_trgm`.
+• Enums defined: `booking_status`, `payment_status`, `membership_role`, `resource_type`, `notification_channel`, `notification_status`, `payment_method`.
+• Helpers + trigger fn: `public.current_tenant_id()`, `public.current_user_id()`, `public.touch_updated_at()`.
+• Core tables: `tenants`, `users` (global), `memberships`, `themes`; triggers attached; soft-delete uniqueness on `tenants.slug`.
+
+State snapshot now:
+- Tables: tenants, users, memberships, themes
+- RLS: not enabled yet (planned at 0014–0016)
+- Indexes: partial unique on tenants(slug) WHERE deleted_at IS NULL; unique on memberships(tenant_id, user_id)
+- Tests: none yet (planned at 0019)
+- Migrations present: 0001, 0002, 0003, 0004
+
+Cumulative canon counts (P0000–P0004): interfaces: 14, constraints: 6, flows: 3
+
+### Supabase verification snapshots (after P0004)
+
+{{ ... }}
+
+ What each section shows:
+ - __Extensions__: Installed modules and versions required by the brief.
+ - __Enums__: Canonical enum names and their ordered labels (ordering is immutable).
+ - __Functions__: Selected function DDL as defined in the database.
+ - __Tables & Columns__: Column-level schema for `tenants`, `users`, `memberships`, `themes`.
+ - __Indexes__: Primary keys, uniques, and partial unique on `tenants.slug` (soft-delete aware).
+ - __Constraints__: Primary keys, foreign keys, and soft-delete CHECK.
+ - __Triggers__: `touch_updated_at` trigger presence per table.
+ - __RLS status__: Confirmed off pre-0014.
+
+ #### Extensions (installed)
+
+ | extname     | extversion |
+ | ----------- | ---------- |
+ | btree_gist  | 1.7        |
+ | citext      | 1.6        |
+ | pg_trgm     | 1.6        |
+ | pgcrypto    | 1.3        |
+
+ #### Enums (names and ordered labels)
+
+ | enum_name            | enumsortorder | enumlabel       |
+ | -------------------- | ------------- | --------------- |
+ | booking_status       | 1             | pending         |
+ | booking_status       | 2             | confirmed       |
+ | booking_status       | 3             | checked_in      |
+ | booking_status       | 4             | completed       |
+ | booking_status       | 5             | canceled        |
+ | booking_status       | 6             | no_show         |
+ | booking_status       | 7             | failed          |
+ | membership_role      | 1             | owner           |
+ | membership_role      | 2             | admin           |
+ | membership_role      | 3             | staff           |
+ | membership_role      | 4             | viewer          |
+ | notification_channel | 1             | email           |
+ | notification_channel | 2             | sms             |
+ | notification_channel | 3             | push            |
+ | notification_status  | 1             | queued          |
+ | notification_status  | 2             | sent            |
+ | notification_status  | 3             | failed          |
+ | payment_method       | 1             | card            |
+ | payment_method       | 2             | cash            |
+ | payment_method       | 3             | apple_pay       |
+ | payment_method       | 4             | paypal          |
+ | payment_method       | 5             | other           |
+ | payment_status       | 1             | requires_action |
+ | payment_status       | 2             | authorized      |
+ | payment_status       | 3             | captured        |
+ | payment_status       | 4             | refunded        |
+ | payment_status       | 5             | canceled        |
+ | payment_status       | 6             | failed          |
+ | resource_type        | 1             | staff           |
+ | resource_type        | 2             | room            |
+
+ #### Function DDL (sample)
+
+ Only `current_user_id()` DDL was captured in this snapshot; others are defined in migrations and can be dumped similarly.
+
+ ```sql
+ CREATE OR REPLACE FUNCTION public.current_user_id()
+  RETURNS uuid
+  LANGUAGE sql
+  STABLE STRICT
+ AS $function$
+   SELECT
+     CASE
+       WHEN (auth.jwt()->>'sub') IS NOT NULL
+        AND (auth.jwt()->>'sub') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       THEN (auth.jwt()->>'sub')::uuid
+       ELSE NULL::uuid
+     END;
+ $function$
+ ```
+
+ #### Tables and columns
+
+ | table_name  | column_name         | data_type                | is_nullable | column_default    |
+ | ----------- | ------------------- | ------------------------ | ----------- | ----------------- |
+ | memberships | id                  | uuid                     | NO          | gen_random_uuid() |
+ | memberships | tenant_id           | uuid                     | NO          | null              |
+ | memberships | user_id             | uuid                     | NO          | null              |
+ | memberships | role                | USER-DEFINED             | NO          | null              |
+ | memberships | permissions_json    | jsonb                    | NO          | '{}'::jsonb       |
+ | memberships | created_at          | timestamp with time zone | NO          | now()             |
+ | memberships | updated_at          | timestamp with time zone | NO          | now()             |
+ | tenants     | id                  | uuid                     | NO          | gen_random_uuid() |
+ | tenants     | slug                | text                     | NO          | null              |
+ | tenants     | tz                  | text                     | NO          | 'UTC'::text       |
+ | tenants     | trust_copy_json     | jsonb                    | NO          | '{}'::jsonb       |
+ | tenants     | is_public_directory | boolean                  | NO          | false             |
+ | tenants     | public_blurb        | text                     | YES         | null              |
+ | tenants     | billing_json        | jsonb                    | NO          | '{}'::jsonb       |
+ | tenants     | created_at          | timestamp with time zone | NO          | now()             |
+ | tenants     | updated_at          | timestamp with time zone | NO          | now()             |
+ | tenants     | deleted_at          | timestamp with time zone | YES         | null              |
+ | themes      | tenant_id           | uuid                     | NO          | null              |
+ | themes      | brand_color         | text                     | YES         | null              |
+ | themes      | logo_url            | text                     | YES         | null              |
+ | themes      | theme_json          | jsonb                    | NO          | '{}'::jsonb       |
+ | themes      | created_at          | timestamp with time zone | NO          | now()             |
+ | themes      | updated_at          | timestamp with time zone | NO          | now()             |
+ | users       | id                  | uuid                     | NO          | gen_random_uuid() |
+ | users       | display_name        | text                     | YES         | null              |
+ | users       | primary_email       | USER-DEFINED             | YES         | null              |
+ | users       | avatar_url          | text                     | YES         | null              |
+ | users       | created_at          | timestamp with time zone | NO          | now()             |
+ | users       | updated_at          | timestamp with time zone | NO          | now()             |
+
+ #### Indexes
+
+ | tablename   | indexname                 | indexdef                                                                                              |
+ | ----------- | ------------------------- | ----------------------------------------------------------------------------------------------------- |
+ | memberships | memberships_pkey          | CREATE UNIQUE INDEX memberships_pkey ON public.memberships USING btree (id)                           |
+ | memberships | memberships_unique_member | CREATE UNIQUE INDEX memberships_unique_member ON public.memberships USING btree (tenant_id, user_id)  |
+ | tenants     | tenants_pkey              | CREATE UNIQUE INDEX tenants_pkey ON public.tenants USING btree (id)                                   |
+ | tenants     | tenants_slug_uniq         | CREATE UNIQUE INDEX tenants_slug_uniq ON public.tenants USING btree (slug) WHERE (deleted_at IS NULL) |
+ | themes      | themes_pkey               | CREATE UNIQUE INDEX themes_pkey ON public.themes USING btree (tenant_id)                              |
+ | users       | users_pkey                | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)                                       |
+
+ #### Constraints
+
+ | conname                           | contype | table_name  | definition                                             |
+ | --------------------------------- | ------- | ----------- | ------------------------------------------------------ |
+ | memberships_pkey                  | p       | memberships | PRIMARY KEY (id)                                       |
+ | memberships_tenant_id_fkey        | f       | memberships | FOREIGN KEY (tenant_id) REFERENCES tenants(id)         |
+ | memberships_user_id_fkey          | f       | memberships | FOREIGN KEY (user_id) REFERENCES users(id)             |
+ | tenants_deleted_after_created_chk | c       | tenants     | CHECK (deleted_at IS NULL OR deleted_at >= created_at) |
+ | tenants_pkey                      | p       | tenants     | PRIMARY KEY (id)                                       |
+ | themes_pkey                       | p       | themes      | PRIMARY KEY (tenant_id)                                |
+ | themes_tenant_id_fkey             | f       | themes      | FOREIGN KEY (tenant_id) REFERENCES tenants(id)         |
+ | users_pkey                        | p       | users       | PRIMARY KEY (id)                                       |
+
+ #### Triggers
+
+ | table_name  | trigger_name                 | trigger_def                                                                                                                         |
+ | ----------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+ | memberships | memberships_touch_updated_at | CREATE TRIGGER memberships_touch_updated_at BEFORE INSERT OR UPDATE ON memberships FOR EACH ROW EXECUTE FUNCTION touch_updated_at() |
+ | tenants     | tenants_touch_updated_at     | CREATE TRIGGER tenants_touch_updated_at BEFORE INSERT OR UPDATE ON tenants FOR EACH ROW EXECUTE FUNCTION touch_updated_at()         |
+ | themes      | themes_touch_updated_at      | CREATE TRIGGER themes_touch_updated_at BEFORE INSERT OR UPDATE ON themes FOR EACH ROW EXECUTE FUNCTION touch_updated_at()           |
+ | users       | users_touch_updated_at       | CREATE TRIGGER users_touch_updated_at BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION touch_updated_at()             |
+
+ #### RLS status (expected off pre-0014)
+
+ | table_name  | rls_enabled |
+ | ----------- | ----------- |
+ | memberships | false       |
+ | tenants     | false       |
+ | themes      | false       |
+ | users       | false       |
+
+---
+## 0005 — Customers & Resources
+
+### Inputs consulted
+- `infra/supabase/migrations/0005_customers_resources.sql` — implementation for customers, resources, and customer_metrics
+- `docs/database/design_brief.md` — Customers & Resources requirements: soft-delete, tenant scoping, `resource_type`, money as integer cents, triggers, additive-only
+- `docs/database/database_context_pack.md` — Execution Context Rule; idempotent, transactional migrations; partial uniques for soft-delete; read-model guidance
+- `docs/database/canon/interfaces.md` — Existing interfaces and P0005 placeholders
+- `docs/database/canon/constraints.md` — Counts and prior constraints; target to append P0005
+- `docs/database/canon/critical_flows.md` — Patterns and counts; target to add P0005 flows
+- Prior migrations: `0001_extensions.sql`, `0002_types.sql`, `0003_helpers.sql`, `0004_core_tenancy.sql`, `0004_hotfix_touch_updated_at.sql`
+
+Execution Context Rule honored: authoritative order Design Brief → Context Pack → Cheat Sheets. No deviations.
+
+### Reasoning and intermediate steps
+- Verified table DDL in `0005_customers_resources.sql` aligns with Brief: tenant-scoped `customers` and `resources`, plus read-model `customer_metrics`.
+- Confirmed idempotency:
+  - Tables created with `IF NOT EXISTS`.
+  - CHECK constraints added via DO blocks guarded by `pg_constraint` name checks.
+  - Partial unique index on `(tenant_id, email)` guarded by `IF NOT EXISTS`.
+  - Triggers created via DO block conditioned on `pg_trigger` name existence.
+- Confirmed additive-only and transactional: file begins with `BEGIN;` and ends with `COMMIT;`; no destructive ops.
+- Mapped each constraint to canon entries to ensure coverage (uniques, FKs, PKs, CHECKs).
+- Ensured soft-delete pattern consistency: `deleted_at` present on `customers`/`resources` and temporal sanity checks `deleted_at >= created_at`.
+- Ensured performance and correctness: per-tenant uniqueness for `customers.email` uses `citext` for case-insensitivity and excludes soft-deleted rows and NULL emails.
+- Ensured read-model metrics non-negativity via explicit CHECK constraints for counts and spend.
+- Attached `touch_updated_at` triggers via idempotent DO block; consistent naming `<table>_touch_updated_at`.
+- No RLS yet; defer to P0014–P0016 as per plan; helpers remain ready for fail-closed policies.
+
+### Actions taken (outputs produced)
+- Migration verified: `infra/supabase/migrations/0005_customers_resources.sql` — no changes needed.
+- Canon updated:
+  - `docs/database/canon/constraints.md` → Added P0005 constraints (partial unique, FKs/PKs, CHECKs). Count: 13
+  - `docs/database/canon/critical_flows.md` → Added P0005 flows for Customers and Resources. Count: 2
+  - `docs/database/canon/interfaces.md` → P0005 interfaces present for customers/resources/customer_metrics. Count: 3 (verified)
+- Progress log updated: this P0005 section appended here.
+- Created a root convenience copy: `docs/DB_PROGRESS.md` containing a self-contained P0005 report for reviewers (duplicate of this section for quick access).
+
+### Plain-language description
+We introduced tenant-scoped Customers and Resources and a Customer Metrics read model. Customers have optional PII (email/phone), marketing and notification preferences, soft-delete, and an index that keeps active emails unique per tenant (ignoring NULLs and deleted rows). Resources are typed (`resource_type`), have a required time zone and capacity validated to be at least 1, plus metadata, a UX label `name`, and an `is_active` toggle to disable without delete. Metrics roll up customer activity with non-negative counters and a composite key of `(tenant_id, customer_id)`. All tables auto-update `updated_at` on writes.
+
+### Rationale and connection to the Design Brief
+- Multi-tenant CRM: `customers` keyed by tenant, with soft-delete and email uniqueness to avoid conflicts in active records while preserving history.
+- Scheduling primitives: `resources` typed as `staff` or `room`, with time zone and capacity to support availability and booking logic (P0007–P0008).
+- Read-model metrics: `customer_metrics` supports fast CRM views and reporting without complex joins; checks ensure invariants (no negative counts/spend).
+- Additive-only, idempotent, and transactional: required by the Brief to ensure safe re-runs and drift-free environments.
+- Triggers re-use the standardized `touch_updated_at()` ensuring observability and cache invalidation signals.
+
+### Decisions made
+- Use `citext` for `customers.email` to enforce case-insensitivity at the DB layer.
+- Partial unique index excludes `deleted_at IS NOT NULL` and `email IS NULL` to enable soft-delete and email-optional customers.
+- Add `name` (text, default '') and `is_active` (boolean, default true) to `resources` to support UX labeling and non-destructive visibility toggling.
+- Keep `customer_metrics` as a pure read model (no soft-delete, composite PK) with explicit non-negativity checks.
+- Attach `touch_updated_at` triggers via idempotent DO block; consistent naming `<table>_touch_updated_at`.
+- No RLS yet; defer to P0014–P0016 as per plan; helpers remain ready for fail-closed policies.
+
+### Pitfalls / tricky parts
+- Email uniqueness vs. soft-delete: forgetting the partial predicate would block re-creating customers after deletion; ensured `WHERE email IS NOT NULL AND deleted_at IS NULL`.
+- Capacity domain: ensured `capacity >= 1` CHECK rather than relying on application logic.
+- Trigger idempotency: verified creation guards via `pg_trigger` name checks to avoid duplicates.
+- Temporal sanity: replicated the `deleted_at >= created_at` pattern for both `customers` and `resources` via named CHECKs.
+
+### Questions for Future Me
+- Should we also enforce per-tenant uniqueness on phone numbers, or allow duplicates for households/shared lines?
+- Do we need a `pseudonymized_by` column or audit trail for GDPR workflows when RLS/policies land?
+- Will we add capacity-based scheduling rules (e.g., resource can handle `capacity > 1` bookings simultaneously) that interact with overlap checks in P0008?
+- Should we compute and maintain `customer_first_booking_at` via trigger once bookings exist, or leave as application-maintained?
+
+### State Snapshot (after P0005)
+- Extensions: pgcrypto, citext, btree_gist, pg_trgm
+- Enums: booking_status, payment_status, membership_role, resource_type, notification_channel, notification_status, payment_method
+- Functions: `public.current_tenant_id()`, `public.current_user_id()`, `public.touch_updated_at()` (hotfixed in `0004_hotfix_touch_updated_at.sql`)
+- Tables:
+  - Core: `public.tenants`, `public.users`, `public.memberships`, `public.themes`
+  - P0005: `public.customers`, `public.resources`, `public.customer_metrics`
+- Indexes/Constraints (selected):
+  - Partial UNIQUE: `tenants(slug)` WHERE `deleted_at IS NULL`
+  - UNIQUE: `memberships(tenant_id, user_id)`
+  - Partial UNIQUE: `customers(tenant_id, email)` WHERE `email IS NOT NULL AND deleted_at IS NULL`
+  - CHECKs: `customers_deleted_after_created_chk`; `resources_capacity_ge_1_chk`; `resources_deleted_after_created_chk`
+  - PKs/FKs: `customer_metrics` PK `(tenant_id, customer_id)`; FKs to `tenants(id)` and `customers(id)`
+  - Non-negativity: `customer_metrics_*_nonneg_chk` for spend and counters
+- Triggers: `tenants_touch_updated_at`, `users_touch_updated_at`, `memberships_touch_updated_at`, `themes_touch_updated_at`, `customers_touch_updated_at`, `resources_touch_updated_at`, `customer_metrics_touch_updated_at`
+- Policies (RLS): none yet (planned P0014–P0016; deny-by-default posture later)
+- Migrations present: `0001_extensions.sql`, `0002_types.sql`, `0003_helpers.sql`, `0004_core_tenancy.sql`, `0004_hotfix_touch_updated_at.sql`, `0005_customers_resources.sql`
+- Tests (pgTAP): none yet (planned P0019)
+- Documentation: canon interfaces/constraints/flows updated for P0005; this progress log updated
+
+### Visual representation (schema and relationships after P0005)
+```mermaid
+erDiagram
+  TENANTS ||--o{ MEMBERSHIPS : "has"
+  USERS ||--o{ MEMBERSHIPS : "joins"
+  TENANTS ||--o{ THEMES : "brands"
+  TENANTS ||--o{ CUSTOMERS : "owns"
+  TENANTS ||--o{ RESOURCES : "owns"
+  TENANTS ||--o{ CUSTOMER_METRICS : "rolls up"
+  CUSTOMERS ||--o{ CUSTOMER_METRICS : "has metrics"
+
+  TENANTS {
+    uuid id PK
+    text slug
+  }
+  USERS {
+    uuid id PK
+  }
+  MEMBERSHIPS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid user_id FK
+  }
+  THEMES {
+    uuid tenant_id PK/FK
+  }
+  CUSTOMERS {
+    uuid id PK
+    uuid tenant_id FK
+    citext email
+    timestamptz deleted_at
+  }
+  RESOURCES {
+    uuid id PK
+    uuid tenant_id FK
+    resource_type type
+    int capacity
+  }
+  CUSTOMER_METRICS {
+    uuid tenant_id PK/FK
+    uuid customer_id PK/FK
+    int total_bookings_count
+    int total_spend_cents
+  }
+```
+
+### Canon updates for P0005
+- Interfaces: +3 (customers, resources, customer_metrics)
+- Constraints: +13 (partial unique; FKs/PKs; soft-delete checks; capacity and non-negativity checks)
+- Flows: +2 (Customers create/update; Resource create)
+
+Cumulative canon counts (P0000–P0005): interfaces: 17, constraints: 19, flows: 5

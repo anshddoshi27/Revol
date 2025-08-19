@@ -1,7 +1,7 @@
 Title: critical_flows.md
 Source of Truth: /src, /infra/supabase/migrations/**, /src/types/**
 Edit Policy: Append-only; revise by adding a new version and archiving the old one
-Last Updated: 2025-08-17
+Last Updated: 2025-08-19
 
 ## Global Rules
 - Append-only history; add Revised versions and archive prior flows.
@@ -111,5 +111,15 @@ Count: 0
 Count: 0
 
 ### P0003 — Critical Flows
-- None introduced in this prompt. Added JWT-based RLS helper functions (`public.current_tenant_id()`, `public.current_user_id()`) that will be referenced by policies and enforced across flows starting in later prompts.
-Count: 0
+- RLS identity resolution: policies compare `tenant_id`/`user_id` to helpers; NULL claims deny access (fail closed).
+Count: 1
+
+### P0004 — Critical Flows
+- Tenancy resolution: path `/b/{slug}` resolves tenant; no domains table pre-0019 (See Design Brief §1). Members join via `memberships(role, permissions_json)`.
+- Timestamp freshness: `public.touch_updated_at()` attached as `<table>_touch_updated_at` on `tenants`, `users`, `memberships`, `themes` (See `0004_core_tenancy.sql`). Hotfix in `0004_hotfix_touch_updated_at.sql` ensures `clock_timestamp()` usage and monotonic `updated_at` on UPDATE; triggers reasserted idempotently.
+Count: 2
+
+### P0005 — Critical Flows
+- Customers: create/update customer with per-tenant email uniqueness ignoring NULL and soft-deleted rows; soft-delete preserves historical uniqueness (index `customers_tenant_email_uniq`). Triggers: `customers_touch_updated_at`.
+- Resources: create resource with required `type`, `tz`, `capacity>=1`, `metadata`; set UX label `name` and manage visibility with `is_active` toggle (non-destructive disable); enforce `capacity >= 1` and soft-delete temporal sanity; triggers: `resources_touch_updated_at`.
+Count: 2

@@ -1,7 +1,7 @@
 Title: interfaces.md
 Source of Truth: contracts in /src/types/** and /infra/supabase/migrations/**
 Edit Policy: Append-only; deprecate instead of delete
-Last Updated: 2025-08-19
+Last Updated: 2025-01-16
 
 ## Global Rules
 - Append-only history. If behavior changes, add a new versioned entry and mark the old one Deprecated (keep history).
@@ -112,4 +112,32 @@ Count: 5
 - Table: customers — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `display_name text`, `email citext`, `phone text`, `marketing_opt_in boolean`, `notification_preferences jsonb`, `is_first_time boolean`, `pseudonymized_at timestamptz`, `customer_first_booking_at timestamptz`, timestamps, `deleted_at timestamptz`
 - Table: resources — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `type resource_type NOT NULL`, `tz text NOT NULL`, `capacity int NOT NULL`, `metadata jsonb`, `name text NOT NULL DEFAULT ''`, `is_active boolean NOT NULL DEFAULT true`, timestamps, `deleted_at timestamptz`
 - Table: customer_metrics — fields: `tenant_id uuid FK → tenants(id)`, `customer_id uuid FK → customers(id)`, `total_bookings_count int`, `first_booking_at timestamptz`, `last_booking_at timestamptz`, `total_spend_cents int`, `no_show_count int`, `canceled_count int`, timestamps; PK `(tenant_id, customer_id)`
+Count: 3
+
+### P0006 — Interfaces
+- Table: services — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `slug text NOT NULL`, `name text NOT NULL DEFAULT ''`, `description text DEFAULT ''`, `duration_min int NOT NULL DEFAULT 60`, `price_cents int NOT NULL DEFAULT 0`, `buffer_before_min int NOT NULL DEFAULT 0`, `buffer_after_min int NOT NULL DEFAULT 0`, `category text DEFAULT ''`, `active boolean NOT NULL DEFAULT true`, `metadata jsonb DEFAULT '{}'`, timestamps, `deleted_at timestamptz`
+- Table: service_resources — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `service_id uuid` (composite FK with tenant_id), `resource_id uuid` (composite FK with tenant_id), `created_at timestamptz NOT NULL DEFAULT now()`
+Count: 2
+
+### P0007 — Interfaces
+- Table: availability_rules — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `resource_id uuid FK → resources(id)`, `dow int NOT NULL` (1-7 ISO weekday), `start_minute int NOT NULL` (0-1439), `end_minute int NOT NULL` (0-1439), `rrule_json jsonb DEFAULT '{}'`, `metadata jsonb DEFAULT '{}'`, timestamps
+- Table: availability_exceptions — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `resource_id uuid FK → resources(id)`, `date date NOT NULL`, `start_minute int` (NULL=closed, 0-1439), `end_minute int` (NULL=closed, 0-1439), `description text DEFAULT ''`, `metadata jsonb DEFAULT '{}'`, timestamps
+Count: 2
+
+### P0008 — Interfaces
+- Function: public.sync_booking_status() → trigger `bookings_status_sync_biur` (enforces status precedence: canceled_at → no_show_flag → preserved status)
+- Function: public.fill_booking_tz() → trigger `bookings_fill_tz_bi` (timezone resolution: NEW.booking_tz → resource.tz → tenant.tz → error)
+- Table: bookings — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `customer_id uuid FK → customers(id)`, `resource_id uuid FK → resources(id)`, `client_generated_id text NOT NULL` (idempotency), `service_snapshot jsonb NOT NULL DEFAULT '{}'` (pricing audit), `start_at timestamptz NOT NULL`, `end_at timestamptz NOT NULL`, `booking_tz text NOT NULL` (IANA timezone), `status booking_status NOT NULL DEFAULT 'pending'`, `canceled_at timestamptz`, `no_show_flag boolean NOT NULL DEFAULT false`, `attendee_count int NOT NULL DEFAULT 1`, `rescheduled_from uuid FK → bookings(id)`, timestamps
+- Table: booking_items — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `booking_id uuid FK → bookings(id)`, `resource_id uuid FK → resources(id)`, `service_id uuid FK → services(id)` (optional), `start_at timestamptz NOT NULL`, `end_at timestamptz NOT NULL`, `buffer_before_min int NOT NULL DEFAULT 0`, `buffer_after_min int NOT NULL DEFAULT 0`, `price_cents int NOT NULL DEFAULT 0`, timestamps
+Count: 4
+
+### P0009 — Interfaces
+- Table: payments — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `booking_id uuid FK → bookings(id)` (optional), `customer_id uuid FK → customers(id)` (optional), `status payment_status NOT NULL DEFAULT 'requires_action'`, `method payment_method NOT NULL DEFAULT 'card'`, `currency_code text NOT NULL DEFAULT 'USD'`, `amount_cents int NOT NULL`, `tip_cents int NOT NULL DEFAULT 0`, `tax_cents int NOT NULL DEFAULT 0`, `application_fee_cents int NOT NULL DEFAULT 0`, `provider text NOT NULL DEFAULT 'stripe'`, `provider_payment_id text`, `provider_charge_id text`, `provider_setup_intent_id text`, `provider_metadata jsonb DEFAULT '{}'`, `idempotency_key text`, `backup_setup_intent_id text`, `explicit_consent_flag boolean NOT NULL DEFAULT false`, `no_show_fee_cents int NOT NULL DEFAULT 0`, `royalty_applied boolean NOT NULL DEFAULT false`, `royalty_basis text`, `metadata jsonb DEFAULT '{}'`, timestamps
+- Table: tenant_billing — fields: `tenant_id uuid PK/FK → tenants(id)`, `stripe_connect_id text`, `stripe_connect_enabled boolean NOT NULL DEFAULT false`, `billing_email text`, `billing_address_json jsonb DEFAULT '{}'`, `trial_ends_at timestamptz`, `monthly_price_cents int NOT NULL DEFAULT 1199`, `trust_messaging_variant text DEFAULT 'standard'`, `default_payment_method_id text`, `metadata jsonb DEFAULT '{}'`, timestamps
+Count: 2
+
+### P0010 — Interfaces
+- Table: coupons — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `code text NOT NULL`, `name text NOT NULL DEFAULT ''`, `description text DEFAULT ''`, `percent_off int` (1-100 if used), `amount_off_cents int` (>0 if used), `minimum_amount_cents int NOT NULL DEFAULT 0`, `maximum_discount_cents int`, `usage_limit int`, `usage_count int NOT NULL DEFAULT 0`, `starts_at timestamptz`, `expires_at timestamptz`, `active boolean NOT NULL DEFAULT true`, `metadata jsonb DEFAULT '{}'`, timestamps, `deleted_at timestamptz`
+- Table: gift_cards — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `code text NOT NULL`, `initial_balance_cents int NOT NULL`, `current_balance_cents int NOT NULL`, `purchaser_customer_id uuid FK → customers(id)`, `recipient_customer_id uuid FK → customers(id)`, `expires_at timestamptz`, `active boolean NOT NULL DEFAULT true`, `metadata jsonb DEFAULT '{}'`, timestamps
+- Table: referrals — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `code text NOT NULL`, `referrer_customer_id uuid FK → customers(id)`, `referred_customer_id uuid FK → customers(id)`, `reward_amount_cents int NOT NULL DEFAULT 0`, `referrer_reward_cents int NOT NULL DEFAULT 0`, `referred_reward_cents int NOT NULL DEFAULT 0`, `status text NOT NULL DEFAULT 'pending'` (pending/completed/expired), `completed_at timestamptz`, `expires_at timestamptz`, `metadata jsonb DEFAULT '{}'`, timestamps
 Count: 3

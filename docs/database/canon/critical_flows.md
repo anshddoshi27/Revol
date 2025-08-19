@@ -1,7 +1,7 @@
 Title: critical_flows.md
 Source of Truth: /src, /infra/supabase/migrations/**, /src/types/**
 Edit Policy: Append-only; revise by adding a new version and archiving the old one
-Last Updated: 2025-08-19
+Last Updated: 2025-01-16
 
 ## Global Rules
 - Append-only history; add Revised versions and archive prior flows.
@@ -123,3 +123,27 @@ Count: 2
 - Customers: create/update customer with per-tenant email uniqueness ignoring NULL and soft-deleted rows; soft-delete preserves historical uniqueness (index `customers_tenant_email_uniq`). Triggers: `customers_touch_updated_at`.
 - Resources: create resource with required `type`, `tz`, `capacity>=1`, `metadata`; set UX label `name` and manage visibility with `is_active` toggle (non-destructive disable); enforce `capacity >= 1` and soft-delete temporal sanity; triggers: `resources_touch_updated_at`.
 Count: 2
+
+### P0006 — Critical Flows
+- Service creation: create service with tenant-scoped slug uniqueness (partial index excludes soft-deleted); validate pricing (non-negative), duration (positive), buffer times (non-negative); populate category for UI chips/filters; set active flag for visibility control; triggers: `services_touch_updated_at`.
+- Service-resource mapping: establish many-to-many relationship between services and resources via `service_resources` junction table with tenant_id for cross-tenant integrity; unique constraint prevents duplicate mappings; composite foreign keys ensure tenant_id matches referenced service/resource tenants; CASCADE deletes maintain referential integrity when services or resources are removed; supports flexible delivery models (service by multiple staff or in multiple rooms).
+Count: 2
+
+### P0007 — Critical Flows
+- Availability rules management: create/update recurring weekly availability patterns per resource using ISO weekdays (1=Monday through 7=Sunday) and minute-of-day ranges (0-1439); enforce DOW validation, minute bounds, and time ordering constraints; prevent duplicate rules via unique constraint on `(resource_id, dow, start_minute, end_minute)`; support optional RRULE JSON for complex recurrence patterns; triggers: `availability_rules_touch_updated_at`.
+- Availability exceptions handling: manage date-specific overrides for closures (NULL minutes) or special hours (specific minute ranges) that supersede weekly patterns; validate date boundaries and minute ranges when specified; enforce unique constraint on `(resource_id, date, coalesce(start_minute,-1), coalesce(end_minute,-1))` to prevent conflicts; support descriptions for business context (holidays, maintenance, etc.); triggers: `availability_exceptions_touch_updated_at`.
+Count: 2
+
+### P0008 — Critical Flows
+- Booking creation with overlap prevention: create new booking with idempotency via `(tenant_id, client_generated_id)` unique constraint enabling offline queueing and safe retries; enforce no-overlap exclusion constraint using GiST on `(resource_id, tstzrange(start_at,end_at,'[)'))` for active statuses only (`pending`, `confirmed`, `checked_in`); allow historical statuses (`completed`, `canceled`, `no_show`, `failed`) to not block future scheduling; capture service snapshot for pricing audit integrity; validate time ordering and positive attendee count; triggers: `bookings_touch_updated_at`, `bookings_status_sync_biur`, `bookings_fill_tz_bi`.
+- Status synchronization and precedence: enforce deterministic booking status via `sync_booking_status()` trigger on BEFORE INSERT/UPDATE; apply precedence order where `canceled_at IS NOT NULL` → `status='canceled'` (highest precedence), then `no_show_flag=true` → `status='no_show'` (second precedence), otherwise preserve explicitly set status; ensure status changes follow business rules regardless of direct field manipulation; enables reliable status tracking for notifications, billing, and reporting.
+- Timezone resolution and wall-time reconstruction: automatically fill `booking_tz` via `fill_booking_tz()` trigger on BEFORE INSERT following Design Brief priority order: use explicit `NEW.booking_tz` if provided, else query `resource.tz`, else query `tenant.tz`, else raise exception; store all timestamps as UTC (`timestamptz`) while preserving deterministic wall-time via IANA timezone identifier; enables DST-safe scheduling and cross-timezone business operations; supports calendar display and reminder scheduling in customer's local time.
+Count: 3
+
+### P0009 — Critical Flows
+- None introduced in this prompt. Added payments and tenant_billing tables with constraints for PCI compliance, replay safety, and billing configuration. Critical payment flows will be developed at the application layer using these data structures.
+Count: 0
+
+### P0010 — Critical Flows
+- None introduced in this prompt. Added promotions tables (coupons, gift_cards, referrals) with comprehensive constraints for business rule enforcement. Critical flows for coupon application, gift card redemption, and referral reward processing will be implemented at the application layer using these foundational data structures.
+Count: 0

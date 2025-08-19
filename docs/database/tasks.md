@@ -287,18 +287,25 @@ IMPORTANT: Before adding bullets, consult the example coverage lists in the Cont
 Use those examples as guidance to decide what counts, so you don’t miss anything.
 ```
 
-## 06 — Services & service↔resource mapping (FKs + slugs)
+## 06 — Services & service↔resource mapping (Composite FKs + Cross-tenant integrity)
 
 
 Task:
 
 ```
 Create infra/supabase/migrations/0006_services.sql:
-[original definitions...]
-Attach public.touch_updated_at() on services.
+- Table: public.services with tenant_id FK, slug (per-tenant unique), name, description, duration_min, price_cents, buffer_before/after_min, category, active, metadata, timestamps, deleted_at
+- Table: public.service_resources with tenant_id FK, service_id/resource_id FKs, timestamps
+- Partial UNIQUE: services(tenant_id, slug) WHERE deleted_at IS NULL
+- Composite UNIQUE: services(id, tenant_id) and resources(id, tenant_id) to support composite FKs
+- Composite FKs: service_resources(service_id, tenant_id) → services(id, tenant_id) and service_resources(resource_id, tenant_id) → resources(id, tenant_id)
+- CHECK constraints: price_cents >= 0, duration_min > 0, buffer_*_min >= 0, soft-delete temporal sanity
+- Attach public.touch_updated_at() on services table
+
+Note: Use composite foreign keys for cross-tenant integrity instead of CHECK constraints with subqueries (PostgreSQL limitation).
 Output:
  – SQL
- – MD appending ## 0006 – Services clarifying per-tenant slugs and mapping to staff/rooms.
+ – MD appending ## 0006 – Services clarifying per-tenant slugs, composite FKs for cross-tenant integrity, and mapping to staff/rooms.
 Also append three fenced Markdown blocks:
 
 1) Append to docs/canon/interfaces.md:

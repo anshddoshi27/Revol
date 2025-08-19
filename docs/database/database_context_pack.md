@@ -38,7 +38,7 @@ This pack is a step-by-step set of Cursor prompts that generate a production-gra
  Next steps (04–07 guidance):
  - 0004 — Core tenancy + `touch_updated_at()`; create `tenants`, global `users`, `memberships`, `themes` (1:1). Use partial uniques for soft-deletes where applicable.
  - 0005 — `customers`, `resources`, `customer_metrics` read model; enforce partial unique on `(tenant_id, LOWER(email))` when `deleted_at IS NULL`.
- - 0006 — `services` + `service_resources`; per-tenant slug with partial unique on `(tenant_id, slug)` when active.
+ - 0006 — `services` + `service_resources`; per-tenant slug with partial unique on `(tenant_id, slug)` when active; composite foreign keys ensure cross-tenant integrity via `(id, tenant_id)` references.
  - 0007 — `availability_rules` (DOW 1–7, minute checks) and `availability_exceptions` (closures/windows); validate start/end and ranges.
 
  All migrations must remain transactional and idempotent, aligned with Brief invariants.
@@ -76,6 +76,7 @@ When carrying out any task or generating files, migrations, or tests, **the AI e
 - **Multitenancy:** canonical path-slug `/b/{slug}`; no `domains` table pre-0019.  
 - **RLS:** enabled on every table (deny-by-default), with standard tenant-scoped policies and special policies for tenancy tables.  
 - **Helpers:** `public.current_tenant_id()` / `public.current_user_id()` return `NULL` on missing/invalid JWT; comparisons fail closed.  
+- **Cross-Tenant Integrity:** Use composite foreign keys `(id, tenant_id)` for junction tables; avoid CHECK constraints with subqueries (PostgreSQL limitation).
 - **Idempotency & No-overlap:**  
   - `bookings(tenant_id, client_generated_id)` unique  
   - exclusion constraint on `(resource_id, tstzrange(start_at,end_at,'[)'))` for active statuses  
@@ -108,7 +109,7 @@ Adds `0004_core_tenancy.sql`: `touch_updated_at()` trigger, tenants (billing, tr
 Adds customers (soft-delete, first-time flag, unique email per tenant) and resources (type, tz, metadata), plus denormalized customer_metrics for fast CRM rollups.
 
 **06 — Services & mapping**  
-Adds services (per-tenant slug, price/duration, category, soft-delete) and service_resources (service↔resource mapping). Emphasizes chips/carousels via category/active.
+Adds services (per-tenant slug, price/duration, category, soft-delete) and service_resources (service↔resource mapping with composite foreign keys for cross-tenant integrity). Emphasizes chips/carousels via category/active.
 
 **07 — Availability (rules + exceptions)**  
 Adds availability_rules with DOW/minute checks and optional RRULE JSON; availability_exceptions for closures/windows with validation. Sets the backbone for 15-minute slot generation.

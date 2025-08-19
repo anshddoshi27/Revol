@@ -1,7 +1,7 @@
 Title: constraints.md
 Source of Truth: /infra/supabase/migrations/**, triggers/functions, /src/types/**
 Edit Policy: Append-only; add new IDs and deprecate old ones rather than editing in place
-Last Updated: 2025-08-19
+Last Updated: 2025-01-16
 
 ## Global Rules
 - Append-only history; new IDs for changed behavior; mark old entries Deprecated with SupersededBy.
@@ -156,3 +156,102 @@ Count: 6
 - CHECK: `customer_metrics.canceled_count >= 0`
 - CHECK: `customer_metrics.total_bookings_count >= 0`
 Count: 13
+
+### P0006 — Constraints
+- Partial UNIQUE: `services(tenant_id, slug)` WHERE `deleted_at IS NULL` (per-tenant slug uniqueness excluding soft-deleted services)
+- UNIQUE: `services(id, tenant_id)` (composite unique to support composite FK for cross-tenant integrity)
+- UNIQUE: `resources(id, tenant_id)` (composite unique to support composite FK for cross-tenant integrity)
+- UNIQUE: `service_resources(service_id, resource_id)` (prevents duplicate service-resource mappings)
+- FK: `services.tenant_id → tenants(id)`
+- FK: `service_resources.tenant_id → tenants(id)` (required for cross-tenant integrity)
+- Composite FK: `service_resources(service_id, tenant_id) → services(id, tenant_id) ON DELETE CASCADE` (ensures tenant match)
+- Composite FK: `service_resources(resource_id, tenant_id) → resources(id, tenant_id) ON DELETE CASCADE` (ensures tenant match)
+- CHECK: `services.price_cents >= 0` (non-negative pricing)
+- CHECK: `services.duration_min > 0` (positive service duration required)
+- CHECK: `services.buffer_before_min >= 0` (non-negative buffer time)
+- CHECK: `services.buffer_after_min >= 0` (non-negative buffer time)
+- CHECK: `services.deleted_at IS NULL OR deleted_at >= created_at` (temporal sanity for soft-delete)
+Count: 13
+
+### P0007 — Constraints
+- UNIQUE: `availability_rules(resource_id, dow, start_minute, end_minute)` (prevents duplicate availability rules for same resource/time)
+- UNIQUE: `availability_exceptions(resource_id, date, coalesce(start_minute,-1), coalesce(end_minute,-1))` (prevents duplicate exceptions for same resource/date/time)
+- FK: `availability_rules.tenant_id → tenants(id) ON DELETE CASCADE`
+- FK: `availability_rules.resource_id → resources(id) ON DELETE CASCADE`
+- FK: `availability_exceptions.tenant_id → tenants(id) ON DELETE CASCADE`
+- FK: `availability_exceptions.resource_id → resources(id) ON DELETE CASCADE`
+- CHECK: `availability_rules.dow BETWEEN 1 AND 7` (ISO weekday validation)
+- CHECK: `availability_rules.start_minute BETWEEN 0 AND 1439` (minute-of-day range)
+- CHECK: `availability_rules.end_minute BETWEEN 0 AND 1439` (minute-of-day range)
+- CHECK: `availability_rules.start_minute < end_minute` (valid time ordering)
+- CHECK: `availability_exceptions.start_minute IS NULL OR (start_minute BETWEEN 0 AND 1439)` (optional minute validation)
+- CHECK: `availability_exceptions.end_minute IS NULL OR (end_minute BETWEEN 0 AND 1439)` (optional minute validation)
+- CHECK: `availability_exceptions.(start_minute IS NULL AND end_minute IS NULL) OR (start_minute IS NOT NULL AND end_minute IS NOT NULL AND start_minute < end_minute)` (NULL handling and time ordering)
+Count: 13
+
+### P0008 — Constraints
+- UNIQUE: `bookings(tenant_id, client_generated_id)` (idempotency constraint for offline-safe booking creation)
+- EXCLUDE: `bookings USING gist(resource_id WITH =, tstzrange(start_at,end_at,'[)') WITH &&) WHERE (status IN ('pending','confirmed','checked_in','completed') AND resource_id IS NOT NULL)` (overlap prevention for active statuses including completed, following Design Brief priority)
+- FK: `bookings.tenant_id → tenants(id) ON DELETE CASCADE`
+- FK: `bookings.customer_id → customers(id) ON DELETE CASCADE`
+- FK: `bookings.resource_id → resources(id) ON DELETE CASCADE`
+- FK: `bookings.rescheduled_from → bookings(id)`
+- FK: `booking_items.tenant_id → tenants(id) ON DELETE CASCADE`
+- FK: `booking_items.booking_id → bookings(id) ON DELETE CASCADE`
+- FK: `booking_items.resource_id → resources(id) ON DELETE CASCADE`
+- FK: `booking_items.service_id → services(id) ON DELETE SET NULL`
+- CHECK: `bookings.start_at < end_at` (time ordering validation)
+- CHECK: `booking_items.start_at < end_at` (time ordering validation)
+- CHECK: `bookings.attendee_count > 0` (positive attendee count)
+- CHECK: `booking_items.buffer_before_min >= 0 AND buffer_after_min >= 0` (non-negative buffer times)
+- CHECK: `booking_items.price_cents >= 0` (non-negative pricing)
+Count: 15
+
+### P0009 — Constraints
+- FK: `payments.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `payments.booking_id → bookings(id) ON DELETE SET NULL` (optional booking association)
+- FK: `payments.customer_id → customers(id) ON DELETE SET NULL` (optional customer association)
+- FK: `tenant_billing.tenant_id → tenants(id) ON DELETE CASCADE` (1:1 tenant billing relationship)
+- UNIQUE: `payments_tenant_provider_idempotency_uniq(tenant_id, provider, idempotency_key) WHERE idempotency_key IS NOT NULL` (payment idempotency for replay safety)
+- UNIQUE: `payments_tenant_provider_charge_uniq(tenant_id, provider, provider_charge_id) WHERE provider_charge_id IS NOT NULL` (charge uniqueness for replay safety)
+- UNIQUE: `payments_tenant_provider_payment_uniq(tenant_id, provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL` (payment ID uniqueness for replay safety)
+- CHECK: `payments.amount_cents >= 0` (non-negative payment amount)
+- CHECK: `payments.tip_cents >= 0` (non-negative tip amount)
+- CHECK: `payments.tax_cents >= 0` (non-negative tax amount)
+- CHECK: `payments.application_fee_cents >= 0` (non-negative application fee)
+- CHECK: `payments.no_show_fee_cents >= 0` (non-negative no-show fee)
+- CHECK: `payments.royalty_basis IN ('new_customer', 'referral', 'other')` (valid royalty basis values)
+- CHECK: `tenant_billing.monthly_price_cents >= 0` (non-negative monthly pricing)
+- CHECK: `tenant_billing.trust_messaging_variant IN ('standard', 'first_month_free', '90_day_no_monthly')` (valid trust messaging variants)
+Count: 15
+
+### P0010 — Constraints
+- FK: `coupons.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `gift_cards.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `gift_cards.purchaser_customer_id → customers(id) ON DELETE SET NULL` (optional purchaser tracking)
+- FK: `gift_cards.recipient_customer_id → customers(id) ON DELETE SET NULL` (optional recipient tracking)
+- FK: `referrals.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `referrals.referrer_customer_id → customers(id) ON DELETE CASCADE` (referrer must exist)
+- FK: `referrals.referred_customer_id → customers(id) ON DELETE CASCADE` (referred customer must exist)
+- Partial UNIQUE: `coupons_tenant_code_uniq(tenant_id, code) WHERE deleted_at IS NULL` (tenant-scoped code uniqueness excluding soft-deleted)
+- UNIQUE: `gift_cards_tenant_code_uniq(tenant_id, code)` (tenant-scoped gift card code uniqueness)
+- UNIQUE: `referrals_tenant_referrer_referred_uniq(tenant_id, referrer_customer_id, referred_customer_id)` (unique referral pairs per tenant)
+- UNIQUE: `referrals_tenant_code_uniq(tenant_id, code)` (tenant-scoped referral code uniqueness)
+- CHECK: `coupons_discount_xor` (exactly one of percent_off OR amount_off_cents must be specified)
+- CHECK: `coupons_percent_off_range` (percent_off must be between 1 and 100 if specified)
+- CHECK: `coupons_amount_off_positive` (amount_off_cents must be > 0 if specified)
+- CHECK: `coupons_minimum_amount_non_negative` (minimum_amount_cents >= 0)
+- CHECK: `coupons_maximum_discount_non_negative` (maximum_discount_cents >= 0 if specified)
+- CHECK: `coupons_usage_limit_positive` (usage_limit > 0 if specified)
+- CHECK: `coupons_usage_count_non_negative` (usage_count >= 0)
+- CHECK: `coupons_expires_after_starts` (expires_at > starts_at if both specified)
+- CHECK: `coupons_soft_delete_temporal` (deleted_at >= created_at if specified)
+- CHECK: `gift_cards_initial_balance_non_negative` (initial_balance_cents >= 0)
+- CHECK: `gift_cards_current_balance_non_negative` (current_balance_cents >= 0)
+- CHECK: `gift_cards_current_lte_initial` (current_balance_cents <= initial_balance_cents)
+- CHECK: `referrals_no_self_referral` (referrer_customer_id != referred_customer_id)
+- CHECK: `referrals_reward_amount_non_negative` (reward_amount_cents >= 0)
+- CHECK: `referrals_referrer_reward_non_negative` (referrer_reward_cents >= 0)
+- CHECK: `referrals_referred_reward_non_negative` (referred_reward_cents >= 0)
+- CHECK: `referrals_valid_status` (status IN ('pending', 'completed', 'expired'))
+Count: 28

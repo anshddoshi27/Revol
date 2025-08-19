@@ -2333,3 +2333,88 @@ flowchart TD
 
 ### Canon updates for P0010
 Canon updates for P0010 → interfaces: 3, constraints: 15, flows: 0
+
+---
+
+## 0011 — Notifications
+
+### Inputs consulted
+- `docs/database/tasks.md` — Task 11 specification: create `infra/supabase/migrations/0011_notifications.sql` with notification event types, templates, and queue tables with dedupe/retry logic.
+- `docs/database/design_brief.md` — Section 7) Notifications Model (Final) defining event code format, template structure, and worker consumption patterns.
+- `docs/database/database_context_pack.md` — Guardrails on notifications dedupe via `(tenant_id, channel, dedupe_key)`, retry logic, and scheduled processing indexes.
+- Canon files: `docs/database/canon/interfaces.md`, `constraints.md`, `critical_flows.md` for coverage guidance.
+
+Execution Context Rule honored: aligned outputs to Design Brief → Context Pack → Canon files. No invariant conflicts found.
+
+### Reasoning and intermediate steps
+- Implemented three notification tables as specified in Design Brief section 7):
+  - `notification_event_type` with event code format validation and seed data
+  - `notification_templates` with per-tenant, per-event, per-channel template storage
+  - `notifications` with worker queue, dedupe, retry, and provider tracking capabilities
+- Applied Design Brief event code format constraint: `^[a-z][a-z0-9_]*$`
+- Seeded extensible event types: booking_created, booking_confirmed, booking_rescheduled, reminder_24h, reminder_2h, reminder_1h, no_show_marked, booking_canceled, refund_issued
+- Implemented dedupe via partial unique on `(tenant_id, channel, dedupe_key)` where dedupe_key IS NOT NULL
+- Added worker consumption indexes for efficient queuing and retry processing
+- Applied tenant isolation patterns and standard timestamp management
+
+### Actions taken (outputs produced)
+- Created migration: `infra/supabase/migrations/0011_notifications.sql` containing:
+  - Table: `notification_event_type` with code validation and seed data
+  - Table: `notification_templates` with tenant/event/channel uniqueness
+  - Table: `notifications` with status tracking, retry logic, and deduplication
+  - Indexes: worker queue optimization and deduplication enforcement
+  - Triggers: `notification_templates_touch_updated_at`, `notifications_touch_updated_at`
+
+### Plain-language description
+We added notification infrastructure to support email, SMS, and push notifications. Event types define what triggers notifications. Templates store per-tenant message content for each event and channel. The notifications table queues messages with retry logic and prevents duplicates. Workers can efficiently query for pending notifications and track delivery status.
+
+### Rationale and connection to the Design Brief
+- **Event code validation**: Enforces Design Brief format `^[a-z][a-z0-9_]*$` for consistent event naming
+- **Template isolation**: Per-tenant templates enable customized messaging while maintaining data isolation
+- **Deduplication**: Partial unique constraint on `(tenant_id, channel, dedupe_key)` prevents duplicate notifications as specified in Context Pack
+- **Worker optimization**: Indexes on status and scheduling fields enable efficient background processing
+- **Retry logic**: Attempts tracking with configurable max_attempts supports reliable delivery
+
+### Decisions made
+- Added channel-specific recipient validation to ensure email notifications have email addresses and SMS have phone numbers
+- Included provider metadata fields for tracking external service responses and message IDs
+- Used reasonable scheduling constraint (max 1 year in future) to prevent obvious data entry errors
+- Seeded all standard event types from Design Brief for immediate usability
+- Applied standard tenant isolation and timestamp patterns for consistency
+
+### Pitfalls / tricky parts
+- Deduplication requires careful NULL handling in the partial unique constraint
+- Channel validation must account for different recipient requirements (email vs phone)
+- Worker indexes need to balance query efficiency with write performance
+- Retry logic must prevent infinite attempts while supporting reasonable delivery guarantees
+
+### Questions for Future Me
+- Should we add notification preferences integration with customer.notification_preferences JSONB?
+- Do we need archive/cleanup for old sent notifications to manage table growth?
+- Should we add rate limiting fields to prevent notification spam?
+
+### State Snapshot (after P0011)
+- Tables: Added notification_event_type, notification_templates, notifications (total: 16 tables)
+- Enums: Using existing notification_channel and notification_status from P0002
+- Functions: No new functions (using existing touch_updated_at)
+- Triggers: Added notification_templates_touch_updated_at, notifications_touch_updated_at (total: 18 triggers)
+- Policies (RLS): Not yet enabled (planned for P0014)
+- Indexes: Added deduplication and worker queue indexes (total: 25+ indexes)
+- Migrations completed: 0001-0011
+
+### Visual representation (notifications architecture)
+```mermaid
+flowchart TD
+    A[notification_event_type] --> B[notification_templates]
+    A --> C[notifications]
+    B --> D[Worker Process]
+    C --> D
+    D --> E[Email Provider]
+    D --> F[SMS Provider]
+    D --> G[Push Provider]
+    C --> H[Retry Queue]
+    H --> D
+```
+
+### Canon updates for P0011
+Canon updates for P0011 → interfaces: 3, constraints: 10, flows: 1

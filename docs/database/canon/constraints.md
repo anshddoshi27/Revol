@@ -1,7 +1,7 @@
 Title: constraints.md
 Source of Truth: /infra/supabase/migrations/**, triggers/functions, /src/types/**
 Edit Policy: Append-only; add new IDs and deprecate old ones rather than editing in place
-Last Updated: 2025-08-17
+Last Updated: 2025-08-19
 
 ## Global Rules
 - Append-only history; new IDs for changed behavior; mark old entries Deprecated with SupersededBy.
@@ -131,3 +131,28 @@ Count: 0
 ### P0003 — Constraints
 - None introduced in this prompt. Added JWT-derived helper functions for RLS (`public.current_tenant_id()`, `public.current_user_id()`); constraints will appear alongside tables and policies in later prompts.
 Count: 0
+
+### P0004 — Constraints
+- Partial UNIQUE: `tenants(slug)` WHERE `deleted_at IS NULL` (soft-delete aware uniqueness)
+- UNIQUE: `memberships(tenant_id, user_id)` (one membership per user per tenant)
+- FK: `memberships.tenant_id → tenants(id)`
+- FK: `memberships.user_id → users(id)`
+- FK/PK: `themes.tenant_id → tenants(id)` (1:1 via primary key)
+- CHECK: `tenants.deleted_at IS NULL OR deleted_at >= created_at` (temporal sanity; idempotent block in `0004_core_tenancy.sql`)
+Count: 6
+
+### P0005 — Constraints
+- Partial UNIQUE: `customers(tenant_id, email)` WHERE `email IS NOT NULL AND deleted_at IS NULL` (per-tenant, soft-delete aware, case-insensitive via `citext`)
+- FK: `customers.tenant_id → tenants(id)`
+- CHECK: `customers.deleted_at IS NULL OR deleted_at >= created_at` (temporal sanity; idempotent DO block in `0005_customers_resources.sql`)
+- FK: `resources.tenant_id → tenants(id)`
+- CHECK: `resources.capacity >= 1`
+- CHECK: `resources.deleted_at IS NULL OR deleted_at >= created_at` (temporal sanity; idempotent DO block)
+- PK: `customer_metrics(tenant_id, customer_id)` (composite primary key)
+- FK: `customer_metrics.tenant_id → tenants(id)`
+- FK: `customer_metrics.customer_id → customers(id)`
+- CHECK: `customer_metrics.total_spend_cents >= 0`
+- CHECK: `customer_metrics.no_show_count >= 0`
+- CHECK: `customer_metrics.canceled_count >= 0`
+- CHECK: `customer_metrics.total_bookings_count >= 0`
+Count: 13

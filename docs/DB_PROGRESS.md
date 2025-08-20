@@ -233,7 +233,7 @@ We introduced three promotions tables to support discount coupons, gift cards, a
   - UNIQUE: `referrals_tenant_referrer_referred_uniq(tenant_id, referrer_customer_id, referred_customer_id)`
   - UNIQUE: `referrals_tenant_code_uniq(tenant_id, code)`
   - CHECKs: XOR constraints on coupons, balance validation on gift cards, referral business rules
-- **Triggers**: `touch_updated_at` on all tables, `bookings_status_sync_biur`, `bookings_fill_tz_bi`
+- **Triggers**: `tenants_touch_updated_at`, `users_touch_updated_at`, `memberships_touch_updated_at`, `themes_touch_updated_at`, `customers_touch_updated_at`, `resources_touch_updated_at`, `customer_metrics_touch_updated_at`, `coupons_touch_updated_at`, `gift_cards_touch_updated_at`, `referrals_touch_updated_at`
 - **Policies (RLS)**: none yet (planned P0014–P0016; deny-by-default posture later)
 - **Migrations present**: `0001_extensions.sql` through `0010_promotions.sql`
 - **Tests (pgTAP)**: none yet (planned P0019)
@@ -511,8 +511,8 @@ erDiagram
   TENANTS ||--o{ COUPONS : "creates"
   TENANTS ||--o{ GIFT_CARDS : "issues"
   TENANTS ||--o{ REFERRALS : "tracks"
-  TENANTS ||--o{ NOTIFICATION_TEMPLATES : "configures"
-  TENANTS ||--o{ NOTIFICATIONS : "queues"
+  TENANTS ||--o{ NOTIFICATION_TEMPLATES : "customizes"
+  TENANTS ||--o{ NOTIFICATIONS : "sends"
   
   CUSTOMERS ||--o{ CUSTOMER_METRICS : "has metrics"
   CUSTOMERS ||--o{ BOOKINGS : "makes"
@@ -534,9 +534,8 @@ erDiagram
   BOOKINGS ||--o{ PAYMENTS : "generates"
   BOOKINGS ||--o{ BOOKINGS : "reschedules from"
   
-  NOTIFICATION_EVENT_TYPE ||--o{ NOTIFICATION_TEMPLATES : "defines"
-  NOTIFICATION_EVENT_TYPE ||--o{ NOTIFICATIONS : "triggers"
-  NOTIFICATION_TEMPLATES ||--o{ NOTIFICATIONS : "templates"
+  NOTIFICATION_EVENT_TYPE ||--o{ NOTIFICATION_TEMPLATES : "triggers"
+  NOTIFICATION_TEMPLATES ||--o{ NOTIFICATIONS : "generates"
 
   TENANTS {
     uuid id PK
@@ -689,3 +688,236 @@ erDiagram
 - **Flows**: +2 (notifications worker consumption, template management)
 
 **Cumulative canon counts (P0000–P0011)**: interfaces: 23, constraints: 88, flows: 7
+
+---
+
+## 0012 — Usage Counters & Quotas (Complete Implementation Report)
+
+### Inputs consulted
+- `infra/supabase/migrations/0012_usage_quotas.sql` — implementation for usage_counters and quotas tables with touch trigger on quotas only
+- `infra/supabase/tests/task_12_clean_validation.sql` — comprehensive validation tests ensuring 100% compliance
+- `infra/supabase/tests/task_12_business_rules_validation.sql` — business logic and edge case validation
+- `infra/supabase/tests/task_12_usage_quotas_validation.sql` — detailed schema, constraint, and trigger validation
+- `docs/database/design_brief.md` — Section 8) Usage & Quotas (Final): `usage_counters` are application-managed (jobs/transactions), no DB triggers for increments (preserves idempotency; supports backfills); quotas enforcement points and monthly envelopes
+- `docs/database/database_context_pack.md` — Context Pack §129-130: usage_counters (periodic, per-tenant) and quotas with updated_at; sets up envelopes and enforcement points; §276: quotas are app-managed counters with enforcement points and no DB autoincrement
+- `docs/database/tasks.md` — Task 12 specification: create `infra/supabase/migrations/0012_usage_quotas.sql` with usage_counters and quotas tables; attach touch_updated_at() on quotas; implement monthly envelopes and enforcement points
+- `docs/database/canon/interfaces.md` — P0012 interfaces: usage_counters (application-managed, period-based) and quotas (enforcement limits, period configuration)
+- `docs/database/canon/constraints.md` — P0012 constraints: 8 constraints including FKs, uniques, and CHECKs for usage tracking and quota validation
+- `docs/database/canon/critical_flows.md` — P0012 flows: usage tracking and quota enforcement with application-managed counters and enforcement points
+
+Execution Context Rule honored: authoritative order Design Brief → Context Pack → Cheat Sheets. No deviations.
+
+### Reasoning and intermediate steps
+- Verified table DDL in `0012_usage_quotas.sql` aligns with Brief: application-managed `usage_counters` and enforcement `quotas` with period types
+- Confirmed idempotency:
+  - Tables created with `IF NOT EXISTS`
+  - Triggers created via DO block conditioned on column existence
+  - No destructive operations in migration
+- Confirmed application-managed philosophy: `usage_counters` intentionally lack triggers to preserve idempotency and support backfills per Design Brief §152-153
+- Mapped each constraint to canon entries to ensure coverage (8 constraints total: 2 FKs, 2 uniques, 4 CHECKs)
+- Ensured period-based design: `usage_counters` support multiple periods per code per tenant via `(tenant_id, code, period_start)` unique
+- Ensured quota flexibility: `quotas` support all period types (daily/weekly/monthly/yearly) with active/inactive toggle
+- Applied touch trigger only to `quotas` table per application-managed philosophy for `usage_counters`
+- Updated canon docs for constraints, flows, and interfaces; validated counts
+- Created comprehensive validation tests covering schema, constraints, triggers, business rules, and edge cases
+
+### Actions taken (outputs produced)
+- Migration created: `infra/supabase/migrations/0012_usage_quotas.sql` — 64 lines implementing usage tracking and quota enforcement
+- Validation tests created:
+  - `task_12_clean_validation.sql` — clean validation with test data cleanup
+  - `task_12_business_rules_validation.sql` — business logic and edge case validation
+  - `task_12_usage_quotas_validation.sql` — comprehensive schema and constraint validation
+- Canon updated:
+  - `docs/database/canon/constraints.md` → Added P0012 constraints (2 FKs, 2 uniques, 4 CHECKs). Count: 8
+  - `docs/database/canon/critical_flows.md` → Added P0012 flows for usage tracking and quota enforcement. Count: 1
+  - `docs/database/canon/interfaces.md` → P0012 interfaces present for usage_counters and quotas. Count: 2 (verified)
+- Progress log updated: this P0012 section appended in `docs/database/DB_PROGRESS.md`
+
+### Plain-language description
+We implemented a comprehensive usage tracking and quota enforcement system with two core tables. The `usage_counters` table tracks periodic consumption metrics (bookings, notifications, API calls, etc.) per tenant across configurable time periods, designed as application-managed counters without database triggers to preserve idempotency and support data backfills. The `quotas` table defines enforcement boundaries with flexible period types (daily, weekly, monthly, yearly), allowing tenants to set different limits based on their subscription tier or custom agreements.
+
+The system supports multiple periods per tracking code (e.g., monthly tracking across different months), different codes per tenant (e.g., separate counters for bookings vs. notifications), and includes metadata fields for future extensibility. Quotas can be activated/deactivated and support zero limits for unlimited scenarios. The design separates tracking from enforcement, enabling sophisticated business logic like burst allowances, grace periods, and custom enforcement policies at the application layer.
+
+### Rationale and connection to the Design Brief
+- **Usage & Quotas Foundation**: Implements Design Brief §8 requirement for usage tracking and quota enforcement, providing the data structures needed for subscription management and resource limits
+- **Application-Managed Philosophy**: Strictly follows Design Brief §152-153 stating "`usage_counters` are application-managed (jobs/transactions). No DB triggers for increments (preserves idempotency; supports backfills)." This design choice prevents race conditions during counter updates and enables offline-safe operations
+- **Quota Enforcement Architecture**: The quotas table implements the Context Pack reference to "enforcement points" and "monthly envelopes" by providing configurable period types and limit values. This supports the Brief's requirement for usage quotas while maintaining flexibility for different business models and subscription tiers
+- **Audit Integration Ready**: Following Design Brief §157 requirement that "`audit_logs` with `public.log_audit()` on: `bookings`, `services`, `payments`, `themes`, `quotas`", the quotas table includes the touch trigger to maintain updated_at timestamps, preparing for audit log integration in P0013
+- **Multi-tenant Isolation**: Both tables are tenant-scoped with proper foreign key relationships, supporting the Brief's multi-tenant architecture requirements
+- **Metadata Extensibility**: JSONB metadata fields on both tables enable future enhancements without schema changes, supporting the Brief's extensibility goals
+
+### Decisions made
+- **Application-Managed Counters**: Chose to implement `usage_counters` without database triggers for increments, following Design Brief guidance to preserve idempotency and support backfills
+- **Period-Based Uniqueness**: Implemented unique constraint on `(tenant_id, code, period_start)` for usage_counters to prevent duplicate period tracking while allowing historical data retention
+- **Quota Uniqueness Approach**: Implemented single quota per code per tenant rather than allowing multiple active quotas to avoid enforcement complexity and ensure clear business rules
+- **Trigger Assignment Strategy**: Applied touch trigger only to quotas table (not usage_counters) because quotas represent business configuration that needs audit trails, while usage_counters are operational data managed by application processes
+- **Period Type Validation**: Chose to enforce period type validation via CHECK constraint rather than enum to maintain flexibility for future additions
+- **Metadata Defaults**: Set metadata fields to default to `{}` rather than NULL to simplify application logic and ensure consistent JSONB handling
+- **Status Management**: Added `is_active` boolean to quotas to enable non-destructive quota management (disable vs. delete)
+
+### Pitfalls / tricky parts
+- **Trigger Assignment Logic**: Balancing the need for audit trails on quotas with the application-managed philosophy for usage_counters required careful consideration of which tables receive triggers. The solution applies triggers only where business configuration changes need tracking
+- **Period Ordering Validation**: Ensuring `period_start <= period_end` constraint works correctly for edge cases like same-day periods required careful constraint design
+- **Unique Constraint Design**: The unique constraint on `(tenant_id, code, period_start)` for usage_counters prevents duplicate period tracking while allowing historical data retention. This supports scenarios where periods need to be recalculated or imported
+- **Foreign Key Cascade**: Both tables use `ON DELETE CASCADE` for tenant relationships, ensuring data consistency when tenants are removed
+- **Metadata Type Consistency**: Ensuring both tables use JSONB for metadata fields maintains consistency across the schema and enables efficient querying
+- **Test Data Cleanup**: Validation tests required careful cleanup of test data to avoid conflicts between test runs and ensure reproducible results
+
+### Questions for Future Me
+- **Enforcement Timing**: When should quota checks occur in the application flow? Before operations (preventive), after operations (reactive), or both? The current design supports both approaches but requires careful consideration of when to check quotas
+- **Quota Inheritance Models**: Should quotas support inheritance from parent tenants or subscription tiers? The current design assumes flat quota management per tenant
+- **Historical Data Retention**: How long should usage_counters data be retained? Should we implement automatic archiving or purging for old periods to manage table growth?
+- **Quota Notifications**: Should the system automatically notify when quotas are approached or exceeded? This might require integration with the notifications system from P0011
+- **Multi-Dimensional Quotas**: Do we need quotas that consider multiple factors (e.g., bookings per month AND revenue per month)? The current design assumes single-dimensional limits
+- **Quota Rollover**: Should quotas support rollover of unused capacity to the next period? This would require additional logic in the application layer
+- **Burst Allowances**: How should the system handle burst scenarios where usage temporarily exceeds quotas? Should this be configurable per quota?
+
+### State Snapshot (after P0012)
+- **Extensions**: pgcrypto, citext, btree_gist, pg_trgm
+- **Enums**: booking_status, payment_status, membership_role, resource_type, notification_channel, notification_status, payment_method
+- **Functions**: `public.current_tenant_id()`, `public.current_user_id()`, `public.touch_updated_at()`
+- **Tables**:
+  - Core: `public.tenants`, `public.users`, `public.memberships`, `public.themes`
+  - P0005: `public.customers`, `public.resources`, `public.customer_metrics`
+  - P0006: `public.services`, `public.service_resources`
+  - P0007: `public.availability_rules`, `public.availability_exceptions`
+  - P0008: `public.bookings`, `public.booking_items`
+  - P0009: `public.payments`, `public.tenant_billing`
+  - P0010: `public.coupons`, `public.gift_cards`, `public.referrals`
+  - P0011: `public.notification_event_type`, `public.notification_templates`, `public.notifications`
+  - **P0012: `public.usage_counters`, `public.quotas`** (new)
+- **Indexes/Constraints (selected)**:
+  - Partial UNIQUE: `tenants(slug)` WHERE `deleted_at IS NULL`
+  - UNIQUE: `memberships(tenant_id, user_id)`
+  - Partial UNIQUE: `customers(tenant_id, email)` WHERE `email IS NOT NULL AND deleted_at IS NULL`
+  - UNIQUE: `bookings(tenant_id, client_generated_id)` (idempotency)
+  - EXCLUDE: `bookings` overlap prevention for active statuses
+  - **P0012 Constraints**:
+    - FK: `usage_counters.tenant_id → tenants(id) ON DELETE CASCADE`
+    - FK: `quotas.tenant_id → tenants(id) ON DELETE CASCADE`
+    - UNIQUE: `usage_counters(tenant_id, code, period_start)`
+    - UNIQUE: `quotas(tenant_id, code)`
+    - CHECK: `usage_counters.current_count >= 0`
+    - CHECK: `usage_counters.period_start <= period_end`
+    - CHECK: `quotas.limit_value >= 0`
+    - CHECK: `quotas.period_type IN ('daily', 'weekly', 'monthly', 'yearly')`
+- **Triggers**: All tables with updated_at have `_touch_updated_at` triggers (including new `quotas_touch_updated_at`)
+- **Notable Absence**: No trigger on `usage_counters` per application-managed philosophy
+- **Policies (RLS)**: none yet (planned P0014–P0016; deny-by-default posture later)
+- **Migrations present**: All migrations through P0012 including `0012_usage_quotas.sql`
+- **Tests**: Comprehensive validation tests for P0012 covering schema, constraints, triggers, and business rules
+- **Documentation**: canon interfaces/constraints/flows updated for P0012
+
+### Visual representation (schema and relationships after P0012)
+```mermaid
+erDiagram
+  TENANTS ||--o{ MEMBERSHIPS : "has"
+  USERS ||--o{ MEMBERSHIPS : "joins"
+  TENANTS ||--o{ THEMES : "brands"
+  TENANTS ||--o{ CUSTOMERS : "owns"
+  TENANTS ||--o{ RESOURCES : "owns"
+  TENANTS ||--o{ CUSTOMER_METRICS : "rolls up"
+  TENANTS ||--o{ SERVICES : "offers"
+  TENANTS ||--o{ AVAILABILITY_RULES : "defines"
+  TENANTS ||--o{ AVAILABILITY_EXCEPTIONS : "overrides"
+  TENANTS ||--o{ BOOKINGS : "manages"
+  TENANTS ||--o{ PAYMENTS : "processes"
+  TENANTS ||--o{ TENANT_BILLING : "configures"
+  TENANTS ||--o{ COUPONS : "creates"
+  TENANTS ||--o{ GIFT_CARDS : "issues"
+  TENANTS ||--o{ REFERRALS : "tracks"
+  TENANTS ||--o{ NOTIFICATION_TEMPLATES : "customizes"
+  TENANTS ||--o{ NOTIFICATIONS : "sends"
+  TENANTS ||--o{ USAGE_COUNTERS : "tracks"
+  TENANTS ||--o{ QUOTAS : "enforces"
+
+  RESOURCES ||--o{ AVAILABILITY_RULES : "follows"
+  RESOURCES ||--o{ AVAILABILITY_EXCEPTIONS : "overrides"
+  RESOURCES ||--o{ BOOKINGS : "schedules"
+  RESOURCES ||--o{ SERVICE_RESOURCES : "delivers"
+  SERVICES ||--o{ SERVICE_RESOURCES : "requires"
+  SERVICES ||--o{ BOOKINGS : "books"
+  CUSTOMERS ||--o{ BOOKINGS : "makes"
+  CUSTOMERS ||--o{ PAYMENTS : "pays"
+  CUSTOMERS ||--o{ GIFT_CARDS : "receives"
+  CUSTOMERS ||--o{ REFERRALS : "refers"
+  BOOKINGS ||--o{ BOOKING_ITEMS : "contains"
+  BOOKINGS ||--o{ PAYMENTS : "generates"
+  NOTIFICATION_EVENT_TYPE ||--o{ NOTIFICATION_TEMPLATES : "triggers"
+  NOTIFICATION_TEMPLATES ||--o{ NOTIFICATIONS : "generates"
+
+  subgraph "Usage Tracking & Quotas"
+    UC[usage_counters<br/>app-managed, period-based]
+    Q[quotas<br/>limits, enforcement points]
+  end
+
+  subgraph "Core Tenancy"
+    T[tenants<br/>slug, tz, billing]
+    U[users<br/>global, no tenant_id]
+    M[memberships<br/>role, permissions]
+    TH[themes<br/>branding, 1:1]
+  end
+
+  subgraph "Customer & Resource Management"
+    C[customers<br/>PII, preferences]
+    R[resources<br/>type, tz, capacity]
+    CM[customer_metrics<br/>rollups, read-model]
+  end
+
+  subgraph "Service & Availability"
+    S[services<br/>pricing, duration]
+    SR[service_resources<br/>mapping]
+    AR[availability_rules<br/>recurring patterns]
+    AE[availability_exceptions<br/>overrides]
+  end
+
+  subgraph "Booking & Scheduling"
+    B[bookings<br/>idempotent, overlap-free]
+    BI[booking_items<br/>detailed scheduling]
+  end
+
+  subgraph "Payments & Billing"
+    P[payments<br/>PCI boundary, idempotent]
+    TB[tenant_billing<br/>subscription config]
+  end
+
+  subgraph "Promotions & Marketing"
+    CO[coupons<br/>discounts, limits]
+    GC[gift_cards<br/>balance tracking]
+    REF[referrals<br/>reward system]
+  end
+
+  subgraph "Notifications"
+    NET[notification_event_type<br/>event definitions]
+    NT[notification_templates<br/>tenant customization]
+    N[notifications<br/>queued, retry logic]
+  end
+
+  subgraph "Data Integrity & Constraints"
+    PK[Primary Keys<br/>uuid, tenant-scoped]
+    FK[Foreign Keys<br/>cascade deletes]
+    UQ[Unique Constraints<br/>idempotency, business rules]
+    EX[Exclusion Constraints<br/>overlap prevention]
+    CK[CHECK Constraints<br/>money ≥ 0, time ordering, quotas ≥ 0]
+  end
+
+  subgraph "Triggers & Automation"
+    TT[Touch Triggers<br/>updated_at freshness]
+    BS[Booking Status Sync<br/>precedence enforcement]
+    TZ[Timezone Resolution<br/>wall-time reconstruction]
+  end
+
+  subgraph "RLS & Security"
+    ID[Identity Helpers<br/>current_tenant_id, current_user_id]
+    POL[Row Level Security<br/>tenant isolation, role gates]
+  end
+```
+
+**Key P0012 Additions:**
+- `public.usage_counters` table with application-managed period-based tracking
+- `public.quotas` table with enforcement limits and period configuration
+- Touch trigger on quotas only (usage_counters application-managed)
+- 8 constraints ensuring data integrity and business rules
+- Support for daily/weekly/monthly/yearly period types
+- Metadata extensibility via JSONB fields
+- Tenant-scoped usage tracking and quota management

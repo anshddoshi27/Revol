@@ -147,3 +147,17 @@ Count: 3
 - Table: notification_templates — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `event_code text FK → notification_event_type(code)`, `channel notification_channel NOT NULL`, `name text NOT NULL DEFAULT ''`, `subject text DEFAULT ''`, `body text NOT NULL DEFAULT ''`, `is_active boolean NOT NULL DEFAULT true`, `metadata jsonb DEFAULT '{}'`, timestamps
 - Table: notifications — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `event_code text FK → notification_event_type(code)`, `channel notification_channel NOT NULL`, `status notification_status NOT NULL DEFAULT 'queued'`, `to_email text`, `to_phone text`, `target_json jsonb DEFAULT '{}'`, `subject text DEFAULT ''`, `body text NOT NULL DEFAULT ''`, `scheduled_at timestamptz NOT NULL DEFAULT now()`, `sent_at timestamptz`, `failed_at timestamptz`, `attempts int NOT NULL DEFAULT 0`, `max_attempts int NOT NULL DEFAULT 3`, `last_attempt_at timestamptz`, `error_message text`, `dedupe_key text`, `provider_message_id text`, `provider_metadata jsonb DEFAULT '{}'`, `metadata jsonb DEFAULT '{}'`, timestamps
 Count: 3
+
+### P0012 — Interfaces
+- Table: usage_counters — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `code text NOT NULL`, `period_start date NOT NULL`, `period_end date NOT NULL`, `current_count int NOT NULL DEFAULT 0`, `metadata jsonb DEFAULT '{}'`, timestamps; application-managed counters with no DB triggers to preserve idempotency and support backfills
+- Table: quotas — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `code text NOT NULL`, `limit_value int NOT NULL`, `period_type text NOT NULL DEFAULT 'monthly'`, `is_active boolean NOT NULL DEFAULT true`, `metadata jsonb DEFAULT '{}'`, timestamps; sets up enforcement envelopes with touch trigger for updated_at
+Count: 2
+
+### P0013 — Interfaces
+- Function: public.log_audit() → trigger `<table>_audit_aiud` (generic audit logging for AFTER INSERT/UPDATE/DELETE on key business tables)
+- Function: public.purge_audit_older_than_12m() → int (removes audit records older than 12 months, returns deleted count)
+- Function: public.anonymize_customer(p_tenant_id uuid, p_customer_id uuid) → void (GDPR-compliant PII scrubbing with audit trail)
+- Table: audit_logs — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `table_name text NOT NULL`, `operation text NOT NULL` (INSERT/UPDATE/DELETE), `record_id uuid`, `old_data jsonb`, `new_data jsonb`, `user_id uuid`, `created_at timestamptz NOT NULL DEFAULT now()`
+- Table: events_outbox — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `event_code text NOT NULL`, `payload jsonb NOT NULL DEFAULT '{}'`, `status text NOT NULL DEFAULT 'ready'` (ready/delivered/failed), `ready_at timestamptz`, `delivered_at timestamptz`, `failed_at timestamptz`, `attempts int NOT NULL DEFAULT 0`, `max_attempts int NOT NULL DEFAULT 3`, `last_attempt_at timestamptz`, `error_message text`, `key text` (optional unique key), `metadata jsonb DEFAULT '{}'`, timestamps
+- Table: webhook_events_inbox — fields: `provider text NOT NULL`, `id text NOT NULL`, `payload jsonb NOT NULL DEFAULT '{}'`, `processed_at timestamptz`, `created_at timestamptz NOT NULL DEFAULT now()`; PK `(provider, id)` for idempotent inbound processing
+Count: 6

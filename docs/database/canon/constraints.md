@@ -271,3 +271,25 @@ Count: 28
 - CHECK: `notifications_email_when_email_channel` (channel != 'email' OR to_email IS NOT NULL)
 - CHECK: `notifications_phone_when_sms_channel` (channel != 'sms' OR to_phone IS NOT NULL)
 Count: 13
+
+### P0012 — Constraints
+- FK: `usage_counters.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `quotas.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- UNIQUE: `usage_counters(tenant_id, code, period_start)` (unique period-based counting per tenant)
+- UNIQUE: `quotas(tenant_id, code)` (unique quota per tenant and code)
+- CHECK: `usage_counters_current_count_non_negative` (current_count >= 0)
+- CHECK: `usage_counters_period_order` (period_start <= period_end)
+- CHECK: `quotas_limit_value_non_negative` (limit_value >= 0)
+- CHECK: `quotas_period_type_valid` (period_type IN ('daily', 'weekly', 'monthly', 'yearly'))
+Count: 8
+
+### P0013 — Constraints
+- FK: `audit_logs.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- FK: `events_outbox.tenant_id → tenants(id) ON DELETE CASCADE` (required tenant relationship)
+- PK: `webhook_events_inbox(provider, id)` (composite primary key for idempotent inbound processing)
+- UNIQUE: `events_outbox_tenant_key_uniq(tenant_id, key) WHERE key IS NOT NULL` (exactly-once delivery when key provided)
+- CHECK: `audit_logs.operation IN ('INSERT', 'UPDATE', 'DELETE')` (valid audit operation types)
+- CHECK: `events_outbox.status IN ('ready', 'delivered', 'failed')` (valid outbox status values)
+- CHECK: `events_outbox.attempts >= 0` (non-negative attempt count)
+- CHECK: `events_outbox.max_attempts >= 0` (non-negative max attempts)
+Count: 8

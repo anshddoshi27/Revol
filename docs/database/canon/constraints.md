@@ -293,3 +293,34 @@ Count: 8
 - CHECK: `events_outbox.attempts >= 0` (non-negative attempt count)
 - CHECK: `events_outbox.max_attempts >= 0` (non-negative max attempts)
 Count: 8
+
+### P0014 — Constraints
+- No new database constraints introduced in this prompt. Enabled Row Level Security on all 26 tables as a security enforcement mechanism, establishing deny-by-default access control per Design Brief requirements.
+Count: 0
+
+### P0016 — Constraints
+- RLS Policy: tenants_sel_members (restricts SELECT to tenant members only)
+- RLS Policy: users_sel_self_or_shared_tenant (restricts SELECT to self or shared-tenant users)
+- RLS Policy: memberships_sel_members (restricts SELECT to tenant members)
+- RLS Policy: memberships_ins/upd/del_owner_admin (restricts writes to owner/admin roles only)
+- RLS Policy: themes_sel_members (restricts SELECT to tenant members)
+- RLS Policy: themes_ins/upd/del_owner_admin (restricts writes to owner/admin roles only)
+- RLS Policy: tenant_billing_sel_members (restricts SELECT to tenant members)
+- RLS Policy: tenant_billing_ins/upd/del_owner_admin (restricts writes to owner/admin roles only)
+- RLS Policy: quotas_sel_members (restricts SELECT to tenant members)
+- RLS Policy: quotas_ins/upd/del_owner_admin (restricts writes to owner/admin roles only)
+- RLS Policy: events_outbox_sel_members_and_service (restricts SELECT to tenant members and service-role)
+- RLS Policy: events_outbox_ins/upd/del_members (restricts writes to tenant members)
+Count: 12
+
+### P0017 — Constraints
+- No new database constraints introduced in this prompt. Added performance indexes to optimize query patterns while maintaining existing constraint enforcement through unique indexes and CHECK constraints from previous migrations.
+Count: 0
+
+### P0018 — Constraints
+- No new database constraints introduced in this prompt. Added development seed data that respects all existing constraints and demonstrates proper use of unique keys, foreign key relationships, and CHECK constraint validation patterns.
+Count: 0
+
+### P0019 — Constraints
+- No new database constraints introduced in this prompt. Added comprehensive pgTAP test suite to validate all existing constraints systematically: RLS policies, exclusion constraints, CHECK constraints, unique constraints, foreign key constraints, and business rule enforcement.
+Count: 0

@@ -161,3 +161,29 @@ Count: 2
 - Table: events_outbox — fields: `id uuid PK`, `tenant_id uuid FK → tenants(id)`, `event_code text NOT NULL`, `payload jsonb NOT NULL DEFAULT '{}'`, `status text NOT NULL DEFAULT 'ready'` (ready/delivered/failed), `ready_at timestamptz`, `delivered_at timestamptz`, `failed_at timestamptz`, `attempts int NOT NULL DEFAULT 0`, `max_attempts int NOT NULL DEFAULT 3`, `last_attempt_at timestamptz`, `error_message text`, `key text` (optional unique key), `metadata jsonb DEFAULT '{}'`, timestamps
 - Table: webhook_events_inbox — fields: `provider text NOT NULL`, `id text NOT NULL`, `payload jsonb NOT NULL DEFAULT '{}'`, `processed_at timestamptz`, `created_at timestamptz NOT NULL DEFAULT now()`; PK `(provider, id)` for idempotent inbound processing
 Count: 6
+
+### P0014 — Interfaces
+- No new schema interfaces introduced in this prompt. Enabled Row Level Security on all 26 existing tables to establish deny-by-default security posture per Design Brief requirements.
+Count: 0
+
+### P0016 — Interfaces
+- Policy: tenants_sel_members (member-gated SELECT for tenants table)
+- Policy: users_sel_self_or_shared_tenant (self or shared-tenant SELECT for users table)
+- Policy: memberships_sel_members + memberships_ins/upd/del_owner_admin (member reads, owner/admin writes for memberships)
+- Policy: themes_sel_members + themes_ins/upd/del_owner_admin (member reads, owner/admin writes for themes)
+- Policy: tenant_billing_sel_members + tenant_billing_ins/upd/del_owner_admin (member reads, owner/admin writes for billing)
+- Policy: quotas_sel_members + quotas_ins/upd/del_owner_admin (member reads, owner/admin writes for quotas)
+- Policy: events_outbox_sel_members_and_service + events_outbox_ins/upd/del_members (tenant-scoped access for events outbox)
+Count: 7
+
+### P0017 — Interfaces
+- No new schema interfaces introduced in this prompt. Added performance indexes to support high-traffic query patterns: calendar views, service discovery, payment tracking, customer segmentation, and event processing.
+Count: 0
+
+### P0018 — Interfaces
+- No new schema interfaces introduced in this prompt. Added development seed data for local testing: single tenant 'salonx', staff resource 'Sarah Johnson', and 'Basic Haircut' service with realistic metadata structures.
+Count: 0
+
+### P0019 — Interfaces
+- No new schema interfaces introduced in this prompt. Added comprehensive pgTAP test suite to validate existing interfaces and ensure schema correctness: tenant isolation tests and booking business logic tests.
+Count: 0

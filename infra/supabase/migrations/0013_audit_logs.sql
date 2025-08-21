@@ -83,14 +83,33 @@ DECLARE
     tenant_id_val uuid;
     user_id_val uuid;
     record_id_val uuid;
+    has_id_column boolean;
 BEGIN
+    -- Check if the table has an 'id' column
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = TG_TABLE_SCHEMA 
+        AND table_name = TG_TABLE_NAME 
+        AND column_name = 'id'
+    ) INTO has_id_column;
+
     -- Extract tenant_id from the row (OLD for DELETE, NEW for INSERT/UPDATE)
     IF TG_OP = 'DELETE' THEN
         tenant_id_val := (OLD.tenant_id)::uuid;
-        record_id_val := (OLD.id)::uuid;
+        -- Only try to extract id if the column exists
+        IF has_id_column THEN
+            record_id_val := (OLD.id)::uuid;
+        ELSE
+            record_id_val := NULL;
+        END IF;
     ELSE
         tenant_id_val := (NEW.tenant_id)::uuid;
-        record_id_val := (NEW.id)::uuid;
+        -- Only try to extract id if the column exists
+        IF has_id_column THEN
+            record_id_val := (NEW.id)::uuid;
+        ELSE
+            record_id_val := NULL;
+        END IF;
     END IF;
 
     -- Get current user from JWT helper

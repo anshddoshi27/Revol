@@ -161,3 +161,23 @@ Count: 1
 - Event-driven architecture: `events_outbox` provides reliable exactly-once delivery semantics for outbound integrations with status tracking (ready/delivered/failed), retry logic with configurable max_attempts, and optional unique keys; worker processes query by status and ready_at for efficient job processing; delivery confirmation updates status and timestamps; failure handling captures error messages and increments attempt counters; supports both fire-and-forget and guaranteed delivery patterns.
 - GDPR compliance and data privacy: `anonymize_customer()` function provides compliant PII scrubbing while preserving aggregate analytics data; updates customer records to remove display_name, email, phone while maintaining referential integrity; stamps pseudonymized_at timestamp for audit trail; generates audit log entry documenting anonymization action; enables right-to-be-forgotten compliance without breaking historical business metrics.
 Count: 3
+
+### P0014 — Critical Flows
+- No new critical flows introduced in this prompt. Enabled Row Level Security on all 26 tables to establish deny-by-default security foundation; existing helper functions `current_tenant_id()` and `current_user_id()` are now ready for policy predicate evaluation in P0015-P0016.
+Count: 0
+
+### P0016 — Critical Flows
+- Special authorization patterns: cross-tenant tables (tenants, users, memberships, themes, tenant_billing, quotas) use member-gated SELECT policies with EXISTS subqueries to verify tenant membership; owner/admin role restrictions applied for write operations via role enumeration checks in membership lookups; service-role granted unrestricted access to webhook_events_inbox; events_outbox allows tenant-scoped member access plus service-role delivery reads; all policies use helper functions `current_tenant_id()` and `current_user_id()` for JWT claim extraction with NULL-safe fail-closed semantics.
+Count: 1
+
+### P0017 — Critical Flows
+- No new critical flows introduced in this prompt. Added performance indexes to optimize existing data access patterns without changing business logic or operational flows; indexes support tenant-first query optimization for RLS policy evaluation and partial indexing for common filter patterns.
+Count: 0
+
+### P0018 — Critical Flows
+- No new critical flows introduced in this prompt. Added development seed data for local testing that demonstrates proper use of existing flows: tenant creation with themes, staff resource provisioning, service configuration with pricing, and service-resource mapping following established multi-tenant patterns.
+Count: 0
+
+### P0019 — Critical Flows
+- No new critical flows introduced in this prompt. Added comprehensive pgTAP test suite to validate all existing critical flows end-to-end: tenant isolation via RLS policies, booking overlap prevention with exclusion constraints, status synchronization with precedence rules, idempotency enforcement, timezone resolution cascade, and constraint boundary validation.
+Count: 0

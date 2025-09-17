@@ -17,6 +17,9 @@ This pack gives engineers and codegen the full, compiled context to implement Ti
 - **Trust-first:** clear pricing/policies, GDPR export/delete, PCI minimization.
 - **Observability & safety baked in:** structured logs, traces, metrics, rate limits, idempotency, outbox/inbox.
 - **Determinism over cleverness:** schema/constraints enforce invariants.
+- **White-label platform:** Complete branding control for each tenant with custom domains.
+- **Offline-first PWA:** Full offline capability for core booking flow with background sync.
+- **Apple-quality UX:** Intuitive, clean, elderly-friendly interface design with black/white theme.
 
 ### Engineering Discipline
 
@@ -24,6 +27,8 @@ This pack gives engineers and codegen the full, compiled context to implement Ti
 - Contracts frozen in `/src/types` (Pydantic DTOs generate OpenAPI).
 - Test layers: unit, integration (RLS ON), contract, adversarial, property-based.
 - Definition of Done: updated brief, OpenAPI, metrics, RLS tests green, error codes mapped.
+- **100% Confidence Requirement:** No code or deliverables may be produced below 100% confidence.
+- **Task Prioritization:** Every executor must prioritize task completion and ensure perfect execution.
 
 ---
 
@@ -187,6 +192,16 @@ payment_method: card|cash|apple_pay|paypal|other
 
 - Quotas enforced via `quotas` + `usage_counters`.
 - Views nightly refreshed, with staleness indicator.
+- **Comprehensive Analytics System (40+ Metrics)**:
+  - Revenue Analytics: Total revenue, revenue by service/staff, average transaction value, seasonal patterns
+  - Customer Analytics: New vs. returning customers, lifetime value, retention rates, churn analysis
+  - Booking Analytics: Conversion rates, peak hours, cancellation patterns, source tracking
+  - Service Analytics: Popular services, profitability analysis, cross-selling success rates
+  - Staff Performance: Bookings per staff, revenue generation, utilization rates, customer ratings
+  - Operational Analytics: No-show rates, wait times, capacity utilization, scheduling optimization
+  - Marketing Analytics: Promotion effectiveness, referral performance, social media impact
+  - Financial Analytics: Cash flow analysis, tax tracking, profit margins, cost analysis
+  - Competitive Intelligence: Market analysis, pricing insights, demand forecasting
 
 ### 5.8 Events/Realtime/Offline
 
@@ -198,6 +213,20 @@ payment_method: card|cash|apple_pay|paypal|other
 
 - Quotas CRUD, audit log queries, billing portal, maintenance toggle, impersonation (audited).
 - Compliance endpoints: `/internal/gdpr/export`, `/internal/gdpr/delete`.
+- **Admin Dashboard (13 Core Modules)**:
+  - Availability Scheduler: Drag-and-drop time slot creation, Google Calendar sync
+  - Services & Pricing: CRUD interface, bulk updates, category management
+  - Booking Management: Sortable table, bulk actions, payment tracking
+  - Visual Calendar: FullCalendar integration, drag-and-drop management
+  - Analytics Dashboard: Modular widgets, customizable dashboards
+  - Client CRM: Customer database, lifetime value, segmentation
+  - Promotions Engine: Coupon creation, referral programs, A/B testing
+  - Gift Card Management: Creation, sales tracking, redemption history
+  - Notification Settings: Template editor, timing configuration
+  - Team Management: Staff profiles, schedules, performance tracking
+  - Branding Controls: Live preview, color management, custom CSS
+  - Financial Reports: Revenue reporting, Stripe integration, tax tracking
+  - Customer Database: No customer logins - CRM records only
 
 ---
 
@@ -339,20 +368,74 @@ payment_method: card|cash|apple_pay|paypal|other
 - Email dispatch < 60s.
 - Uptime 99.9%.
 - Calendar queries < 150ms p95 for P1000 tenants.
+- **Enhanced Performance Targets**:
+  - Booking Flow Performance: <60 seconds completion time (even offline)
+  - App Load Performance: <2 seconds on 3G networks
+  - Data Security: Zero data leakage across tenants
+  - Admin Efficiency: Configure coupons/forms without developer assistance
+  - Subscription Management: Graceful enforcement after 30-day trial period
+  - Trial Visibility: Countdown visible to tenants
+  - Feature Extensibility: Feature toggles extensible without system rewrite
+
+## 15) Monetization & Business Model
+
+- **Flat Monthly Pricing**: First month free, then $11.99/month
+- **Stripe Connect**: Per-tenant payouts and subscription management
+- **Payment Methods**: Cards, Apple Pay, Google Pay, PayPal, cash (with no-show collateral)
+- **Cash Payment Policy**: 3% no-show fee with card on file via SetupIntent
+- **Gift Cards & Promotions**: Digital gift cards, coupon system, referral programs
+- **Trust-First Messaging**: "Transform your booking process with zero risk. No setup fees, no monthly costs for 90 days, no contracts."
+- **Trial Period**: 30-day free trial with clear countdown and upgrade prompts
 
 ---
 
-## 15) Cursor & Codegen Usage Notes
+## 16) Onboarding Flow Requirements (12 Steps)
+
+- **Business Information**: Name, type, address, phone, email, website, subdomain generation
+- **Owner Details & Team Setup**: Primary admin account, team invitations, role assignment
+- **Services & Pricing**: Dynamic service creation, categories, bulk import, image management
+- **Availability & Scheduling**: Weekly schedule builder, holiday management, time zone handling
+- **Team Member Management**: Staff profiles, scheduling preferences, service assignments
+- **Branding & Customization**: Color picker, logo upload, font selection, custom domain setup
+- **Promotions & Marketing**: Coupon creation, referral programs, discount rules
+- **Gift Card Configuration**: Denomination setup, digital delivery, redemption tracking
+- **Notification Settings**: SMS/email templates, timing configuration, opt-in management
+- **Payment Methods & Billing**: Stripe Connect, payment options, no-show fee policies
+- **Review & Go Live**: Comprehensive review, test booking flow, domain activation
+- **Modularity**: Each step is a separate React component that can be reordered, skipped, or extended
+
+## 17) UI/UX Design Requirements
+
+- **Apple-Quality UX**: Intuitive, clean, elderly-friendly interface design
+- **Black/White Theme**: Modern, high-contrast, professional appearance
+- **Touch-Optimized**: Large tap targets, responsive layouts for mobile-first design
+- **Sub-2s Load Time**: Optimized for 3G networks with fast loading
+- **Fully Offline-Capable**: Core booking flow works without internet connection
+- **Visual Flow Builder**: Drag-and-drop interface for booking flow customization
+- **Real-Time Preview**: Live preview of branding changes and booking flow modifications
+- **Accessibility**: ARIA compliance, screen reader support, keyboard navigation
+
+## 18) Cursor & Codegen Usage Notes
 
 - Start each module with one-screen design brief; freeze DTOs.
 - Generate Pydantic schemas → OpenAPI → FE SDK.
 - Always wire RLS helpers before writing queries.
 - Enforce idempotency everywhere.
 - Emit outbox events for all external side effects.
+- **100% Confidence Requirement**: No code or deliverables may be produced below 100% confidence.
+- **Task Prioritization**: Every executor must prioritize task completion and ensure perfect execution.
 
----
+## 19) Platform Architecture & User Management
 
-## 16) Deprecations & Aliases
+- **Main Tithi Platform**: Homepage with "Get on Tithi" and "Login" buttons
+- **User Types**: Tithi users (business owners/staff) vs. Customers (no platform accounts)
+- **Business Selection**: Multi-business access for users with multiple tenant relationships
+- **Role Management**: Owner, Admin, Staff roles with permission matrices
+- **Customer System**: No customer logins - customers exist only as CRM records in business databases
+- **Booking Flow Customization**: Complete customization with visual flow builder, custom fields, A/B testing
+- **Mobile-First Design**: Apple-quality UX with black/white theme, touch-optimized interface
+
+## 20) Deprecations & Aliases
 
 - `start_ts`/`end_ts` → alias accepted one cycle, canonical `start_at`/`end_at`.
 - `service_staff`/`service_rooms` → deprecated, canonical unified `resources`.
@@ -362,7 +445,7 @@ payment_method: card|cash|apple_pay|paypal|other
 
 ---
 
-## 17) Open Questions / TODOs
+## 21) Open Questions / TODOs
 
 - Stripe Tax integration (hooks reserved).
 - Tips support (DTOs reserved).

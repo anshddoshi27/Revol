@@ -19,14 +19,23 @@ class TenantService:
             name=tenant_data["name"],
             email=tenant_data["email"],
             slug=tenant_data.get("slug"),
-            timezone=tenant_data.get("timezone", "UTC"),
-            currency=tenant_data.get("currency", "USD"),
-            description=tenant_data.get("description", ""),
+            tz=tenant_data.get("timezone", "UTC"),
+            category=tenant_data.get("category", ""),
+            logo_url=tenant_data.get("logo_url"),
             locale=tenant_data.get("locale", "en_US"),
-            created_by=created_by
+            status="active"
         )
         
         db.session.add(tenant)
+        db.session.commit()
+        
+        # Create membership for the creator
+        membership = Membership(
+            tenant_id=tenant.id,
+            user_id=created_by,
+            role="owner"
+        )
+        db.session.add(membership)
         db.session.commit()
         
         return tenant

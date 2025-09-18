@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Union
 from threading import Lock
 
 from app.extensions import get_redis
-from app.models.system import TithiError
+from app.middleware.error_handler import TithiError
 
 
 class CacheService:

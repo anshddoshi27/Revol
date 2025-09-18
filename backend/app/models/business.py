@@ -94,6 +94,7 @@ class Booking(TenantModel):
     # Relationships
     tenant = relationship("Tenant", back_populates="bookings")
     customer = relationship("Customer", back_populates="bookings")
+    payments = relationship("Payment", back_populates="booking")
     booking_items = relationship("BookingItem", back_populates="booking")
     rescheduled_from_booking = relationship("Booking", remote_side="Booking.id")
     

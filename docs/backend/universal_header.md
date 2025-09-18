@@ -5,6 +5,11 @@
 
 Tithi replaces multiple tools by offering onboarding, branding, bookings, payments, policies, notifications, CRM, analytics — all within one modular platform.
 
+**CRITICAL EXECUTION REQUIREMENT:**
+This project requires comprehensive multi-document consultation before any implementation. Do not assume you understand requirements from task descriptions alone. You must consult the design brief, context pack, and TITHI_DATABASE_COMPREHENSIVE_REPORT.md to fully understand all goals, architectural decisions, API patterns, and business requirements. Prioritize thoroughness over speed in requirements gathering. This is a multi-document project requiring cross-reference to ensure 100% compliance with all authoritative documents. The database report is essential for accurate backend integration and alignment with Tithi's spirit and functionalities.
+
+
+
 ### 0.2 Platform Architecture Overview
 Tithi is a white-labeled, multi-tenant booking platform where each tenant (business) has:
 - **Isolated data** with complete separation between business data
@@ -25,7 +30,7 @@ Tithi is a white-labeled, multi-tenant booking platform where each tenant (busin
 
 ## 1. Enhanced Platform Goals & Requirements
 
-**CRITICAL: TITHI_DATABASE_COMPREHENSIVE_REPORT.md is the single source of truth for all database schemas, constraints, indexes, relationships, migrations, and backend alignment. No deliverable should ever contradict or drift from this file.**
+**CRITICAL: TITHI_DATABASE_COMPREHENSIVE_REPORT.md is the single source of truth for all database schemas, constraints, indexes, relationships, migrations, and backend alignment. No deliverable should ever contradict or drift from this file.AFTER BUILDING CHECK THAT DATABASE IS FULLY COMPATIBLE WITH WHAT YOU JUST BUILT (THINK OF RELEVANT TABLES AND OVERALL SCHEMA AND HOW IT WOULD WORK WITH THE NEW ADDITION)**
 
 ### 1.1 App-Level Goals (Business Vision)
 - **Multi-tenant Mission**: Enable businesses to launch branded booking systems in minutes with complete data isolation
@@ -426,46 +431,44 @@ Every atomic prompt will contain a **Task Definition Block** (see Section 8). Th
 
 ## 8. Task Definition Block (Embedded Atomic Task)
 
-### Task 3.1: Tenant Onboarding Wizard (Phase 3)
-**Context:** Businesses register via onboarding wizard: business name, category, subdomain, logo, policies.
+### Task 3.2: Branding Assets
+**Context:** Allow tenants to upload logos, choose colors, and customize booking page.
 
 **Deliverable:**
-- `/onboarding/register` endpoint
-- Generates subdomain `<tenant>.tithi.com`
-- Saves branding + policy defaults
+- `/branding/assets` endpoint
+- S3 bucket integration for logos
 
 **Constraints:**
-- Subdomain unique
-- Policies defaulted but editable
+- Max logo size 2MB
+- Colors validated against hex
 
 **Inputs/Outputs:**
-- Input: {business_name, category, logo, policies}
-- Output: tenant record + subdomain
+- Input: {logo_file, hex_colors}
+- Output: branding record
 
-**Validation:** Duplicate subdomain → error
+**Validation:** Invalid hex rejected
 
-**Testing:** Register → accessible at `<tenant>.tithi.com`
+**Testing:** Upload logo → retrievable
 
-**Dependencies:** Task 1.2, Task 2.1
+**Dependencies:** Task 3.1
 
-**Executive Rationale:** Onboarding is the entry point for businesses, defining brand, policies, and subdomain. Foundation for white-label promise.
+**Executive Rationale:** Branding assets enable white-label booking experiences that differentiate businesses.
 
 **North-Star Invariants:**
-- No two tenants share subdomain
-- Onboarding must always result in functional tenant
+- Assets must always resolve correctly
+- Branding must always scope to tenant
 
-**Contract Tests (Black-box):** Given a business registers with subdomain "spa123", When another tries same subdomain, Then system must reject with 409 conflict.
+**Contract Tests (Black-box):** Given a tenant uploads a logo, When another tenant fetches it, Then system must deny access (403).
 
-**Schema/DTO Freeze Note:** `tenants` schema extended, frozen post-task.
+**Schema/DTO Freeze Note:** `branding` schema frozen.
 
-**Observability Hooks:** Emit `TENANT_ONBOARDED` with tenant_id, subdomain
+**Observability Hooks:** Emit `BRANDING_UPDATED` log
 
-**Error Model Enforcement:** `TITHI_TENANT_DUPLICATE_SUBDOMAIN`
+**Error Model Enforcement:** `TITHI_BRANDING_INVALID_HEX`
 
-**Idempotency & Retry Guarantee:** Registration idempotent per email/subdomain
+**Idempotency & Retry Guarantee:** Logo uploads overwrite deterministically
 
 ---
-
 
 ## 9. Execution Standards & Requirements
 

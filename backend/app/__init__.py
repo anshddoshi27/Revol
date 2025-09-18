@@ -131,6 +131,20 @@ def register_blueprints(app: Flask) -> None:
     # Analytics blueprint
     from .blueprints.analytics_api import analytics_bp
     app.register_blueprint(analytics_bp, url_prefix='/api/v1/analytics')
+    
+    # Onboarding blueprint
+    from .blueprints.onboarding import onboarding_bp
+    app.register_blueprint(onboarding_bp, url_prefix='/onboarding')
+    
+    # Payment API blueprint
+    from .blueprints.payment_api import payment_bp
+    app.register_blueprint(payment_bp, url_prefix='/api/payments')
+    
+    from .blueprints.promotion_api import promotion_bp
+    app.register_blueprint(promotion_bp, url_prefix='/api/promotions')
+    
+    from .blueprints.notification_api import notification_bp
+    app.register_blueprint(notification_bp, url_prefix='/api/notifications')
 
 
 def register_error_handlers(app: Flask) -> None:

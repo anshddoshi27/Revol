@@ -12,8 +12,9 @@ from ..models.system import Theme, Branding
 class ThemeService:
     """Service for theme-related business logic."""
     
-    def create_theme(self, theme_data: Dict[str, Any]) -> Theme:
-        """Create a new theme."""
+    def create_theme(self, tenant_id: str, theme_data: Dict[str, Any]) -> Theme:
+        """Create a new theme for a tenant."""
+        theme_data['tenant_id'] = tenant_id
         theme = Theme(**theme_data)
         db.session.add(theme)
         db.session.commit()

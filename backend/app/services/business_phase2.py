@@ -675,8 +675,8 @@ class AvailabilityService(BaseService):
                 # Check if this is a time off period
                 if (schedule.start_date <= start_at.date() and 
                     (schedule.end_date is None or schedule.end_date >= start_at.date())):
-                return False
-        else:
+                    return False
+            else:
                 # Check if this is a working period
                 work_hours = schedule.work_hours or {}
                 start_hour = work_hours.get('start_hour', self.config.DEFAULT_BUSINESS_START_HOUR)
@@ -685,7 +685,7 @@ class AvailabilityService(BaseService):
                 if (start_at.hour >= start_hour and end_at.hour <= end_hour):
                     return True
         
-                return False
+        return False
     
     def _get_default_availability(self, start_date: datetime, end_date: datetime, 
                                 resource_tz: timezone) -> List[Dict[str, Any]]:
@@ -881,8 +881,8 @@ class StaffService(BaseService):
             
             db.session.delete(staff_profile)
             db.session.commit()
-        
-        return True
+            
+            return True
             
         except SQLAlchemyError as e:
             db.session.rollback()

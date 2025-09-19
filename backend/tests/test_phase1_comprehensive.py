@@ -265,10 +265,10 @@ class TestModuleB_AuthAndTenancy:
             role="owner"
         )
         
-            db.session.add(membership)
-            db.session.commit()
-            
-            # Verify membership
+        db.session.add(membership)
+        db.session.commit()
+        
+        # Verify membership
         assert membership.tenant_id == tenant.id
         assert membership.user_id == user.id
         assert membership.role == "owner"

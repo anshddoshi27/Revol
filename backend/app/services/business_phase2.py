@@ -9,15 +9,16 @@ This module contains comprehensive business logic services for Phase 2:
 """
 
 import uuid
+import logging
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from sqlalchemy import and_, or_, func, text
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import db
 from ..models.business import (
     Customer, Service, Resource, Booking, BookingItem, ServiceResource, CustomerMetrics,
-    StaffProfile, WorkSchedule, StaffAssignmentHistory, BookingHold, WaitlistEntry, AvailabilityCache
+    StaffProfile, WorkSchedule, StaffAssignmentHistory, StaffAvailability, BookingHold, WaitlistEntry, AvailabilityCache
 )
 from ..models.core import Tenant, User, Membership
 from ..models.system import AuditLog, EventOutbox
@@ -112,15 +113,23 @@ class BaseService:
         outbox_event = EventOutbox(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
-            event_type=event_type,
-            payload=payload,
-            status="pending",
-            retry_count=0,
-            max_retries=self.config.MAX_RETRY_ATTEMPTS
+            event_code=event_type,
+            payload=payload or {},
+            status="ready",
+            attempts=0,
+            max_attempts=self.config.MAX_RETRY_ATTEMPTS,
+            ready_at=datetime.utcnow()
         )
-        
         db.session.add(outbox_event)
         db.session.commit()
+        logging.getLogger(__name__).info(
+            "EVENT_OUTBOX_ENQUEUED",
+            extra={
+                "tenant_id": str(tenant_id),
+                "event_code": event_type,
+                "event_id": str(outbox_event.id),
+            },
+        )
     
     def _log_audit(self, tenant_id: uuid.UUID, table_name: str, record_id: uuid.UUID, 
                    operation: str, user_id: uuid.UUID, old_values: Dict[str, Any] = None, 
@@ -1029,6 +1038,227 @@ class StaffService(BaseService):
         db.session.add(history_entry)
 
 
+class StaffAvailabilityService(BaseService):
+    """Service for staff availability management (Task 4.2)."""
+    
+    def create_availability(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID, 
+                          availability_data: Dict[str, Any], user_id: uuid.UUID) -> StaffAvailability:
+        """Create or update staff availability for a specific weekday."""
+        # Validate required fields
+        self._validate_required_fields(availability_data, ['weekday', 'start_time', 'end_time'])
+        
+        weekday = availability_data['weekday']
+        start_time = availability_data['start_time']
+        end_time = availability_data['end_time']
+        
+        # Validate weekday range
+        if not (1 <= weekday <= 7):
+            raise ValidationError("Weekday must be between 1 (Monday) and 7 (Sunday)")
+        
+        # Validate time format and order
+        if isinstance(start_time, str):
+            start_time = datetime.strptime(start_time, '%H:%M').time()
+        if isinstance(end_time, str):
+            end_time = datetime.strptime(end_time, '%H:%M').time()
+        
+        if end_time <= start_time:
+            raise ValidationError("End time must be after start time")
+        
+        # Check if staff profile exists
+        staff_profile = StaffProfile.query.filter_by(
+            tenant_id=tenant_id,
+            id=staff_profile_id
+        ).first()
+        
+        if not staff_profile:
+            raise ValueError("Staff profile not found")
+        
+        # Check if availability already exists for this weekday
+        existing_availability = StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            staff_profile_id=staff_profile_id,
+            weekday=weekday
+        ).first()
+        
+        if existing_availability:
+            # Update existing availability
+            existing_availability.start_time = start_time
+            existing_availability.end_time = end_time
+            existing_availability.is_active = availability_data.get('is_active', True)
+            existing_availability.metadata_json = availability_data.get('metadata', {})
+            existing_availability.updated_at = datetime.utcnow()
+            
+            # Log audit
+            self._log_audit(
+                tenant_id=tenant_id,
+                table_name="staff_availability",
+                operation="UPDATE",
+                record_id=existing_availability.id,
+                user_id=user_id,
+                old_values={"start_time": str(existing_availability.start_time), "end_time": str(existing_availability.end_time)},
+                new_values={"start_time": str(start_time), "end_time": str(end_time)}
+            )
+            
+            try:
+                db.session.commit()
+                return existing_availability
+            except SQLAlchemyError as e:
+                db.session.rollback()
+                raise DatabaseError(f"Failed to update staff availability: {str(e)}")
+        else:
+            # Create new availability
+            availability = StaffAvailability(
+                tenant_id=tenant_id,
+                staff_profile_id=staff_profile_id,
+                weekday=weekday,
+                start_time=start_time,
+                end_time=end_time,
+                is_active=availability_data.get('is_active', True),
+                metadata_json=availability_data.get('metadata', {})
+            )
+            
+            try:
+                db.session.add(availability)
+                db.session.commit()
+                
+                # Log audit
+                self._log_audit(
+                    tenant_id=tenant_id,
+                    table_name="staff_availability",
+                    operation="INSERT",
+                    record_id=availability.id,
+                    user_id=user_id,
+                    old_values=None,
+                    new_values={"weekday": weekday, "start_time": str(start_time), "end_time": str(end_time)}
+                )
+                
+                return availability
+                
+            except SQLAlchemyError as e:
+                db.session.rollback()
+                raise DatabaseError(f"Failed to create staff availability: {str(e)}")
+    
+    def get_staff_availability(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID) -> List[StaffAvailability]:
+        """Get all availability for a staff member."""
+        return StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            staff_profile_id=staff_profile_id,
+            is_active=True
+        ).order_by(StaffAvailability.weekday).all()
+    
+    def get_availability_for_weekday(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID, 
+                                   weekday: int) -> Optional[StaffAvailability]:
+        """Get availability for a specific weekday."""
+        return StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            staff_profile_id=staff_profile_id,
+            weekday=weekday,
+            is_active=True
+        ).first()
+    
+    def delete_availability(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID, 
+                          weekday: int, user_id: uuid.UUID) -> bool:
+        """Delete availability for a specific weekday."""
+        availability = StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            staff_profile_id=staff_profile_id,
+            weekday=weekday
+        ).first()
+        
+        if not availability:
+            return False
+        
+        # Log audit before deletion
+        self._log_audit(
+            tenant_id=tenant_id,
+            table_name="staff_availability",
+            operation="DELETE",
+            record_id=availability.id,
+            user_id=user_id,
+            old_values={"weekday": availability.weekday, "start_time": str(availability.start_time), "end_time": str(availability.end_time)},
+            new_values=None
+        )
+        
+        try:
+            db.session.delete(availability)
+            db.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            raise DatabaseError(f"Failed to delete staff availability: {str(e)}")
+    
+    def get_available_slots(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID, 
+                          start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+        """Get available time slots for a staff member within a date range."""
+        # Get staff profile and resource
+        staff_profile = StaffProfile.query.filter_by(
+            tenant_id=tenant_id,
+            id=staff_profile_id
+        ).first()
+        
+        if not staff_profile:
+            raise ValueError("Staff profile not found")
+        
+        # Get all availability for this staff member
+        availability_records = self.get_staff_availability(tenant_id, staff_profile_id)
+        
+        if not availability_records:
+            return []
+        
+        # Convert availability to time slots for the date range
+        slots = []
+        current_date = start_date.date()
+        end_date_only = end_date.date()
+        
+        while current_date <= end_date_only:
+            weekday = current_date.isoweekday()  # 1=Monday, 7=Sunday
+            
+            # Find availability for this weekday
+            availability = next(
+                (av for av in availability_records if av.weekday == weekday), 
+                None
+            )
+            
+            if availability:
+                # Create time slots for this day
+                day_slots = self._create_day_slots(
+                    current_date, 
+                    availability.start_time, 
+                    availability.end_time,
+                    staff_profile.resource.tz if staff_profile.resource else 'UTC'
+                )
+                slots.extend(day_slots)
+            
+            current_date += timedelta(days=1)
+        
+        return slots
+    
+    def _create_day_slots(self, date: datetime.date, start_time: time, end_time: time, 
+                         timezone_str: str) -> List[Dict[str, Any]]:
+        """Create time slots for a specific day."""
+        slots = []
+        
+        # Convert date and times to datetime objects
+        start_datetime = datetime.combine(date, start_time)
+        end_datetime = datetime.combine(date, end_time)
+        
+        # Create 30-minute slots (configurable)
+        slot_duration = timedelta(minutes=30)
+        current_slot = start_datetime
+        
+        while current_slot + slot_duration <= end_datetime:
+            slots.append({
+                "start_at": current_slot.isoformat(),
+                "end_at": (current_slot + slot_duration).isoformat(),
+                "date": date.isoformat(),
+                "weekday": date.isoweekday(),
+                "timezone": timezone_str
+            })
+            current_slot += slot_duration
+        
+        return slots
+
+
 class BookingService(BaseService):
     """Service for booking lifecycle management (Module G)."""
     
@@ -1360,3 +1590,245 @@ class CustomerService(BaseService):
         result = self._safe_db_operation(_update_customer)
         
         return result
+    
+    def list_customers(self, tenant_id: uuid.UUID, page: int = 1, per_page: int = 20, 
+                      search: str = None, segment_id: uuid.UUID = None, filters: Dict[str, Any] = None) -> Tuple[List[Customer], int]:
+        """List customers with pagination and filtering."""
+        query = Customer.query.filter_by(
+            tenant_id=tenant_id,
+            deleted_at=None
+        )
+        
+        # Apply search filter
+        if search:
+            query = query.filter(
+                or_(
+                    Customer.display_name.ilike(f'%{search}%'),
+                    Customer.email.ilike(f'%{search}%'),
+                    Customer.phone.ilike(f'%{search}%')
+                )
+            )
+        
+        # Apply segment filter
+        if segment_id:
+            query = query.join(CustomerSegmentMembership).filter(
+                CustomerSegmentMembership.segment_id == segment_id
+            )
+        
+        # Apply additional filters
+        if filters:
+            if 'marketing_opt_in' in filters:
+                query = query.filter(Customer.marketing_opt_in == filters['marketing_opt_in'])
+            if 'is_first_time' in filters:
+                query = query.filter(Customer.is_first_time == filters['is_first_time'])
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        customers = query.order_by(Customer.display_name).offset((page - 1) * per_page).limit(per_page).all()
+        
+        return customers, total
+    
+    def find_customer_by_email(self, tenant_id: uuid.UUID, email: str) -> Optional[Customer]:
+        """Find customer by email."""
+        return Customer.query.filter_by(
+            tenant_id=tenant_id,
+            email=email,
+            deleted_at=None
+        ).first()
+    
+    def find_customer_by_phone(self, tenant_id: uuid.UUID, phone: str) -> Optional[Customer]:
+        """Find customer by phone."""
+        return Customer.query.filter_by(
+            tenant_id=tenant_id,
+            phone=phone,
+            deleted_at=None
+        ).first()
+    
+    def get_customer_metrics(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> Dict[str, Any]:
+        """Get customer metrics and statistics."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        
+        # Get booking count
+        booking_count = Booking.query.filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id
+        ).count()
+        
+        # Get total spent
+        total_spent = db.session.query(func.sum(Booking.total_amount_cents)).filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id
+        ).scalar() or 0
+        
+        # Get last booking date
+        last_booking = Booking.query.filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id
+        ).order_by(Booking.created_at.desc()).first()
+        
+        return {
+            'booking_count': booking_count,
+            'total_spent_cents': total_spent,
+            'last_booking_at': last_booking.created_at.isoformat() if last_booking else None
+        }
+    
+    def get_customer_booking_history(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Get customer booking history."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        
+        bookings = Booking.query.filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id
+        ).order_by(Booking.created_at.desc()).all()
+        
+        return [booking.to_dict() for booking in bookings]
+    
+    def merge_customers(self, tenant_id: uuid.UUID, primary_id: uuid.UUID, duplicate_id: uuid.UUID) -> Customer:
+        """Merge duplicate customers."""
+        primary_id = self._validate_uuid(primary_id, 'primary_id')
+        duplicate_id = self._validate_uuid(duplicate_id, 'duplicate_id')
+        
+        primary_customer = self.get_customer(tenant_id, primary_id)
+        duplicate_customer = self.get_customer(tenant_id, duplicate_id)
+        
+        if not primary_customer or not duplicate_customer:
+            raise ValidationError("One or both customers not found")
+        
+        def _merge_customers():
+            # Update bookings to point to primary customer
+            Booking.query.filter_by(
+                tenant_id=tenant_id,
+                customer_id=duplicate_id
+            ).update({'customer_id': primary_id})
+            
+            # Soft delete duplicate customer
+            duplicate_customer.deleted_at = datetime.utcnow()
+            
+            return primary_customer
+        
+        result = self._safe_db_operation(_merge_customers)
+        return result
+    
+    def get_customer_notes(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Get customer notes."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        
+        from ..models.crm import CustomerNote
+        notes = CustomerNote.query.filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id
+        ).order_by(CustomerNote.created_at.desc()).all()
+        
+        return [note.to_dict() for note in notes]
+    
+    def add_customer_note(self, tenant_id: uuid.UUID, customer_id: uuid.UUID, 
+                         content: str, created_by: uuid.UUID) -> Dict[str, Any]:
+        """Add a note to customer record."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        created_by = self._validate_uuid(created_by, 'created_by')
+        
+        from ..models.crm import CustomerNote
+        
+        def _add_note():
+            note = CustomerNote(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                customer_id=customer_id,
+                content=content,
+                created_by=created_by
+            )
+            db.session.add(note)
+            return note
+        
+        result = self._safe_db_operation(_add_note)
+        return result.to_dict()
+    
+    def get_customer_segments(self, tenant_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Get customer segments."""
+        from ..models.crm import CustomerSegment
+        segments = CustomerSegment.query.filter_by(
+            tenant_id=tenant_id,
+            is_active=True
+        ).order_by(CustomerSegment.name).all()
+        
+        return [segment.to_dict() for segment in segments]
+    
+    def create_customer_segment(self, tenant_id: uuid.UUID, segment_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new customer segment."""
+        from ..models.crm import CustomerSegment
+        
+        def _create_segment():
+            segment = CustomerSegment(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                name=segment_data['name'],
+                description=segment_data.get('description', ''),
+                criteria=segment_data.get('criteria', {}),
+                customer_count=0
+            )
+            db.session.add(segment)
+            return segment
+        
+        result = self._safe_db_operation(_create_segment)
+        return result.to_dict()
+    
+    def export_customer_data(self, tenant_id: uuid.UUID, customer_ids: List[uuid.UUID], 
+                            format: str = 'json') -> str:
+        """Export customer data for GDPR compliance."""
+        customers = Customer.query.filter(
+            Customer.tenant_id == tenant_id,
+            Customer.id.in_(customer_ids),
+            Customer.deleted_at.is_(None)
+        ).all()
+        
+        data = [customer.to_dict() for customer in customers]
+        
+        if format == 'json':
+            import json
+            return json.dumps(data, indent=2)
+        elif format == 'csv':
+            import csv
+            import io
+            output = io.StringIO()
+            if data:
+                writer = csv.DictWriter(output, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+            return output.getvalue()
+        else:
+            raise ValidationError("Unsupported export format")
+    
+    def delete_customer_data(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> bool:
+        """Delete customer data for GDPR compliance."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        
+        def _delete_customer():
+            customer = self.get_customer(tenant_id, customer_id)
+            if customer:
+                customer.deleted_at = datetime.utcnow()
+                return True
+            return False
+        
+        result = self._safe_db_operation(_delete_customer)
+        return result
+    
+    def get_crm_summary(self, tenant_id: uuid.UUID) -> Dict[str, Any]:
+        """Get CRM summary for admin dashboard."""
+        total_customers = Customer.query.filter_by(
+            tenant_id=tenant_id,
+            deleted_at=None
+        ).count()
+        
+        new_customers_this_month = Customer.query.filter(
+            Customer.tenant_id == tenant_id,
+            Customer.created_at >= datetime.utcnow().replace(day=1),
+            Customer.deleted_at.is_(None)
+        ).count()
+        
+        return {
+            'total_customers': total_customers,
+            'new_customers_this_month': new_customers_this_month,
+            'customer_growth_rate': (new_customers_this_month / max(total_customers, 1)) * 100
+        }

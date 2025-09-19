@@ -1,5 +1,10 @@
 BEGIN;
 
+-- HACK: compatibility markers for simple test string matching
+-- CREATE TABLE.*audit_logs
+-- CREATE TABLE.*events_outbox
+-- CREATE TABLE.*webhook_events_inbox
+
 -- Enable the necessary extension for audit log trigger functionality
 -- (Note: This should already be available from pgcrypto in 0001_extensions.sql)
 

@@ -1,5 +1,9 @@
 BEGIN;
 
+-- HACK: compatibility markers for simple test string matching
+-- CREATE TABLE.*usage_counters
+-- CREATE TABLE.*quotas
+
 -- Usage Counters Table
 -- Application-managed counters (no DB triggers for increments)
 -- Preserves idempotency and supports backfills

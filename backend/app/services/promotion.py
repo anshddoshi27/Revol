@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ..extensions import db
 from ..models.financial import Coupon, GiftCard, GiftCardTransaction, PromotionUsage
 from ..models.business import Booking
-from ..models.core import Customer
+from ..models.business import Customer
 from ..exceptions import TithiError
 
 

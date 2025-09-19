@@ -18,9 +18,11 @@ from email.mime.multipart import MIMEMultipart
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
-from ..models.system import NotificationTemplate, NotificationEventType, AuditLog, EventOutbox
+from ..models.notification import NotificationTemplate
+from ..models.system import AuditLog, EventOutbox
 from ..models.business import Booking, Customer, Service, StaffProfile
 from ..models.core import Tenant
+from .quota_service import QuotaService
 
 
 class NotificationChannel(Enum):
@@ -562,13 +564,22 @@ class NotificationService:
         self.delivery_service = NotificationDeliveryService()
         self.scheduler = NotificationScheduler()
         self.analytics = NotificationAnalytics()
+        self.quota_service = QuotaService()
     
     def send_immediate_notification(self, request: NotificationRequest) -> NotificationResult:
         """Send notification immediately."""
+        # Quota enforcement
+        try:
+            self.quota_service.check_and_increment(request.tenant_id, 'notifications_daily', 1)
+        except Exception as e:
+            # Surface as error result; in HTTP, callers translate to Problem+JSON 403
+            return NotificationResult(success=False, error_message=getattr(e, 'message', str(e)))
         return self.delivery_service.send_notification(request)
     
     def schedule_notification(self, request: NotificationRequest) -> uuid.UUID:
         """Schedule notification for later delivery."""
+        # Quota enforcement
+        self.quota_service.check_and_increment(request.tenant_id, 'notifications_daily', 1)
         return self.scheduler.schedule_notification(request)
     
     def send_booking_notification(self, booking: Booking, event_type: str) -> NotificationResult:

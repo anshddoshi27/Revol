@@ -17,7 +17,7 @@ from ..services.notification import (
 )
 from ..exceptions import TithiError
 from ..middleware.auth_middleware import require_auth
-from ..middleware.tenant_middleware import require_tenant
+from ..middleware.auth_middleware import require_tenant
 
 
 # Create blueprint
@@ -32,13 +32,13 @@ class NotificationTemplateCreateSchema(Schema):
     channel = fields.Str(required=True, validate=validate.OneOf(['email', 'sms', 'push', 'webhook']))
     subject = fields.Str(allow_none=True, validate=validate.Length(max=500))
     content = fields.Str(required=True)
-    content_type = fields.Str(missing='text/plain', validate=validate.OneOf(['text/plain', 'text/html', 'application/json']))
+    content_type = fields.Str(load_default='text/plain', validate=validate.OneOf(['text/plain', 'text/html', 'application/json']))
     trigger_event = fields.Str(allow_none=True, validate=validate.Length(max=100))
     category = fields.Str(allow_none=True, validate=validate.Length(max=100))
-    variables = fields.Dict(missing={})
-    required_variables = fields.List(fields.Str(), missing=[])
-    is_system = fields.Bool(missing=False)
-    metadata = fields.Dict(missing={})
+    variables = fields.Dict(keys=fields.Str(), values=fields.Raw(), load_default={})
+    required_variables = fields.List(fields.Str(), load_default=[])
+    is_system = fields.Bool(load_default=False)
+    metadata = fields.Dict(keys=fields.Str(), values=fields.Raw(), load_default={})
 
 
 class NotificationTemplateResponseSchema(Schema):
@@ -71,16 +71,16 @@ class NotificationCreateSchema(Schema):
     recipient_name = fields.Str(allow_none=True, validate=validate.Length(max=255))
     subject = fields.Str(allow_none=True, validate=validate.Length(max=500))
     content = fields.Str(allow_none=True)
-    content_type = fields.Str(missing='text/plain', validate=validate.OneOf(['text/plain', 'text/html', 'application/json']))
+    content_type = fields.Str(load_default='text/plain', validate=validate.OneOf(['text/plain', 'text/html', 'application/json']))
     template_id = fields.Str(allow_none=True)
-    template_variables = fields.Dict(missing={})
-    priority = fields.Str(missing='normal', validate=validate.OneOf(['low', 'normal', 'high', 'urgent']))
+    template_variables = fields.Dict(keys=fields.Str(), values=fields.Raw(), load_default={})
+    priority = fields.Str(load_default='normal', validate=validate.OneOf(['low', 'normal', 'high', 'urgent']))
     scheduled_at = fields.DateTime(allow_none=True)
     expires_at = fields.DateTime(allow_none=True)
     booking_id = fields.Str(allow_none=True)
     payment_id = fields.Str(allow_none=True)
     customer_id = fields.Str(allow_none=True)
-    metadata = fields.Dict(missing={})
+    metadata = fields.Dict(keys=fields.Str(), values=fields.Raw(), load_default={})
     
     @validates_schema
     def validate_recipient_info(self, data, **kwargs):
@@ -229,7 +229,7 @@ def get_template(template_id):
     try:
         tenant_id = request.tenant_id
         
-        template = template_service.db.query(template_service.db.query(NotificationTemplate).filter(
+        template = template_service.db.query(NotificationTemplate).filter(
             and_(
                 NotificationTemplate.tenant_id == tenant_id,
                 NotificationTemplate.id == template_id

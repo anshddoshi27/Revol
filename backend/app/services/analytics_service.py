@@ -584,6 +584,25 @@ class AnalyticsService:
         """Create a custom analytics report."""
         return self.report_service.create_custom_report(tenant_id, report_config)
     
+    def get_admin_dashboard_data(self, tenant_id: uuid.UUID, start_date: date, 
+                                end_date: date) -> Dict[str, Any]:
+        """Get admin dashboard data."""
+        try:
+            # Rollback any existing failed transaction
+            db.session.rollback()
+            
+            return {
+                'revenue': self.business_service.get_revenue_metrics(tenant_id, start_date, end_date),
+                'bookings': self.business_service.get_booking_metrics(tenant_id, start_date, end_date),
+                'customers': self.business_service.get_customer_metrics(tenant_id, start_date, end_date),
+                'staff': self.business_service.get_staff_metrics(tenant_id, start_date, end_date),
+                'performance': self.performance_service.get_system_performance(tenant_id, start_date, end_date)
+            }
+        except Exception as e:
+            # Rollback on error
+            db.session.rollback()
+            raise Exception(f"Failed to get admin dashboard data: {str(e)}")
+    
     def export_analytics_data(self, tenant_id: uuid.UUID, start_date: date, 
                             end_date: date, format: str = 'json') -> str:
         """Export analytics data in specified format."""

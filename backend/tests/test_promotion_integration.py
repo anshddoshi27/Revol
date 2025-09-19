@@ -15,7 +15,8 @@ from app import create_app
 from app.extensions import db
 from app.models.financial import Coupon, GiftCard, GiftCardTransaction, PromotionUsage
 from app.models.business import Booking
-from app.models.core import Customer, Tenant
+from app.models.core import Tenant
+from app.models.business import Customer
 from app.services.promotion import CouponService, GiftCardService, PromotionService
 from app.exceptions import TithiError
 

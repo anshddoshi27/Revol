@@ -13,6 +13,9 @@ import uuid
 import logging
 
 from ..services.financial import PaymentService, BillingService
+from ..extensions import celery, db
+from ..models.system import WebhookEventInbox
+from ..jobs.webhook_inbox_worker import process_webhook_event
 from ..middleware.error_handler import TithiError
 from ..middleware.auth_middleware import require_auth, get_current_tenant_id, get_current_user_id
 
@@ -21,12 +24,18 @@ logger = logging.getLogger(__name__)
 # Create blueprint
 payment_bp = Blueprint('payment_api', __name__, url_prefix='/api/payments')
 
-# Create API instance
-api = Api(payment_bp)
+# Create API instance (will be initialized when app is available)
+api = None
 
 # Initialize services
 payment_service = PaymentService()
 billing_service = BillingService()
+
+def init_api(app):
+    """Initialize the API with the Flask app."""
+    global api
+    if api is None:
+        api = Api(app)
 
 
 # Request/Response Schemas
@@ -34,7 +43,7 @@ class PaymentIntentRequestSchema(Schema):
     """Schema for creating payment intents."""
     booking_id = fields.Str(required=True)
     amount_cents = fields.Int(required=True, validate=validate.Range(min=1))
-    currency = fields.Str(missing="USD", validate=validate.OneOf(["USD", "EUR", "GBP", "CAD"]))
+    currency = fields.Str(load_default="USD", validate=validate.OneOf(["USD", "EUR", "GBP", "CAD"]))
     customer_id = fields.Str(allow_none=True)
     idempotency_key = fields.Str(allow_none=True)
 
@@ -74,7 +83,13 @@ class RefundRequestSchema(Schema):
     payment_id = fields.Str(required=True)
     amount_cents = fields.Int(required=True, validate=validate.Range(min=1))
     reason = fields.Str(required=True)
-    refund_type = fields.Str(missing="partial", validate=validate.OneOf(["full", "partial", "no_show_fee_only"]))
+    refund_type = fields.Str(load_default="partial", validate=validate.OneOf(["full", "partial", "no_show_fee_only"]))
+
+
+class CancellationRefundRequestSchema(Schema):
+    """Schema for processing refunds tied to booking cancellation."""
+    booking_id = fields.Str(required=True)
+    reason = fields.Str(load_default="Booking cancelled")
 
 
 class RefundResponseSchema(Schema):
@@ -360,6 +375,87 @@ def process_refund():
         }), 500
 
 
+@payment_bp.route('/refund/cancellation', methods=['POST'])
+@require_auth
+def process_cancellation_refund():
+    """
+    Process refund for cancelled booking with policy enforcement.
+    
+    This endpoint processes refunds tied to booking cancellation, automatically
+    calculating refund amounts based on cancellation policies and timing.
+    
+    Input: {booking_id, reason}
+    Output: {refund_id}
+    """
+    try:
+        tenant_id = get_current_tenant_id()
+        user_id = get_current_user_id()
+        
+        # Validate request data
+        schema = CancellationRefundRequestSchema()
+        data = schema.load(request.json)
+        
+        booking_id = data['booking_id']
+        reason = data['reason']
+        
+        # Process refund with cancellation policy
+        refund = payment_service.process_refund_with_cancellation_policy(
+            booking_id=booking_id,
+            tenant_id=tenant_id,
+            reason=reason
+        )
+        
+        # Prepare response
+        response_data = {
+            'id': str(refund.id),
+            'payment_id': str(refund.payment_id),
+            'booking_id': str(refund.booking_id) if refund.booking_id else None,
+            'amount_cents': refund.amount_cents,
+            'reason': refund.reason,
+            'refund_type': refund.refund_type,
+            'status': refund.status,
+            'provider_refund_id': refund.provider_refund_id,
+            'created_at': refund.created_at.isoformat()
+        }
+        
+        logger.info("Cancellation refund processed", extra={
+            'tenant_id': tenant_id,
+            'user_id': user_id,
+            'refund_id': str(refund.id),
+            'booking_id': booking_id,
+            'amount_cents': refund.amount_cents,
+            'refund_type': refund.refund_type
+        })
+        
+        return jsonify(response_data), 201
+        
+    except TithiError as e:
+        logger.error(f"Cancellation refund processing failed: {e.message}", extra={
+            'tenant_id': tenant_id if 'tenant_id' in locals() else None,
+            'user_id': user_id if 'user_id' in locals() else None,
+            'error_code': e.code,
+            'error_message': e.message
+        })
+        return jsonify({
+            'type': 'https://tithi.com/errors/payment-error',
+            'title': 'Cancellation Refund Processing Failed',
+            'detail': str(e),
+            'status': 400,
+            'code': e.error_code
+        }), 400
+    except Exception as e:
+        logger.error(f"Unexpected error processing cancellation refund: {e}", extra={
+            'tenant_id': tenant_id if 'tenant_id' in locals() else None,
+            'user_id': user_id if 'user_id' in locals() else None
+        })
+        return jsonify({
+            'type': 'https://tithi.com/errors/internal-error',
+            'title': 'Internal Server Error',
+            'detail': 'An unexpected error occurred',
+            'status': 500
+        }), 500
+
+
 @payment_bp.route('/no-show-fee', methods=['POST'])
 @require_auth
 def capture_no_show_fee():
@@ -525,63 +621,210 @@ def set_default_payment_method(payment_method_id):
         }), 500
 
 
-@payment_bp.route('/webhook', methods=['POST'])
+@payment_bp.route('/webhook/stripe', methods=['POST'])
 def stripe_webhook():
-    """Handle Stripe webhook events."""
+    """Handle Stripe webhook events: validate, upsert inbox row, enqueue processor."""
     try:
         import stripe
-        from flask import request
-        
-        # Get the webhook signature
+        # Signature header and payload
         sig_header = request.headers.get('Stripe-Signature')
-        payload = request.get_data()
-        
-        # Verify webhook signature
-        stripe.api_key = payment_service._get_stripe_secret_key()
+        payload_bytes = request.get_data()
+
         webhook_secret = current_app.config.get('STRIPE_WEBHOOK_SECRET')
-        
-        if not webhook_secret:
-            logger.error("Stripe webhook secret not configured")
-            return jsonify({'error': 'Webhook secret not configured'}), 500
-        
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, webhook_secret
-            )
-        except ValueError as e:
-            logger.error(f"Invalid payload: {e}")
-            return jsonify({'error': 'Invalid payload'}), 400
-        except stripe.error.SignatureVerificationError as e:
-            logger.error(f"Invalid signature: {e}")
-            return jsonify({'error': 'Invalid signature'}), 400
-        
-        # Handle the event
-        if event['type'] == 'payment_intent.succeeded':
-            payment_intent = event['data']['object']
-            logger.info("Payment intent succeeded", extra={
-                'stripe_payment_intent_id': payment_intent['id'],
-                'amount': payment_intent['amount']
-            })
-            
-        elif event['type'] == 'payment_intent.payment_failed':
-            payment_intent = event['data']['object']
-            logger.info("Payment intent failed", extra={
-                'stripe_payment_intent_id': payment_intent['id'],
-                'amount': payment_intent['amount']
-            })
-            
-        elif event['type'] == 'setup_intent.succeeded':
-            setup_intent = event['data']['object']
-            logger.info("Setup intent succeeded", extra={
-                'stripe_setup_intent_id': setup_intent['id'],
-                'customer': setup_intent['customer']
-            })
-            
+        dev_bypass = request.headers.get('X-Debug-Bypass', 'false').lower() in ['1', 'true', 'yes']
+
+        event = None
+        if webhook_secret:
+            try:
+                stripe.api_key = payment_service._get_stripe_secret_key()
+                event = stripe.Webhook.construct_event(payload_bytes, sig_header, webhook_secret)
+            except Exception as e:
+                logger.error(f"Webhook signature validation failed: {e}")
+                return jsonify({'error': 'Invalid signature'}), 400
         else:
-            logger.info(f"Unhandled event type: {event['type']}")
-        
-        return jsonify({'status': 'success'}), 200
-        
+            if current_app.config.get('ENV') == 'production' and not dev_bypass:
+                return jsonify({'error': 'Signature required'}), 400
+            if not dev_bypass:
+                return jsonify({'error': 'Missing signature; set X-Debug-Bypass: true in dev'}), 400
+            # Accept raw JSON in dev bypass
+            event = request.get_json(silent=True) or {}
+
+        event_id = (event.get('id') if isinstance(event, dict) else None) or ''
+        if not event_id:
+            return jsonify({'error': 'Invalid event payload'}), 400
+
+        # Upsert into webhook_events_inbox; on conflict no-op
+        existing = WebhookEventInbox.query.filter_by(provider='stripe', id=event_id).first()
+        if existing is None:
+            inbox = WebhookEventInbox(provider='stripe', id=event_id, payload=event)
+            db.session.add(inbox)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # Enqueue processing task (idempotent)
+        process_webhook_event.delay('stripe', event_id)
+
+        return jsonify({'status': 'ok'}), 200
+
     except Exception as e:
         logger.error(f"Unexpected error handling webhook: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+# Request/Response Schemas for Checkout
+class CheckoutRequestSchema(Schema):
+    """Schema for checkout requests."""
+    booking_id = fields.Str(required=True, validate=validate.Length(min=1))
+    payment_method = fields.Str(required=True, validate=validate.OneOf(['card', 'apple_pay', 'google_pay', 'paypal']))
+    customer_id = fields.Str(required=False, allow_none=True)
+    idempotency_key = fields.Str(required=False, allow_none=True)
+
+
+class CheckoutResponseSchema(Schema):
+    """Schema for checkout responses."""
+    payment_intent_id = fields.Str()
+    client_secret = fields.Str()
+    status = fields.Str()
+    amount_cents = fields.Int()
+    currency_code = fields.Str()
+    created_at = fields.DateTime()
+
+
+@payment_bp.route('/checkout', methods=['POST'])
+@require_auth
+def create_checkout():
+    """
+    Create a Stripe checkout session for a booking.
+    
+    This endpoint creates a PaymentIntent for a booking and returns the client secret
+    needed to complete the payment on the frontend.
+    
+    Input: {booking_id, payment_method}
+    Output: {payment_intent_id}
+    """
+    try:
+        tenant_id = get_current_tenant_id()
+        user_id = get_current_user_id()
+        
+        # Validate request data
+        schema = CheckoutRequestSchema()
+        data = schema.load(request.json)
+        
+        booking_id = data['booking_id']
+        payment_method = data['payment_method']
+        customer_id = data.get('customer_id')
+        idempotency_key = data.get('idempotency_key') or str(uuid.uuid4())
+        
+        # Validate booking exists and belongs to tenant
+        from ..models.business import Booking
+        booking = Booking.query.filter_by(
+            id=booking_id,
+            tenant_id=tenant_id
+        ).first()
+        
+        if not booking:
+            logger.warning("Booking not found for checkout", extra={
+                'tenant_id': tenant_id,
+                'user_id': user_id,
+                'booking_id': booking_id
+            })
+            raise TithiError("TITHI_BOOKING_NOT_FOUND", "Booking not found", 404)
+        
+        # Check if booking is in a valid state for payment
+        if booking.status not in ['pending', 'confirmed']:
+            logger.warning("Invalid booking status for checkout", extra={
+                'tenant_id': tenant_id,
+                'user_id': user_id,
+                'booking_id': booking_id,
+                'booking_status': booking.status
+            })
+            raise TithiError("TITHI_BOOKING_INVALID_STATUS", 
+                           f"Booking status '{booking.status}' is not valid for payment", 400)
+        
+        # Calculate total amount from booking
+        # For now, we'll use a simple calculation - in production this would be more complex
+        total_amount_cents = 0
+        
+        # Get service price from booking
+        if hasattr(booking, 'service_snapshot') and booking.service_snapshot:
+            service_data = booking.service_snapshot
+            if isinstance(service_data, dict) and 'price_cents' in service_data:
+                total_amount_cents = service_data['price_cents']
+            else:
+                # Fallback: get from service directly
+                from ..models.business import Service
+                service = Service.query.filter_by(
+                    id=booking.service_id,
+                    tenant_id=tenant_id
+                ).first()
+                if service:
+                    total_amount_cents = service.price_cents
+        
+        if total_amount_cents <= 0:
+            logger.error("Invalid booking amount for checkout", extra={
+                'tenant_id': tenant_id,
+                'user_id': user_id,
+                'booking_id': booking_id,
+                'amount_cents': total_amount_cents
+            })
+            raise TithiError("TITHI_BOOKING_INVALID_AMOUNT", "Booking amount is invalid", 400)
+        
+        # Create payment intent
+        payment = payment_service.create_payment_intent(
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            amount_cents=total_amount_cents,
+            currency="USD",
+            customer_id=customer_id,
+            idempotency_key=idempotency_key
+        )
+        
+        # Get client secret from Stripe
+        import stripe
+        stripe.api_key = payment_service._get_stripe_secret_key()
+        stripe_intent = stripe.PaymentIntent.retrieve(payment.provider_payment_id)
+        
+        # Prepare response
+        response_data = {
+            'payment_intent_id': payment.provider_payment_id,
+            'client_secret': stripe_intent.client_secret,
+            'status': payment.status,
+            'amount_cents': payment.amount_cents,
+            'currency_code': payment.currency_code,
+            'created_at': payment.created_at.isoformat()
+        }
+        
+        logger.info("Checkout created successfully", extra={
+            'tenant_id': tenant_id,
+            'user_id': user_id,
+            'payment_id': str(payment.id),
+            'booking_id': booking_id,
+            'amount_cents': total_amount_cents,
+            'payment_intent_id': payment.provider_payment_id
+        })
+        
+        return jsonify(response_data), 201
+        
+    except TithiError as e:
+        logger.error(f"Tithi error in checkout: {e.message}", extra={
+            'tenant_id': tenant_id if 'tenant_id' in locals() else None,
+            'user_id': user_id if 'user_id' in locals() else None,
+            'error_code': e.code,
+            'error_message': e.message
+        })
+        return jsonify({
+            'error': e.code,
+            'message': e.message
+        }), e.status_code
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in checkout: {e}", extra={
+            'tenant_id': tenant_id if 'tenant_id' in locals() else None,
+            'user_id': user_id if 'user_id' in locals() else None
+        })
+        return jsonify({
+            'error': 'TITHI_CHECKOUT_FAILED',
+            'message': 'Failed to create checkout session'
+        }), 500

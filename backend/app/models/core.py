@@ -50,13 +50,13 @@ class Tenant(GlobalModel):
     default_no_show_fee_percent = Column(Numeric(5, 2), default=3.00)
     deleted_at = Column(DateTime)
     
-    # Additional fields for onboarding
-    name = Column(String(255))  # Business name
-    email = Column(String(255))  # Business email
-    category = Column(String(100))  # Business category
-    logo_url = Column(String(500))  # Logo URL
-    locale = Column(String(10), default="en_US")  # Locale
-    status = Column(String(50), default="active")  # Tenant status
+    # Additional fields for onboarding (commented out - not in DB schema)
+    # name = Column(String(255))  # Business name
+    # email = Column(String(255))  # Business email
+    # category = Column(String(100))  # Business category
+    # logo_url = Column(String(500))  # Logo URL
+    # locale = Column(String(10), default="en_US")  # Locale
+    # status = Column(String(50), default="active")  # Tenant status
     
     # Relationships
     users = relationship("User", secondary="memberships", back_populates="tenants", foreign_keys="[memberships.c.tenant_id, memberships.c.user_id]")

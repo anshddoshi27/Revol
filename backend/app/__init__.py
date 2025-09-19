@@ -70,6 +70,12 @@ def create_app(config_name=None):
     # Create API documentation
     create_api_documentation(app)
     
+    # Initialize Celery when enabled
+    from .extensions import init_celery
+    enable_in_tests = os.environ.get("ENABLE_CELERY_IN_TESTS", "false").lower() in ["1", "true", "yes"]
+    if not app.testing or enable_in_tests:
+        init_celery(app)
+    
     return app
 
 
@@ -143,8 +149,14 @@ def register_blueprints(app: Flask) -> None:
     from .blueprints.promotion_api import promotion_bp
     app.register_blueprint(promotion_bp, url_prefix='/api/promotions')
     
-    from .blueprints.notification_api import notification_bp
-    app.register_blueprint(notification_bp, url_prefix='/api/notifications')
+    # CRM API blueprint (Module K)
+    from .blueprints.crm_api import crm_bp
+    app.register_blueprint(crm_bp, url_prefix='/api/v1/crm')
+    
+    # Admin Dashboard API blueprint (Module M)
+    from .blueprints.admin_dashboard_api import admin_bp
+    app.register_blueprint(admin_bp, url_prefix='/api/v1/admin')
+    
 
 
 def register_error_handlers(app: Flask) -> None:

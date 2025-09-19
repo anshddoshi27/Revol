@@ -12,7 +12,7 @@ from decimal import Decimal
 from app import create_app, db
 from app.models import Tenant, User, Customer, Service, Resource, Booking, StaffProfile, WorkSchedule, BookingHold, WaitlistEntry, AvailabilityCache
 from app.services.business_phase2 import AvailabilityService
-from app.models.system import TithiError
+from app.exceptions import TithiError
 
 
 @pytest.fixture

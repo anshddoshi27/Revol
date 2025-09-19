@@ -12,7 +12,7 @@ from decimal import Decimal
 from app import create_app, db
 from app.models import Tenant, User, Membership, Resource, StaffProfile, WorkSchedule, StaffAssignmentHistory
 from app.services.business_phase2 import StaffService
-from app.models.system import TithiError
+from app.exceptions import TithiError
 
 
 @pytest.fixture

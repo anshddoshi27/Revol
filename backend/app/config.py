@@ -129,7 +129,7 @@ class TestingConfig(Config):
     """Testing configuration."""
     
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "postgresql://postgres:password@localhost:5432/tithi_test")
     WTF_CSRF_ENABLED = False
     LOG_LEVEL = "WARNING"
 

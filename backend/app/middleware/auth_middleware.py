@@ -226,6 +226,16 @@ def get_current_tenant() -> Optional[str]:
     return getattr(g, 'tenant_id', None)
 
 
+def get_current_tenant_id() -> Optional[str]:
+    """Get current tenant ID (alias for get_current_tenant)."""
+    return get_current_tenant()
+
+
+def get_current_user_id() -> Optional[str]:
+    """Get current user ID."""
+    return getattr(g, 'user_id', None)
+
+
 def is_authenticated() -> bool:
     """Check if user is authenticated."""
     return hasattr(g, 'user_id') and g.user_id is not None

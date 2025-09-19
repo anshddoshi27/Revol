@@ -9,6 +9,7 @@ from flask_migrate import Migrate
 from flask_cors import CORS
 import redis
 from typing import Optional
+from celery import Celery
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -17,6 +18,9 @@ cors = CORS()
 
 # Redis client (optional)
 redis_client: Optional[redis.Redis] = None
+
+# Celery instance (initialized lazily)
+celery: Celery = Celery(__name__)
 
 
 def init_redis(app):
@@ -40,3 +44,25 @@ def init_redis(app):
 def get_redis():
     """Get Redis client instance."""
     return redis_client
+
+
+def init_celery(app):
+    """Bind Flask app config and context to Celery instance."""
+    global celery
+    celery.conf.update(
+        broker_url=app.config.get('CELERY_BROKER_URL'),
+        result_backend=app.config.get('CELERY_RESULT_BACKEND'),
+        task_serializer='json',
+        accept_content=['json'],
+        result_serializer='json',
+        timezone='UTC',
+        enable_utc=True,
+        task_routes={},
+    )
+
+    class ContextTask(celery.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+
+    celery.Task = ContextTask

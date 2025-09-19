@@ -8,7 +8,7 @@ Aligned with TITHI_DATABASE_COMPREHENSIVE_REPORT.md schema.
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, Numeric, JSON, BigInteger, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, Numeric, JSON, BigInteger, Enum as SQLEnum, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from ..extensions import db
@@ -53,7 +53,7 @@ class Payment(TenantModel):
     royalty_basis = Column(String(50), CheckConstraint("royalty_basis IN ('new_customer', 'referral', 'other')"))
     
     # Additional metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     booking = relationship("Booking", back_populates="payments")
@@ -118,7 +118,7 @@ class Refund(TenantModel):
     provider_metadata = Column(JSONB, default={})
     status = Column(String(20), nullable=False, default="pending")
     idempotency_key = Column(String(255))
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     payment = relationship("Payment", back_populates="refunds")
@@ -210,7 +210,7 @@ class Coupon(TenantModel):
     is_public = Column(Boolean, nullable=False, default=True)  # Can be used by any customer
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Constraints
     __table_args__ = (
@@ -252,7 +252,7 @@ class GiftCard(TenantModel):
     is_redeemed = Column(Boolean, nullable=False, default=False)
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     transactions = relationship("GiftCardTransaction", back_populates="gift_card")
@@ -284,7 +284,7 @@ class GiftCardTransaction(TenantModel):
     description = Column(Text, nullable=True)
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     gift_card = relationship("GiftCard", back_populates="transactions")
@@ -319,7 +319,7 @@ class PromotionUsage(TenantModel):
     final_amount_cents = Column(Integer, nullable=False)
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     coupon = relationship("Coupon")
@@ -335,6 +335,6 @@ class PromotionUsage(TenantModel):
         CheckConstraint("discount_amount_cents >= 0", name="ck_promotion_usage_discount_positive"),
         CheckConstraint("original_amount_cents > 0", name="ck_promotion_usage_original_positive"),
         CheckConstraint("final_amount_cents >= 0", name="ck_promotion_usage_final_non_negative"),
-        CheckConstraint("final_amount_cents == original_amount_cents - discount_amount_cents", 
+        CheckConstraint("final_amount_cents = original_amount_cents - discount_amount_cents", 
                        name="ck_promotion_usage_amount_consistency"),
     )

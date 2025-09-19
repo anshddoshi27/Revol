@@ -11,7 +11,7 @@ from datetime import datetime, date, timedelta
 
 from app import create_app, db
 from app.models import Tenant, User, Membership, Resource, Service, Customer, StaffProfile, WorkSchedule
-from app.models.system import TithiError
+from app.exceptions import TithiError
 
 
 @pytest.fixture

@@ -12,6 +12,7 @@ from .business import (
 from .system import Theme, Branding
 from .financial import Payment, Invoice, Refund
 from .analytics import Event, Metric
+from .crm import CustomerNote, CustomerSegment, LoyaltyAccount, LoyaltyTransaction, CustomerSegmentMembership
 
 __all__ = [
     'Tenant', 'User', 'Membership',
@@ -19,5 +20,6 @@ __all__ = [
     'StaffProfile', 'WorkSchedule', 'StaffAssignmentHistory', 'BookingHold', 'WaitlistEntry', 'AvailabilityCache',
     'Theme', 'Branding',
     'Payment', 'Invoice', 'Refund',
-    'Event', 'Metric'
+    'Event', 'Metric',
+    'CustomerNote', 'CustomerSegment', 'LoyaltyAccount', 'LoyaltyTransaction', 'CustomerSegmentMembership'
 ]

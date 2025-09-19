@@ -6,7 +6,7 @@ This module contains business-related models for customers, services, resources,
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, UniqueConstraint, Date, ARRAY
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, UniqueConstraint, Date, ARRAY, Time
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from ..extensions import db
@@ -31,6 +31,9 @@ class Customer(TenantModel):
     # Relationships
     tenant = relationship("Tenant", back_populates="customers")
     bookings = relationship("Booking", back_populates="customer")
+    notes = relationship("CustomerNote", back_populates="customer")
+    loyalty_accounts = relationship("LoyaltyAccount", back_populates="customer")
+    segment_memberships = relationship("CustomerSegmentMembership", back_populates="customer")
 
 
 class Service(TenantModel):
@@ -47,7 +50,7 @@ class Service(TenantModel):
     buffer_after_min = Column(Integer, nullable=False, default=0)
     category = Column(String(255), default="")
     active = Column(Boolean, nullable=False, default=True)
-    metadata_json = Column(JSON, default={})
+    metadata_json = Column('metadata', JSON, default={})
     deleted_at = Column(DateTime)
     
     # Relationships
@@ -198,6 +201,7 @@ class StaffProfile(TenantModel):
     resource = relationship("Resource")
     work_schedules = relationship("WorkSchedule", back_populates="staff_profile")
     assignment_history = relationship("StaffAssignmentHistory", back_populates="staff_profile")
+    availability = relationship("StaffAvailability")
     
     # Constraints
     __table_args__ = (
@@ -258,6 +262,29 @@ class StaffAssignmentHistory(TenantModel):
             "change_type IN ('assigned', 'unassigned', 'role_changed', 'rate_changed')",
             name="ck_change_type"
         ),
+    )
+
+
+class StaffAvailability(TenantModel):
+    """Staff availability model for recurring weekly schedules."""
+    
+    __tablename__ = "staff_availability"
+    
+    staff_profile_id = Column(UUID(as_uuid=True), ForeignKey("staff_profiles.id"), nullable=False)
+    weekday = Column(Integer, nullable=False)  # 1=Monday, 7=Sunday
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    metadata_json = Column(JSON, default={})
+    
+    # Relationships
+    staff_profile = relationship("StaffProfile")
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("weekday BETWEEN 1 AND 7", name="ck_weekday_range"),
+        CheckConstraint("end_time > start_time", name="ck_time_order"),
+        UniqueConstraint("tenant_id", "staff_profile_id", "weekday", name="uq_staff_availability_weekday"),
     )
 
 

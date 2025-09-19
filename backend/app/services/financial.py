@@ -340,7 +340,7 @@ class PaymentService:
             db.session.commit()
             
             # Emit observability hook
-            logger.info("PAYMENT_REFUNDED", extra={
+            logger.info("REFUND_ISSUED", extra={
                 'tenant_id': tenant_id,
                 'payment_id': payment_id,
                 'refund_id': str(refund.id),
@@ -357,6 +357,130 @@ class PaymentService:
             logger.error(f"Error processing refund: {e}")
             db.session.rollback()
             raise TithiError(f"Refund processing failed: {str(e)}", error_code="TITHI_REFUND_PROCESSING_ERROR")
+    
+    def process_refund_with_cancellation_policy(self, booking_id: str, tenant_id: str, 
+                                              reason: str = "Booking cancelled") -> Refund:
+        """Process refund for cancelled booking with policy enforcement."""
+        
+        # Get booking and validate cancellation
+        booking = Booking.query.filter_by(
+            id=booking_id,
+            tenant_id=tenant_id
+        ).first()
+        
+        if not booking:
+            raise TithiError("Booking not found", error_code="TITHI_BOOKING_NOT_FOUND")
+        
+        if booking.status != 'canceled':
+            raise TithiError("Booking must be cancelled before refund", error_code="TITHI_REFUND_POLICY_VIOLATION")
+        
+        if not booking.canceled_at:
+            raise TithiError("Booking cancellation timestamp not found", error_code="TITHI_REFUND_POLICY_VIOLATION")
+        
+        # Get payment for this booking
+        payment = Payment.query.filter_by(
+            booking_id=booking_id,
+            tenant_id=tenant_id,
+            status='captured'
+        ).first()
+        
+        if not payment:
+            raise TithiError("No captured payment found for booking", error_code="TITHI_PAYMENT_NOT_FOUND")
+        
+        # Get tenant cancellation policy
+        tenant = Tenant.query.filter_by(id=tenant_id).first()
+        if not tenant:
+            raise TithiError("Tenant not found", error_code="TITHI_TENANT_NOT_FOUND")
+        
+        # Calculate refund amount based on cancellation policy
+        refund_amount_cents, refund_type = self._calculate_refund_amount(
+            booking, payment, tenant
+        )
+        
+        if refund_amount_cents <= 0:
+            raise TithiError("No refund available based on cancellation policy", 
+                           error_code="TITHI_REFUND_POLICY_VIOLATION")
+        
+        # Process the refund
+        refund = self.process_refund(
+            payment_id=str(payment.id),
+            tenant_id=tenant_id,
+            amount_cents=refund_amount_cents,
+            reason=reason,
+            refund_type=refund_type
+        )
+        
+        # Emit observability hook for cancellation refund
+        logger.info("REFUND_ISSUED", extra={
+            'tenant_id': tenant_id,
+            'booking_id': booking_id,
+            'refund_id': str(refund.id),
+            'amount_cents': refund_amount_cents,
+            'refund_type': refund_type,
+            'cancellation_policy_applied': True
+        })
+        
+        return refund
+    
+    def _calculate_refund_amount(self, booking: Booking, payment: Payment, tenant: Tenant) -> tuple[int, str]:
+        """Calculate refund amount based on cancellation policy."""
+        
+        # Default cancellation policy: 24 hours notice required
+        cancellation_window_hours = 24
+        
+        # Check if tenant has custom cancellation policy
+        if hasattr(tenant, 'trust_copy_json') and tenant.trust_copy_json:
+            policy_data = tenant.trust_copy_json
+            if isinstance(policy_data, dict):
+                # Look for cancellation policy in trust_copy_json
+                cancellation_policy = policy_data.get('cancellation_policy', '')
+                if '24 hour' in cancellation_policy.lower():
+                    cancellation_window_hours = 24
+                elif '48 hour' in cancellation_policy.lower():
+                    cancellation_window_hours = 48
+                elif '72 hour' in cancellation_policy.lower():
+                    cancellation_window_hours = 72
+        
+        # Calculate time difference between cancellation and booking start
+        cancellation_time = booking.canceled_at
+        booking_start = booking.start_at
+        
+        if not cancellation_time or not booking_start:
+            # If we can't determine timing, apply no-show fee policy
+            return self._apply_no_show_fee_policy(payment, tenant)
+        
+        # Calculate hours between cancellation and booking start
+        time_diff = booking_start - cancellation_time
+        hours_before_booking = time_diff.total_seconds() / 3600
+        
+        # Determine refund amount based on timing
+        if hours_before_booking >= cancellation_window_hours:
+            # Full refund - cancelled within policy window
+            return payment.amount_cents, "full"
+        elif hours_before_booking >= 0:
+            # Partial refund - cancelled outside policy window
+            return self._apply_no_show_fee_policy(payment, tenant)
+        else:
+            # No-show (cancelled after booking time) - apply no-show fee
+            return self._apply_no_show_fee_policy(payment, tenant)
+    
+    def _apply_no_show_fee_policy(self, payment: Payment, tenant: Tenant) -> tuple[int, str]:
+        """Apply no-show fee policy to calculate refund amount."""
+        
+        # Default no-show fee: 3% of payment amount
+        no_show_fee_percent = 3.0
+        
+        # Check tenant's default no-show fee percentage
+        if hasattr(tenant, 'default_no_show_fee_percent') and tenant.default_no_show_fee_percent:
+            no_show_fee_percent = float(tenant.default_no_show_fee_percent)
+        
+        # Calculate no-show fee
+        no_show_fee_cents = int(payment.amount_cents * (no_show_fee_percent / 100))
+        
+        # Refund amount is original payment minus no-show fee
+        refund_amount_cents = payment.amount_cents - no_show_fee_cents
+        
+        return refund_amount_cents, "partial"
     
     def get_payment_methods(self, tenant_id: str, customer_id: str) -> List[PaymentMethod]:
         """Get all payment methods for a customer."""

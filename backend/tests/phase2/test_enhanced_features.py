@@ -13,7 +13,8 @@ from unittest.mock import patch, MagicMock
 from app import create_app, db
 from app.models import Tenant, User, Customer, Service, Resource, Booking, StaffProfile
 from app.services.calendar_integration import GoogleCalendarService
-from app.services.notification_service import NotificationService, NotificationRequest, NotificationChannel, NotificationPriority
+from app.services.notification_service import NotificationService, NotificationRequest
+from app.models.notification import NotificationChannel, NotificationPriority
 from app.services.analytics_service import AnalyticsService, AnalyticsPeriod
 
 

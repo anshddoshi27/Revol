@@ -15,7 +15,7 @@ from typing import List, Optional
 from ..services.promotion import CouponService, GiftCardService, PromotionService
 from ..exceptions import TithiError
 from ..middleware.auth_middleware import require_auth
-from ..middleware.tenant_middleware import require_tenant
+from ..middleware.auth_middleware import require_tenant
 
 
 # Create blueprint
@@ -30,17 +30,17 @@ class CouponCreateSchema(Schema):
     description = fields.Str(allow_none=True)
     discount_type = fields.Str(required=True, validate=validate.OneOf(['percentage', 'fixed_amount']))
     discount_value = fields.Decimal(required=True, places=2)
-    currency_code = fields.Str(missing='USD', validate=validate.Length(equal=3))
+    currency_code = fields.Str(load_default='USD', validate=validate.Length(equal=3))
     max_uses = fields.Int(allow_none=True, validate=validate.Range(min=1))
-    max_uses_per_customer = fields.Int(missing=1, validate=validate.Range(min=1))
+    max_uses_per_customer = fields.Int(load_default=1, validate=validate.Range(min=1))
     valid_from = fields.DateTime(allow_none=True)
     valid_until = fields.DateTime(allow_none=True)
     minimum_amount_cents = fields.Int(allow_none=True, validate=validate.Range(min=0))
     maximum_discount_cents = fields.Int(allow_none=True, validate=validate.Range(min=1))
-    applicable_services = fields.List(fields.Str(), missing=[])
-    applicable_customers = fields.List(fields.Str(), missing=[])
-    is_public = fields.Bool(missing=True)
-    metadata = fields.Dict(missing={})
+    applicable_services = fields.List(fields.Str(), load_default=[])
+    applicable_customers = fields.List(fields.Str(), load_default=[])
+    is_public = fields.Bool(load_default=True)
+    metadata = fields.Dict(load_default={})
     
     @validates_schema
     def validate_discount_value(self, data, **kwargs):
@@ -52,6 +52,47 @@ class CouponCreateSchema(Schema):
             raise ValidationError('Percentage discount cannot exceed 100%', 'discount_value')
         
         if discount_value <= 0:
+            raise ValidationError('Discount value must be positive', 'discount_value')
+    
+    @validates_schema
+    def validate_validity_period(self, data, **kwargs):
+        """Validate validity period."""
+        valid_from = data.get('valid_from')
+        valid_until = data.get('valid_until')
+        
+        if valid_from and valid_until and valid_until <= valid_from:
+            raise ValidationError('valid_until must be after valid_from', 'valid_until')
+
+
+class CouponUpdateSchema(Schema):
+    """Schema for updating a coupon."""
+    name = fields.Str(validate=validate.Length(min=1, max=255))
+    description = fields.Str(allow_none=True)
+    discount_type = fields.Str(validate=validate.OneOf(['percentage', 'fixed_amount']))
+    discount_value = fields.Decimal(places=2)
+    currency_code = fields.Str(validate=validate.Length(equal=3))
+    max_uses = fields.Int(allow_none=True, validate=validate.Range(min=1))
+    max_uses_per_customer = fields.Int(validate=validate.Range(min=1))
+    valid_from = fields.DateTime(allow_none=True)
+    valid_until = fields.DateTime(allow_none=True)
+    minimum_amount_cents = fields.Int(allow_none=True, validate=validate.Range(min=0))
+    maximum_discount_cents = fields.Int(allow_none=True, validate=validate.Range(min=1))
+    applicable_services = fields.List(fields.Str())
+    applicable_customers = fields.List(fields.Str())
+    is_active = fields.Bool()
+    is_public = fields.Bool()
+    metadata = fields.Dict()
+    
+    @validates_schema
+    def validate_discount_value(self, data, **kwargs):
+        """Validate discount value based on type."""
+        discount_type = data.get('discount_type')
+        discount_value = data.get('discount_value')
+        
+        if discount_type == 'percentage' and discount_value and discount_value > 100:
+            raise ValidationError('Percentage discount cannot exceed 100%', 'discount_value')
+        
+        if discount_value and discount_value <= 0:
             raise ValidationError('Discount value must be positive', 'discount_value')
     
     @validates_schema
@@ -92,13 +133,13 @@ class CouponResponseSchema(Schema):
 class GiftCardCreateSchema(Schema):
     """Schema for creating a gift card."""
     amount_cents = fields.Int(required=True, validate=validate.Range(min=1))
-    currency_code = fields.Str(missing='USD', validate=validate.Length(equal=3))
+    currency_code = fields.Str(load_default='USD', validate=validate.Length(equal=3))
     recipient_email = fields.Email(allow_none=True)
     recipient_name = fields.Str(allow_none=True, validate=validate.Length(max=255))
     sender_name = fields.Str(allow_none=True, validate=validate.Length(max=255))
     message = fields.Str(allow_none=True)
     valid_until = fields.DateTime(allow_none=True)
-    metadata = fields.Dict(missing={})
+    metadata = fields.Dict(load_default={})
 
 
 class GiftCardResponseSchema(Schema):
@@ -129,7 +170,7 @@ class PromotionApplySchema(Schema):
     amount_cents = fields.Int(required=True, validate=validate.Range(min=1))
     coupon_code = fields.Str(allow_none=True)
     gift_card_code = fields.Str(allow_none=True)
-    service_ids = fields.List(fields.Str(), missing=[])
+    service_ids = fields.List(fields.Str(), load_default=[])
     
     @validates_schema
     def validate_promotion_required(self, data, **kwargs):
@@ -215,7 +256,7 @@ def get_coupon(coupon_id):
     try:
         tenant_id = request.tenant_id
         
-        coupon = coupon_service.db.query(coupon_service.db.query(Coupon).filter(
+        coupon = coupon_service.db.query(Coupon).filter(
             and_(
                 Coupon.tenant_id == tenant_id,
                 Coupon.id == coupon_id

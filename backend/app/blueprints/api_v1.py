@@ -27,7 +27,7 @@ from datetime import datetime
 from ..middleware.error_handler import TithiError, TenantError
 from ..middleware.auth_middleware import require_auth, require_tenant, get_current_user
 from ..services.core import TenantService
-from ..services.business_phase2 import ServiceService, BookingService, AvailabilityService, CustomerService, StaffService
+from ..services.business_phase2 import ServiceService, BookingService, AvailabilityService, CustomerService, StaffService, StaffAvailabilityService, ValidationError
 from ..models.core import Tenant
 
 
@@ -1048,6 +1048,230 @@ def get_staff_availability(staff_id: str):
     except Exception as e:
         raise TithiError(
             message="Failed to get staff availability",
+            code="TITHI_STAFF_AVAILABILITY_ERROR"
+        )
+
+
+@api_v1_bp.route("/staff/<staff_id>/availability", methods=["POST"])
+@require_auth
+@require_tenant
+def create_staff_availability(staff_id: str):
+    """Create or update staff availability for a specific weekday."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data:
+            raise TithiError(
+                message="Request body is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Validate required fields
+        required_fields = ['weekday', 'start_time', 'end_time']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise TithiError(
+                message=f"Missing required fields: {', '.join(missing_fields)}",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        staff_availability_service = StaffAvailabilityService()
+        availability = staff_availability_service.create_availability(
+            tenant_id=tenant_id,
+            staff_profile_id=uuid.UUID(staff_id),
+            availability_data=data,
+            user_id=user_id
+        )
+        
+        return jsonify({
+            "id": str(availability.id),
+            "staff_profile_id": str(availability.staff_profile_id),
+            "weekday": availability.weekday,
+            "start_time": availability.start_time.strftime('%H:%M'),
+            "end_time": availability.end_time.strftime('%H:%M'),
+            "is_active": availability.is_active,
+            "created_at": availability.created_at.isoformat(),
+            "updated_at": availability.updated_at.isoformat()
+        }), 201
+        
+    except ValueError as e:
+        raise TithiError(
+            message=f"Invalid data: {str(e)}",
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except ValidationError as e:
+        raise TithiError(
+            message=str(e),
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to create staff availability",
+            code="TITHI_STAFF_AVAILABILITY_ERROR"
+        )
+
+
+@api_v1_bp.route("/staff/<staff_id>/availability/<int:weekday>", methods=["PUT"])
+@require_auth
+@require_tenant
+def update_staff_availability(staff_id: str, weekday: int):
+    """Update staff availability for a specific weekday."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data:
+            raise TithiError(
+                message="Request body is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Add weekday to data if not present
+        if 'weekday' not in data:
+            data['weekday'] = weekday
+        
+        staff_availability_service = StaffAvailabilityService()
+        availability = staff_availability_service.create_availability(
+            tenant_id=tenant_id,
+            staff_profile_id=uuid.UUID(staff_id),
+            availability_data=data,
+            user_id=user_id
+        )
+        
+        return jsonify({
+            "id": str(availability.id),
+            "staff_profile_id": str(availability.staff_profile_id),
+            "weekday": availability.weekday,
+            "start_time": availability.start_time.strftime('%H:%M'),
+            "end_time": availability.end_time.strftime('%H:%M'),
+            "is_active": availability.is_active,
+            "created_at": availability.created_at.isoformat(),
+            "updated_at": availability.updated_at.isoformat()
+        }), 200
+        
+    except ValueError as e:
+        raise TithiError(
+            message=f"Invalid data: {str(e)}",
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except ValidationError as e:
+        raise TithiError(
+            message=str(e),
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to update staff availability",
+            code="TITHI_STAFF_AVAILABILITY_ERROR"
+        )
+
+
+@api_v1_bp.route("/staff/<staff_id>/availability/<int:weekday>", methods=["DELETE"])
+@require_auth
+@require_tenant
+def delete_staff_availability(staff_id: str, weekday: int):
+    """Delete staff availability for a specific weekday."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        
+        staff_availability_service = StaffAvailabilityService()
+        success = staff_availability_service.delete_availability(
+            tenant_id=tenant_id,
+            staff_profile_id=uuid.UUID(staff_id),
+            weekday=weekday,
+            user_id=user_id
+        )
+        
+        if not success:
+            raise TithiError(
+                message="Staff availability not found",
+                code="TITHI_NOT_FOUND",
+                status_code=404
+            )
+        
+        return jsonify({
+            "message": "Staff availability deleted successfully",
+            "staff_id": staff_id,
+            "weekday": weekday
+        }), 200
+        
+    except ValueError as e:
+        raise TithiError(
+            message=f"Invalid staff ID: {str(e)}",
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to delete staff availability",
+            code="TITHI_STAFF_AVAILABILITY_ERROR"
+        )
+
+
+@api_v1_bp.route("/staff/<staff_id>/availability/slots", methods=["GET"])
+@require_auth
+@require_tenant
+def get_staff_availability_slots(staff_id: str):
+    """Get available time slots for a staff member within a date range."""
+    try:
+        tenant_id = g.tenant_id
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        if not start_date or not end_date:
+            raise TithiError(
+                message="start_date and end_date parameters are required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        
+        staff_availability_service = StaffAvailabilityService()
+        slots = staff_availability_service.get_available_slots(
+            tenant_id=tenant_id,
+            staff_profile_id=uuid.UUID(staff_id),
+            start_date=start_dt,
+            end_date=end_dt
+        )
+        
+        return jsonify({
+            "staff_id": staff_id,
+            "slots": slots,
+            "total": len(slots),
+            "start_date": start_date,
+            "end_date": end_date
+        }), 200
+        
+    except ValueError as e:
+        raise TithiError(
+            message=f"Invalid date format or staff ID: {str(e)}",
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to get staff availability slots",
             code="TITHI_STAFF_AVAILABILITY_ERROR"
         )
 

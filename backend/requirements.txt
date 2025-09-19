@@ -1,13 +1,14 @@
 # Core Flask dependencies
-Flask==3.0.0
+Flask==2.3.3
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 Flask-CORS==4.0.0
 Flask-Smorest==0.42.0
 
+
 # Database
 SQLAlchemy==2.0.23
-psycopg3==3.1.18
+psycopg==3.1.18
 alembic==1.13.1
 
 # Validation and serialization
@@ -21,7 +22,7 @@ celery==5.3.4
 
 # Authentication and security
 PyJWT==2.8.0
-cryptography==41.0.8
+cryptography>=42.0.5
 
 # HTTP client
 httpx==0.25.2

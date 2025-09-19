@@ -267,42 +267,56 @@ Real-time Updates
 ## 7. Phase Context & Task Management
 
 ### 7.1 Phase ENDGOALS (tasks makeup phases)
-## ## Phase 3 — Payments & Business Logic (Modules H, I, J) - COMPLETION CRITERIA
+## Phase 6 — NFRs, Testing, CI/CD, Deployment (Global across all modules) - COMPLETION CRITERIA
 
-**End Goal:** Payments, billing, promotions, and notifications fully functional. Customers can pay securely, promotions applied correctly, and notifications sent reliably according to tenant branding.
+**End Goal:** System non-functional requirements fully met — performance, security, reliability, maintainability, observability, compliance. CI/CD pipelines validate correctness; deployments follow safe practices.
 
 **Requirements:**
 
-**Module H — Payments & Billing**
-- Payment intents, SetupIntents, captures, refunds, and no-show fees handled via Stripe.
-- Support multiple providers: card, Apple Pay, Google Pay, PayPal, cash (collateral capture).
-- Stripe Connect payout integration for tenants.
-- Idempotency & provider replay protection implemented.
-- Contract tests for payment flows (success, failure, partial refund).
-- Structured logs: PAYMENT_INTENT_CREATED, PAYMENT_CAPTURED, PAYMENT_REFUNDED.
+**Performance**
+- API median response < 500ms; public booking flow < 2s on 3G.
+- Caching layer (Redis) integrated for tenant bootstrap and availability queries.
+- Contract tests and load tests validate performance SLAs.
 
-**Module I — Promotions & Gift Cards**
-- Coupons, gift cards, referral codes created and validated per tenant.
-- Conditional rules, stacking logic, and usage limits enforced.
-- A/B testing framework implemented for tenants.
-- Contract tests ensure tenant isolation and promo validity.
-- Observability hooks: PROMO_CREATED, PROMO_APPLIED, PROMO_EXPIRED.
+**Security**
+- RLS enforced on all tables.
+- JWT verification and rotation implemented.
+- Field-level encryption for sensitive PII.
+- PCI compliance verified: no raw card storage.
+- Contract/adversarial tests validate RLS, JWT tampering, PII protection.
 
-**Module J — Notifications & Messaging**
-- Template creation and updates functional per tenant.
-- Automated triggers for booking events (confirmation, reminders, follow-ups).
-- SMS (Twilio) and email (SendGrid) channels integrated.
-- Deduplication, retries, SLA adherence implemented.
-- Contract tests for notification delivery and opt-in/opt-out handling.
-- Structured logs: NOTIFICATION_ENQUEUED, NOTIFICATION_SENT, NOTIFICATION_FAILED.
+**Reliability**
+- Backup & restore procedures implemented with daily backups & point-in-time recovery.
+- Outbox/inbox ensures at-least-once delivery; retry policies in place.
+- CI/CD tests validate idempotency, failover, and partial failure handling.
+
+**Maintainability**
+- Frozen DTOs and migrations enforced.
+- Contract tests and OpenAPI spec generation automated.
+- Micro-ticket system used for task tracking.
+
+**Observability**
+- Structured logs, Sentry, Prometheus metrics fully integrated.
+- Alerts configured for failures, high no-show rates, provider outages.
+
+**Compliance**
+- GDPR flows for export/delete implemented per tenant and per customer.
+- Marketing opt-in enforced for notifications.
+- Audit logs capture PII access and changes.
+
+**CI/CD**
+- Linting, unit tests, contract tests, pgTAP validation pass before merge.
+- Integration tests run in staging.
+- Canary/feature flag deployment supported.
+- Rollback plan tested and documented.
 
 **Phase Completion Criteria:**
-- Payments flow end-to-end verified; no-show fees enforced correctly.
-- Promotions & coupons applied correctly with analytics captured.
-- Notifications delivered reliably with SLA & opt-in compliance.
-- All contract tests pass; observability hooks emit required metrics.
-- CI/CD passes unit, integration, and contract tests; staging environment tested.
+- All NFRs verified via automated tests and staging verification.
+- CI/CD pipelines fully operational; deployments to production follow safe, repeatable steps.
+- Observability and alerting systems operational.
+- GDPR, PCI, and other compliance requirements validated.
 
+---
 ---
 ### 7.2 Reference to Backend Report & Historical Files
 **Authoritative Sources**: Before execution, the executor must read and cross-reference backend_report.md and all previously generated files for this project.
@@ -431,44 +445,50 @@ Every atomic prompt will contain a **Task Definition Block** (see Section 8). Th
 
 ## 8. Task Definition Block (Embedded Atomic Task)
 
-### Task 3.2: Branding Assets
-**Context:** Allow tenants to upload logos, choose colors, and customize booking page.
+## Phase 6
+
+### Task 6.1: Coupons & Gift Codes
+**Context:** Allow tenants to create coupons/gift codes for customers.
 
 **Deliverable:**
-- `/branding/assets` endpoint
-- S3 bucket integration for logos
+- `/promotions/coupons` CRUD
+- `coupons` table
 
 **Constraints:**
-- Max logo size 2MB
-- Colors validated against hex
+- Code unique per tenant
+- Expiry dates enforced
 
 **Inputs/Outputs:**
-- Input: {logo_file, hex_colors}
-- Output: branding record
+- Input: {code, discount, expiry}
+- Output: coupon record
 
-**Validation:** Invalid hex rejected
+**Validation:** Expired coupons rejected
 
-**Testing:** Upload logo → retrievable
+**Testing:** Apply coupon → discount applied
 
-**Dependencies:** Task 3.1
+**Dependencies:** Task 5.1
 
-**Executive Rationale:** Branding assets enable white-label booking experiences that differentiate businesses.
+**Executive Rationale:** Promotions drive customer acquisition and retention.
 
 **North-Star Invariants:**
-- Assets must always resolve correctly
-- Branding must always scope to tenant
+- Discount never exceeds 100%
+- Expired coupons never valid
 
-**Contract Tests (Black-box):** Given a tenant uploads a logo, When another tenant fetches it, Then system must deny access (403).
+**Contract Tests (Black-box):** Given a coupon expired yesterday, When applied at checkout, Then system rejects with TITHI_COUPON_EXPIRED.
 
-**Schema/DTO Freeze Note:** `branding` schema frozen.
+**Schema/DTO Freeze Note:** `coupons` schema frozen.
 
-**Observability Hooks:** Emit `BRANDING_UPDATED` log
+**Observability Hooks:** Emit `COUPON_REDEEMED`
 
-**Error Model Enforcement:** `TITHI_BRANDING_INVALID_HEX`
+**Error Model Enforcement:**
+- `TITHI_COUPON_INVALID`
+- `TITHI_COUPON_EXPIRED`
 
-**Idempotency & Retry Guarantee:** Logo uploads overwrite deterministically
+**Idempotency & Retry Guarantee:** Coupon redemption atomic
 
 ---
+
+
 
 ## 9. Execution Standards & Requirements
 
@@ -616,3 +636,8 @@ Each deliverable must explicitly address:
 
 
 
+
+
+
+
+ 

@@ -7,7 +7,7 @@ Aligned with TITHI_DATABASE_COMPREHENSIVE_REPORT.md schema and Design Brief Modu
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -69,7 +69,7 @@ class NotificationTemplate(TenantModel):
     is_system = Column(Boolean, nullable=False, default=False)  # System vs user-created templates
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     notifications = relationship("Notification", back_populates="template")
@@ -127,7 +127,7 @@ class Notification(TenantModel):
     next_retry_at = Column(DateTime, nullable=True)
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     template = relationship("NotificationTemplate", back_populates="notifications")
@@ -172,7 +172,7 @@ class NotificationPreference(TenantModel):
     quiet_hours_end = Column(String(5), nullable=True)  # HH:MM format
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Constraints
     __table_args__ = (
@@ -235,7 +235,7 @@ class NotificationQueue(TenantModel):
     max_retries = Column(Integer, nullable=False, default=3)
     
     # Metadata
-    metadata = Column(JSONB, default={})
+    metadata_json = Column(JSONB, default={})
     
     # Relationships
     notification = relationship("Notification")

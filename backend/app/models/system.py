@@ -51,10 +51,10 @@ class AuditLog(TenantModel):
     record_id = Column(UUID(as_uuid=True), nullable=False)
     operation = Column(String(20), nullable=False)  # CREATE, UPDATE, DELETE
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    old_values = Column(JSON, default={})
-    new_values = Column(JSON, default={})
-    ip_address = Column(String(45))
-    user_agent = Column(String(500))
+    old_data = Column(JSON, default={})
+    new_data = Column(JSON, default={})
+    # ip_address = Column(String(45))  # Not in DB schema
+    # user_agent = Column(String(500))  # Not in DB schema
     
     # Relationships
     user = relationship("User")
@@ -63,20 +63,55 @@ class AuditLog(TenantModel):
 class EventOutbox(TenantModel):
     """Event outbox model for reliable event delivery."""
     
-    __tablename__ = "event_outbox"
+    __tablename__ = "events_outbox"
     
-    event_type = Column(String(100), nullable=False)
-    payload = Column(JSON, nullable=False)
-    status = Column(String(20), nullable=False, default="pending")  # pending, sent, failed
-    retry_count = Column(Integer, default=0)
-    max_retries = Column(Integer, default=3)
-    next_retry_at = Column(DateTime)
+    # Canonical schema alignment with DB (0013_audit_logs.sql)
+    event_code = Column(String(100), nullable=False)
+    payload = Column(JSON, nullable=False, default={})
+    status = Column(String(20), nullable=False, default="ready")  # ready, delivered, failed
+    ready_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    delivered_at = Column(DateTime)
+    failed_at = Column(DateTime)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    last_attempt_at = Column(DateTime)
     error_message = Column(Text)
+    key = Column(String(255))
+    metadata_json = Column("metadata", JSON, default={})
     
     # Constraints
     __table_args__ = (
         db.CheckConstraint(
-            "status IN ('pending', 'sent', 'failed')",
-            name="ck_event_outbox_status"
+            "status IN ('ready', 'delivered', 'failed')",
+            name="ck_events_outbox_status"
         ),
     )
+
+    # Deprecated compatibility aliases for simple test expectations
+    @property
+    def event_type(self):  # for legacy tests
+        return self.event_code
+
+    @property
+    def retry_count(self):  # maps to attempts
+        return self.attempts
+
+    @property
+    def max_retries(self):  # maps to max_attempts
+        return self.max_attempts
+
+    @property
+    def next_retry_at(self):  # maps to ready_at
+        return self.ready_at
+
+
+class WebhookEventInbox(db.Model):
+    """Inbox for inbound webhook events with idempotency via composite PK."""
+    
+    __tablename__ = "webhook_events_inbox"
+    
+    provider = Column(String(100), primary_key=True, nullable=False)
+    id = Column(String(255), primary_key=True, nullable=False)
+    payload = Column(JSON, nullable=False, default={})
+    processed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

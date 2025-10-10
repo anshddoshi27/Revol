@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, date
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
-from sqlalchemy import func, and_, or_, desc, asc, text
+from sqlalchemy import func, and_, or_, desc, asc, text, case, Time
 from sqlalchemy.orm import joinedload
 
 from ..extensions import db
@@ -194,41 +194,83 @@ class BusinessMetricsService:
     
     def get_customer_metrics(self, tenant_id: uuid.UUID, start_date: date, 
                            end_date: date) -> Dict[str, Any]:
-        """Get customer metrics for the period."""
+        """Get customer metrics for the period including churn and retention."""
         try:
-            # Total customers
+            # Calculate churn cutoff date (90 days before end_date)
+            churn_cutoff_date = end_date - timedelta(days=90)
+            
+            # Total customers (all customers created before or during period)
             total_customers = Customer.query.filter(
                 and_(
                     Customer.tenant_id == tenant_id,
-                    Customer.created_at >= start_date,
-                    Customer.created_at <= end_date
+                    Customer.created_at <= end_date,
+                    Customer.deleted_at.is_(None)
                 )
             ).count()
             
-            # New customers
+            # New customers (created during the period)
             new_customers = Customer.query.filter(
                 and_(
                     Customer.tenant_id == tenant_id,
                     Customer.created_at >= start_date,
-                    Customer.created_at <= end_date
+                    Customer.created_at <= end_date,
+                    Customer.deleted_at.is_(None)
                 )
             ).count()
             
-            # Repeat customers
-            repeat_customers = db.session.query(
-                Customer.id,
-                func.count(Booking.id).label('booking_count')
-            ).join(Booking, Customer.id == Booking.customer_id) \
-             .filter(
-                and_(
-                    Customer.tenant_id == tenant_id,
-                    Booking.start_at >= start_date,
-                    Booking.start_at <= end_date
-                )
-             ).group_by(Customer.id) \
-             .having(func.count(Booking.id) > 1).count()
+            # Returning customers (customers with bookings during period who existed before period)
+            returning_customers = db.session.query(Customer.id).join(Booking, Customer.id == Booking.customer_id) \
+                .filter(
+                    and_(
+                        Customer.tenant_id == tenant_id,
+                        Customer.created_at < start_date,
+                        Booking.start_at >= start_date,
+                        Booking.start_at <= end_date,
+                        Customer.deleted_at.is_(None)
+                    )
+                ).distinct().count()
             
-            # Customer lifetime value
+            # Churned customers (no booking in last 90 days, but had bookings before)
+            churned_customers = db.session.query(Customer.id) \
+                .join(Booking, Customer.id == Booking.customer_id) \
+                .filter(
+                    and_(
+                        Customer.tenant_id == tenant_id,
+                        Customer.created_at <= churn_cutoff_date,
+                        Customer.deleted_at.is_(None)
+                    )
+                ) \
+                .group_by(Customer.id) \
+                .having(
+                    and_(
+                        func.max(Booking.start_at) <= churn_cutoff_date,
+                        func.count(Booking.id) > 0
+                    )
+                ).count()
+            
+            # Active customers (customers with bookings in last 90 days)
+            active_customers = db.session.query(Customer.id) \
+                .join(Booking, Customer.id == Booking.customer_id) \
+                .filter(
+                    and_(
+                        Customer.tenant_id == tenant_id,
+                        Booking.start_at > churn_cutoff_date,
+                        Booking.start_at <= end_date,
+                        Customer.deleted_at.is_(None)
+                    )
+                ).distinct().count()
+            
+            # Calculate churn rate
+            churn_rate = 0.0
+            if total_customers > 0:
+                churn_rate = (churned_customers / total_customers) * 100
+            
+            # Calculate retention rate (active customers / total customers)
+            retention_rate = 0.0
+            if total_customers > 0:
+                retention_rate = (active_customers / total_customers) * 100
+            
+            # Customer lifetime value (average spend per customer)
             customer_lifetime_value = db.session.query(
                 func.avg(func.sum(Payment.amount_cents)).label('avg_clv')
             ).join(Booking, Payment.booking_id == Booking.id) \
@@ -238,20 +280,35 @@ class BusinessMetricsService:
                     Customer.tenant_id == tenant_id,
                     Payment.created_at >= start_date,
                     Payment.created_at <= end_date,
-                    Payment.status == 'captured'
+                    Payment.status == 'captured',
+                    Customer.deleted_at.is_(None)
                 )
              ).group_by(Customer.id).scalar() or 0
             
-            # Customer acquisition cost (simplified)
-            # In production, this would be calculated based on marketing spend
-            cac = 0  # Placeholder
+            # Customer acquisition cost (simplified - placeholder)
+            cac = 0  # In production, this would be calculated based on marketing spend
+            
+            # Customer segments
+            customer_segments = {
+                'new_customers': new_customers,
+                'returning_customers': returning_customers,
+                'active_customers': active_customers,
+                'churned_customers': churned_customers
+            }
             
             return {
                 'total_customers': total_customers,
-                'new_customers': new_customers,
-                'repeat_customers': repeat_customers,
+                'customer_segments': customer_segments,
+                'churn_rate': round(churn_rate, 2),
+                'retention_rate': round(retention_rate, 2),
                 'customer_lifetime_value': customer_lifetime_value,
-                'customer_acquisition_cost': cac
+                'customer_acquisition_cost': cac,
+                'churn_definition': '90_days_no_booking',
+                'period': {
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat(),
+                    'churn_cutoff_date': churn_cutoff_date.isoformat()
+                }
             }
             
         except Exception as e:
@@ -259,12 +316,84 @@ class BusinessMetricsService:
     
     def get_staff_metrics(self, tenant_id: uuid.UUID, start_date: date, 
                          end_date: date) -> Dict[str, Any]:
-        """Get staff performance metrics."""
+        """Get staff performance metrics including utilization, cancellations, and no-shows."""
         try:
-            # Staff utilization
-            staff_utilization = db.session.query(
+            # Calculate available hours per staff from work schedules
+            available_hours_query = db.session.query(
+                StaffProfile.id,
                 StaffProfile.display_name,
-                func.count(Booking.id).label('bookings'),
+                func.sum(
+                    func.extract('epoch', 
+                        func.cast(WorkSchedule.work_hours['end_time'], Time) - 
+                        func.cast(WorkSchedule.work_hours['start_time'], Time)
+                    ) / 3600  # Convert seconds to hours
+                ).label('available_hours')
+            ).join(WorkSchedule, StaffProfile.id == WorkSchedule.staff_profile_id) \
+             .filter(
+                and_(
+                    StaffProfile.tenant_id == tenant_id,
+                    WorkSchedule.start_date <= end_date,
+                    or_(
+                        WorkSchedule.end_date.is_(None),
+                        WorkSchedule.end_date >= start_date
+                    ),
+                    WorkSchedule.is_time_off == False,
+                    WorkSchedule.schedule_type == 'regular'
+                )
+             ).group_by(StaffProfile.id, StaffProfile.display_name)
+            
+            available_hours_data = {
+                row.id: {
+                    'staff_name': row.display_name,
+                    'available_hours': float(row.available_hours or 0)
+                }
+                for row in available_hours_query.all()
+            }
+            
+            # Calculate booked hours per staff from bookings
+            booked_hours_query = db.session.query(
+                StaffProfile.id,
+                StaffProfile.display_name,
+                func.sum(
+                    func.extract('epoch', Booking.end_at - Booking.start_at) / 3600
+                ).label('booked_hours'),
+                func.count(Booking.id).label('total_bookings'),
+                func.sum(
+                    case(
+                        (Booking.status == 'canceled', 1),
+                        else_=0
+                    )
+                ).label('cancellations'),
+                func.sum(
+                    case(
+                        (Booking.status == 'no_show', 1),
+                        else_=0
+                    )
+                ).label('no_shows')
+            ).join(Resource, StaffProfile.resource_id == Resource.id) \
+             .join(Booking, Resource.id == Booking.resource_id) \
+             .filter(
+                and_(
+                    StaffProfile.tenant_id == tenant_id,
+                    Booking.start_at >= start_date,
+                    Booking.start_at <= end_date
+                )
+             ).group_by(StaffProfile.id, StaffProfile.display_name)
+            
+            booked_hours_data = {
+                row.id: {
+                    'staff_name': row.display_name,
+                    'booked_hours': float(row.booked_hours or 0),
+                    'total_bookings': int(row.total_bookings or 0),
+                    'cancellations': int(row.cancellations or 0),
+                    'no_shows': int(row.no_shows or 0)
+                }
+                for row in booked_hours_query.all()
+            }
+            
+            # Calculate revenue per staff
+            revenue_query = db.session.query(
+                StaffProfile.id,
                 func.sum(Payment.amount_cents).label('revenue')
             ).join(Resource, StaffProfile.resource_id == Resource.id) \
              .join(Booking, Resource.id == Booking.resource_id) \
@@ -276,31 +405,78 @@ class BusinessMetricsService:
                     Booking.start_at <= end_date,
                     Payment.status == 'captured'
                 )
-             ).group_by(StaffProfile.id, StaffProfile.display_name).all()
+             ).group_by(StaffProfile.id)
             
-            # Average bookings per staff
-            avg_bookings_per_staff = db.session.query(
-                func.avg(func.count(Booking.id)).label('avg_bookings')
-            ).join(Resource, Booking.resource_id == Resource.id) \
-             .join(StaffProfile, Resource.id == StaffProfile.resource_id) \
-             .filter(
-                and_(
-                    StaffProfile.tenant_id == tenant_id,
-                    Booking.start_at >= start_date,
-                    Booking.start_at <= end_date
-                )
-             ).group_by(StaffProfile.id).scalar() or 0
+            revenue_data = {
+                row.id: int(row.revenue or 0)
+                for row in revenue_query.all()
+            }
+            
+            # Combine all data and calculate utilization
+            staff_metrics = []
+            all_staff_ids = set(available_hours_data.keys()) | set(booked_hours_data.keys())
+            
+            for staff_id in all_staff_ids:
+                available_hours = available_hours_data.get(staff_id, {}).get('available_hours', 0)
+                booked_data = booked_hours_data.get(staff_id, {})
+                booked_hours = booked_data.get('booked_hours', 0)
+                revenue = revenue_data.get(staff_id, 0)
+                
+                # Calculate utilization percentage
+                if available_hours > 0:
+                    utilization_percentage = min((booked_hours / available_hours) * 100, 100.0)
+                else:
+                    utilization_percentage = 0.0
+                
+                # Calculate cancellation and no-show rates
+                total_bookings = booked_data.get('total_bookings', 0)
+                cancellations = booked_data.get('cancellations', 0)
+                no_shows = booked_data.get('no_shows', 0)
+                
+                cancellation_rate = (cancellations / total_bookings * 100) if total_bookings > 0 else 0.0
+                no_show_rate = (no_shows / total_bookings * 100) if total_bookings > 0 else 0.0
+                
+                staff_name = available_hours_data.get(staff_id, {}).get('staff_name') or \
+                           booked_data.get('staff_name', 'Unknown Staff')
+                
+                staff_metrics.append({
+                    'staff_id': str(staff_id),
+                    'staff_name': staff_name,
+                    'available_hours': available_hours,
+                    'booked_hours': booked_hours,
+                    'utilization_percentage': round(utilization_percentage, 2),
+                    'total_bookings': total_bookings,
+                    'cancellations': cancellations,
+                    'cancellation_rate': round(cancellation_rate, 2),
+                    'no_shows': no_shows,
+                    'no_show_rate': round(no_show_rate, 2),
+                    'revenue_cents': revenue
+                })
+            
+            # Calculate aggregate metrics
+            total_available_hours = sum(data.get('available_hours', 0) for data in available_hours_data.values())
+            total_booked_hours = sum(data.get('booked_hours', 0) for data in booked_hours_data.values())
+            overall_utilization = (total_booked_hours / total_available_hours * 100) if total_available_hours > 0 else 0.0
+            
+            total_cancellations = sum(data.get('cancellations', 0) for data in booked_hours_data.values())
+            total_no_shows = sum(data.get('no_shows', 0) for data in booked_hours_data.values())
+            total_bookings = sum(data.get('total_bookings', 0) for data in booked_hours_data.values())
+            
+            overall_cancellation_rate = (total_cancellations / total_bookings * 100) if total_bookings > 0 else 0.0
+            overall_no_show_rate = (total_no_shows / total_bookings * 100) if total_bookings > 0 else 0.0
             
             return {
-                'staff_utilization': [
-                    {
-                        'staff_name': staff_name,
-                        'bookings': bookings,
-                        'revenue': revenue
-                    }
-                    for staff_name, bookings, revenue in staff_utilization
-                ],
-                'average_bookings_per_staff': avg_bookings_per_staff
+                'staff_metrics': staff_metrics,
+                'aggregate_metrics': {
+                    'total_available_hours': round(total_available_hours, 2),
+                    'total_booked_hours': round(total_booked_hours, 2),
+                    'overall_utilization_percentage': round(overall_utilization, 2),
+                    'total_bookings': total_bookings,
+                    'total_cancellations': total_cancellations,
+                    'overall_cancellation_rate': round(overall_cancellation_rate, 2),
+                    'total_no_shows': total_no_shows,
+                    'overall_no_show_rate': round(overall_no_show_rate, 2)
+                }
             }
             
         except Exception as e:

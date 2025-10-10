@@ -28,12 +28,16 @@ from .middleware.error_handler import register_error_handlers
 from .middleware.logging_middleware import LoggingMiddleware
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
+from .middleware.rate_limit_middleware import RateLimitMiddleware
+from .middleware.idempotency import idempotency_middleware
+from .middleware.sentry_middleware import init_sentry
+from .services.alerting_service import AlertingService
 
 # Import models to ensure they are registered with SQLAlchemy
 from . import models  # noqa: F401
 
 # Import all model modules to ensure they are registered
-from .models import core, business, financial, system, analytics  # noqa: F401
+from .models import core, business, financial, system, analytics, automation  # noqa: F401
 
 
 def create_app(config_name=None):
@@ -51,6 +55,9 @@ def create_app(config_name=None):
     # Load configuration
     config = get_config(config_name)
     app.config.from_object(config)
+    
+    # Initialize Sentry early (before other extensions)
+    init_sentry(app)
     
     # Initialize extensions
     initialize_extensions(app)
@@ -82,6 +89,11 @@ def create_app(config_name=None):
 def initialize_extensions(app: Flask) -> None:
     """Initialize Flask extensions."""
     
+    # Alerting Service (Error Monitoring & Alerts - Task 11.5)
+    alerting_service = AlertingService()
+    alerting_service.init_app(app)
+    app.alerting_service = alerting_service
+    
     # Database
     db.init_app(app)
     migrate.init_app(app, db)
@@ -106,9 +118,16 @@ def register_middleware(app: Flask) -> None:
     # Tenant resolution middleware
     app.wsgi_app = TenantMiddleware(app.wsgi_app)
     
+    # Rate limiting middleware
+    rate_limit_middleware = RateLimitMiddleware()
+    rate_limit_middleware.init_app(app)
+    
     # Authentication middleware
     auth_middleware = AuthMiddleware()
     auth_middleware.init_app(app)
+    
+    # Idempotency middleware
+    idempotency_middleware.init_app(app)
 
 
 def register_blueprints(app: Flask) -> None:
@@ -117,6 +136,10 @@ def register_blueprints(app: Flask) -> None:
     # Health check blueprint
     from .blueprints.health import health_bp
     app.register_blueprint(health_bp, url_prefix='/health')
+    
+    # Auth blueprint
+    from .blueprints.auth import auth_bp
+    app.register_blueprint(auth_bp, url_prefix='/auth')
     
     # API v1 blueprint
     from .blueprints.api_v1 import api_v1_bp
@@ -132,7 +155,7 @@ def register_blueprints(app: Flask) -> None:
     
     # Enhanced notification blueprint
     from .blueprints.notification_api import notification_bp
-    app.register_blueprint(notification_bp, url_prefix='/api/v1/notifications')
+    app.register_blueprint(notification_bp, url_prefix='/notifications')
     
     # Analytics blueprint
     from .blueprints.analytics_api import analytics_bp
@@ -156,6 +179,30 @@ def register_blueprints(app: Flask) -> None:
     # Admin Dashboard API blueprint (Module M)
     from .blueprints.admin_dashboard_api import admin_bp
     app.register_blueprint(admin_bp, url_prefix='/api/v1/admin')
+    
+    # Loyalty API blueprint (Task 6.2)
+    from .blueprints.loyalty_api import loyalty_bp
+    app.register_blueprint(loyalty_bp)
+    
+    # Email API blueprint (Task 7.1)
+    from .blueprints.email_api import email_bp
+    app.register_blueprint(email_bp, url_prefix='/api/v1')
+    
+    # SMS API blueprint (Task 7.2)
+    from .blueprints.sms_api import sms_bp
+    app.register_blueprint(sms_bp)
+    
+    # Automation API blueprint (Task 7.3)
+    from .blueprints.automation_api import automation_bp
+    app.register_blueprint(automation_bp, url_prefix='/api/v1')
+    
+    # Timezone API blueprint (Task 11.3)
+    from .blueprints.timezone_api import timezone_bp
+    app.register_blueprint(timezone_bp)
+    
+    # Idempotency API blueprint (Task 11.4)
+    from .blueprints.idempotency_api import idempotency_bp
+    app.register_blueprint(idempotency_bp)
     
 
 
@@ -182,9 +229,27 @@ def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(Exception)
     def handle_generic_exception(e):
         """Handle unexpected exceptions."""
+        # Import here to avoid circular imports
+        from flask import g
+        from .middleware.sentry_middleware import capture_exception
+        from .middleware.error_handler import emit_error_observability_hook
+        
+        # Emit observability hook
+        emit_error_observability_hook(e, "TITHI_INTERNAL_ERROR", "critical")
+        
+        # Capture in Sentry
+        capture_exception(e, 
+                        error_code="TITHI_INTERNAL_ERROR",
+                        error_type=type(e).__name__,
+                        tenant_id=getattr(g, "tenant_id", None),
+                        user_id=getattr(g, "user_id", None))
+        
         app.logger.error("Unhandled exception", exc_info=True, extra={
             "error": str(e),
-            "error_type": type(e).__name__
+            "error_type": type(e).__name__,
+            "tenant_id": getattr(g, "tenant_id", None),
+            "user_id": getattr(g, "user_id", None),
+            "request_id": getattr(g, "request_id", None)
         })
         
         return jsonify({

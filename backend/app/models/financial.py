@@ -9,7 +9,8 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, Numeric, JSON, BigInteger, Enum as SQLEnum, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from ..extensions import db
 from .core import TenantModel
@@ -41,7 +42,7 @@ class Payment(TenantModel):
     provider_payment_id = Column(String(255))  # Stripe PaymentIntent ID
     provider_charge_id = Column(String(255))   # Stripe Charge ID
     provider_setup_intent_id = Column(String(255))  # Stripe SetupIntent ID
-    provider_metadata = Column(JSONB, default={})
+    provider_metadata = Column(JSON, default={})
     
     # Idempotency and replay protection
     idempotency_key = Column(String(255), unique=True)
@@ -53,7 +54,7 @@ class Payment(TenantModel):
     royalty_basis = Column(String(50), CheckConstraint("royalty_basis IN ('new_customer', 'referral', 'other')"))
     
     # Additional metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Relationships
     booking = relationship("Booking", back_populates="payments")
@@ -115,10 +116,10 @@ class Refund(TenantModel):
     refund_type = Column(String(20), nullable=False, default="full")
     provider = Column(String(50), nullable=False, default="stripe")
     provider_refund_id = Column(String(255))
-    provider_metadata = Column(JSONB, default={})
+    provider_metadata = Column(JSON, default={})
     status = Column(String(20), nullable=False, default="pending")
     idempotency_key = Column(String(255))
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Relationships
     payment = relationship("Payment", back_populates="refunds")
@@ -146,7 +147,7 @@ class TenantBilling(TenantModel):
     stripe_account_id = Column(String(255))
     stripe_connect_enabled = Column(Boolean, nullable=False, default=False)
     stripe_connect_id = Column(String(255))
-    billing_json = Column(JSONB, default={})
+    billing_json = Column(JSON, default={})
     default_no_show_fee_percent = Column(Numeric(5, 2), default=3.00)
     
     # Constraints
@@ -177,126 +178,8 @@ class Invoice(TenantModel):
     )
 
 
-class Coupon(TenantModel):
-    """Coupon model for discount coupons and promotional codes."""
-    
-    __tablename__ = "coupons"
-    
-    # Core coupon fields
-    code = Column(String(50), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text)
-    discount_type = Column(String(20), nullable=False)  # percentage, fixed_amount
-    discount_value = Column(Numeric(10, 2), nullable=False)
-    currency_code = Column(String(3), default="USD")
-    
-    # Usage limits
-    max_uses = Column(Integer, nullable=True)  # NULL = unlimited
-    max_uses_per_customer = Column(Integer, nullable=False, default=1)
-    used_count = Column(Integer, nullable=False, default=0)
-    
-    # Validity period
-    valid_from = Column(DateTime, nullable=False)
-    valid_until = Column(DateTime, nullable=True)  # NULL = no expiration
-    
-    # Conditions
-    minimum_amount_cents = Column(Integer, nullable=True)  # Minimum order amount
-    maximum_discount_cents = Column(Integer, nullable=True)  # Maximum discount amount
-    applicable_services = Column(JSONB, default=[])  # Service IDs this coupon applies to
-    applicable_customers = Column(JSONB, default=[])  # Customer IDs this coupon applies to
-    
-    # Status
-    is_active = Column(Boolean, nullable=False, default=True)
-    is_public = Column(Boolean, nullable=False, default=True)  # Can be used by any customer
-    
-    # Metadata
-    metadata_json = Column(JSONB, default={})
-    
-    # Constraints
-    __table_args__ = (
-        CheckConstraint("discount_type IN ('percentage', 'fixed_amount')", name="ck_coupon_discount_type"),
-        CheckConstraint("discount_value > 0", name="ck_coupon_discount_positive"),
-        CheckConstraint("max_uses IS NULL OR max_uses > 0", name="ck_coupon_max_uses"),
-        CheckConstraint("max_uses_per_customer > 0", name="ck_coupon_max_uses_per_customer"),
-        CheckConstraint("used_count >= 0", name="ck_coupon_used_count"),
-        CheckConstraint("minimum_amount_cents IS NULL OR minimum_amount_cents >= 0", name="ck_coupon_min_amount"),
-        CheckConstraint("maximum_discount_cents IS NULL OR maximum_discount_cents > 0", name="ck_coupon_max_discount"),
-        CheckConstraint("valid_until IS NULL OR valid_until > valid_from", name="ck_coupon_valid_period"),
-        UniqueConstraint("code", "tenant_id", name="uq_coupon_code_tenant"),
-    )
-
-
-class GiftCard(TenantModel):
-    """Gift card model for digital gift cards."""
-    
-    __tablename__ = "gift_cards"
-    
-    # Core gift card fields
-    code = Column(String(50), nullable=False, unique=True)
-    amount_cents = Column(Integer, nullable=False)
-    currency_code = Column(String(3), default="USD")
-    balance_cents = Column(Integer, nullable=False)
-    
-    # Recipient information
-    recipient_email = Column(String(255), nullable=True)
-    recipient_name = Column(String(255), nullable=True)
-    sender_name = Column(String(255), nullable=True)
-    message = Column(Text, nullable=True)
-    
-    # Validity period
-    valid_from = Column(DateTime, nullable=False, default=func.now())
-    valid_until = Column(DateTime, nullable=True)  # NULL = no expiration
-    
-    # Status
-    is_active = Column(Boolean, nullable=False, default=True)
-    is_redeemed = Column(Boolean, nullable=False, default=False)
-    
-    # Metadata
-    metadata_json = Column(JSONB, default={})
-    
-    # Relationships
-    transactions = relationship("GiftCardTransaction", back_populates="gift_card")
-    
-    # Constraints
-    __table_args__ = (
-        CheckConstraint("amount_cents > 0", name="ck_gift_card_amount_positive"),
-        CheckConstraint("balance_cents >= 0", name="ck_gift_card_balance_non_negative"),
-        CheckConstraint("balance_cents <= amount_cents", name="ck_gift_card_balance_not_exceed_amount"),
-        CheckConstraint("valid_until IS NULL OR valid_until > valid_from", name="ck_gift_card_valid_period"),
-    )
-
-
-class GiftCardTransaction(TenantModel):
-    """Gift card transaction model for tracking gift card usage."""
-    
-    __tablename__ = "gift_card_transactions"
-    
-    gift_card_id = Column(UUID(as_uuid=True), ForeignKey("gift_cards.id"), nullable=False)
-    transaction_type = Column(String(20), nullable=False)  # purchase, redemption, refund
-    amount_cents = Column(Integer, nullable=False)
-    balance_after_cents = Column(Integer, nullable=False)
-    
-    # Related entities
-    booking_id = Column(UUID(as_uuid=True), ForeignKey("bookings.id"), nullable=True)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.id"), nullable=True)
-    
-    # Description
-    description = Column(Text, nullable=True)
-    
-    # Metadata
-    metadata_json = Column(JSONB, default={})
-    
-    # Relationships
-    gift_card = relationship("GiftCard", back_populates="transactions")
-    booking = relationship("Booking")
-    payment = relationship("Payment")
-    
-    # Constraints
-    __table_args__ = (
-        CheckConstraint("transaction_type IN ('purchase', 'redemption', 'refund')", name="ck_gift_card_transaction_type"),
-        CheckConstraint("amount_cents > 0", name="ck_gift_card_transaction_amount_positive"),
-        CheckConstraint("balance_after_cents >= 0", name="ck_gift_card_balance_after_non_negative"),
-    )
+# Note: Coupon, GiftCard, and GiftCardTransaction models are defined in promotions.py
+# to avoid SQLAlchemy table definition conflicts
 
 
 class PromotionUsage(TenantModel):
@@ -319,9 +202,9 @@ class PromotionUsage(TenantModel):
     final_amount_cents = Column(Integer, nullable=False)
     
     # Metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
-    # Relationships
+    # Relationships - Note: Coupon and GiftCard models are imported from promotions.py
     coupon = relationship("Coupon")
     gift_card = relationship("GiftCard")
     customer = relationship("Customer")

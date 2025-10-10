@@ -14,7 +14,7 @@ import logging
 
 from ..services.financial import PaymentService, BillingService
 from ..extensions import celery, db
-from ..models.system import WebhookEventInbox
+from ..models.audit import WebhookEventInbox
 from ..jobs.webhook_inbox_worker import process_webhook_event
 from ..middleware.error_handler import TithiError
 from ..middleware.auth_middleware import require_auth, get_current_tenant_id, get_current_user_id

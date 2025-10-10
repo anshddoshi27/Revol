@@ -8,7 +8,8 @@ customer notes, segments, loyalty programs, and customer management.
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Text, Integer, Boolean, DateTime, ForeignKey, JSON, CheckConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 
 from .core import TenantModel
@@ -43,7 +44,7 @@ class CustomerSegment(TenantModel):
     
     name = Column(String(255), nullable=False)
     description = Column(Text, default='')
-    criteria = Column(JSONB, nullable=False, default={})
+    criteria = Column(JSON, nullable=False, default={})
     customer_count = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     

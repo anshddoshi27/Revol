@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..middleware.error_handler import TithiError
-from ..models.system import EventOutbox
+from ..models.audit import EventOutbox
 import logging
 
 

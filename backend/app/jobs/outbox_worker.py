@@ -5,10 +5,32 @@ Celery tasks to process ready events from events_outbox with retry/backoff.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import uuid
 
 from ..extensions import celery, db
-from ..models.system import EventOutbox
+from ..models.audit import EventOutbox
+
+
+def emit_event(
+    tenant_id: uuid.UUID,
+    event_code: str,
+    payload: Optional[Dict[str, Any]] = None,
+    ready_at: Optional[datetime] = None,
+    max_attempts: int = 3
+) -> EventOutbox:
+    """Emit an event to the outbox for asynchronous processing."""
+    event = EventOutbox(
+        tenant_id=tenant_id,
+        event_code=event_code,
+        payload=payload or {},
+        ready_at=ready_at or datetime.utcnow(),
+        max_attempts=max_attempts,
+        status="ready"
+    )
+    db.session.add(event)
+    db.session.commit()
+    return event
 
 
 def _send_email_via_provider(event: EventOutbox) -> bool:

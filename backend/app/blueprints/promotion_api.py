@@ -11,8 +11,10 @@ from marshmallow import Schema, fields, validate, validates_schema, ValidationEr
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional
+from sqlalchemy import and_, or_
 
 from ..services.promotion import CouponService, GiftCardService, PromotionService
+from ..models.promotions import Coupon
 from ..exceptions import TithiError
 from ..middleware.auth_middleware import require_auth
 from ..middleware.auth_middleware import require_tenant
@@ -509,6 +511,199 @@ def get_promotion_analytics():
         
     except Exception as e:
         current_app.logger.error(f"Error getting promotion analytics: {str(e)}")
+        abort(500, message="Internal server error")
+
+
+@promotion_bp.route('/coupons', methods=['GET'])
+@require_auth
+@require_tenant
+def list_coupons():
+    """List all coupons for the tenant."""
+    try:
+        tenant_id = request.tenant_id
+        
+        # Get query parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        search = request.args.get('search', '')
+        
+        # Build query
+        query = coupon_service.db.query(Coupon).filter(Coupon.tenant_id == tenant_id)
+        
+        # Apply filters
+        if active_only:
+            query = query.filter(Coupon.is_active == True)
+        
+        if search:
+            query = query.filter(
+                or_(
+                    Coupon.code.ilike(f'%{search}%'),
+                    Coupon.name.ilike(f'%{search}%'),
+                    Coupon.description.ilike(f'%{search}%')
+                )
+            )
+        
+        # Order by created_at desc
+        query = query.order_by(Coupon.created_at.desc())
+        
+        # Paginate
+        pagination = query.paginate(
+            page=page, 
+            per_page=per_page, 
+            error_out=False
+        )
+        
+        # Convert to response format
+        coupons_data = []
+        for coupon in pagination.items:
+            coupons_data.append({
+                "id": str(coupon.id),
+                "code": coupon.code,
+                "name": coupon.name,
+                "description": coupon.description,
+                "discount_type": coupon.discount_type,
+                "discount_value": float(coupon.discount_value),
+                "currency_code": coupon.currency_code,
+                "max_uses": coupon.max_uses,
+                "max_uses_per_customer": coupon.max_uses_per_customer,
+                "used_count": coupon.used_count,
+                "valid_from": coupon.valid_from.isoformat() if coupon.valid_from else None,
+                "valid_until": coupon.valid_until.isoformat() if coupon.valid_until else None,
+                "minimum_amount_cents": coupon.minimum_amount_cents,
+                "maximum_discount_cents": coupon.maximum_discount_cents,
+                "applicable_services": coupon.applicable_services,
+                "applicable_customers": coupon.applicable_customers,
+                "is_active": coupon.is_active,
+                "is_public": coupon.is_public,
+                "metadata": coupon.metadata_json,
+                "created_at": coupon.created_at.isoformat(),
+                "updated_at": coupon.updated_at.isoformat()
+            })
+        
+        return jsonify({
+            "coupons": coupons_data,
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_next": pagination.has_next,
+                "has_prev": pagination.has_prev
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error listing coupons: {str(e)}")
+        abort(500, message="Internal server error")
+
+
+@promotion_bp.route('/coupons/<coupon_id>', methods=['PUT'])
+@require_auth
+@require_tenant
+def update_coupon(coupon_id):
+    """Update a coupon."""
+    try:
+        tenant_id = request.tenant_id
+        
+        # Get existing coupon
+        coupon = coupon_service.db.query(Coupon).filter(
+            and_(
+                Coupon.tenant_id == tenant_id,
+                Coupon.id == coupon_id
+            )
+        ).first()
+        
+        if not coupon:
+            abort(404, message="Coupon not found")
+        
+        # Parse and validate request data
+        schema = CouponUpdateSchema()
+        data = schema.load(request.json)
+        
+        # Update coupon fields
+        if 'name' in data:
+            coupon.name = data['name']
+        if 'description' in data:
+            coupon.description = data['description']
+        if 'discount_type' in data:
+            coupon.discount_type = data['discount_type']
+        if 'discount_value' in data:
+            coupon.discount_value = data['discount_value']
+        if 'currency_code' in data:
+            coupon.currency_code = data['currency_code']
+        if 'max_uses' in data:
+            coupon.max_uses = data['max_uses']
+        if 'max_uses_per_customer' in data:
+            coupon.max_uses_per_customer = data['max_uses_per_customer']
+        if 'valid_from' in data:
+            coupon.valid_from = data['valid_from']
+        if 'valid_until' in data:
+            coupon.valid_until = data['valid_until']
+        if 'minimum_amount_cents' in data:
+            coupon.minimum_amount_cents = data['minimum_amount_cents']
+        if 'maximum_discount_cents' in data:
+            coupon.maximum_discount_cents = data['maximum_discount_cents']
+        if 'applicable_services' in data:
+            coupon.applicable_services = data['applicable_services']
+        if 'applicable_customers' in data:
+            coupon.applicable_customers = data['applicable_customers']
+        if 'is_active' in data:
+            coupon.is_active = data['is_active']
+        if 'is_public' in data:
+            coupon.is_public = data['is_public']
+        if 'metadata' in data:
+            coupon.metadata_json = data['metadata']
+        
+        # Save changes
+        coupon_service.db.commit()
+        
+        # Return updated coupon
+        response_schema = CouponResponseSchema()
+        return jsonify(response_schema.dump(coupon))
+        
+    except ValidationError as e:
+        abort(400, message="Validation error", errors=e.messages)
+    except TithiError as e:
+        abort(400, message=e.message, error_code=e.error_code)
+    except Exception as e:
+        current_app.logger.error(f"Error updating coupon: {str(e)}")
+        abort(500, message="Internal server error")
+
+
+@promotion_bp.route('/coupons/<coupon_id>', methods=['DELETE'])
+@require_auth
+@require_tenant
+def delete_coupon(coupon_id):
+    """Delete a coupon."""
+    try:
+        tenant_id = request.tenant_id
+        
+        # Get existing coupon
+        coupon = coupon_service.db.query(Coupon).filter(
+            and_(
+                Coupon.tenant_id == tenant_id,
+                Coupon.id == coupon_id
+            )
+        ).first()
+        
+        if not coupon:
+            abort(404, message="Coupon not found")
+        
+        # Check if coupon has been used
+        if coupon.used_count > 0:
+            abort(400, message="Cannot delete coupon that has been used")
+        
+        # Soft delete the coupon
+        coupon.deleted_at = datetime.utcnow()
+        coupon.is_active = False
+        
+        coupon_service.db.commit()
+        
+        return jsonify({"message": "Coupon deleted successfully"})
+        
+    except Exception as e:
+        current_app.logger.error(f"Error deleting coupon: {str(e)}")
         abort(500, message="Internal server error")
 
 

@@ -21,7 +21,8 @@ from app import create_app
 from app.extensions import db
 from app.models.core import Tenant, User, Membership
 from app.models.business import Customer, Service, Resource, Booking
-from app.models.financial import Payment, Coupon, GiftCard
+from app.models.financial import Payment
+from app.models.promotions import Coupon, GiftCard
 from app.models.notification import Notification
 
 
@@ -59,9 +60,8 @@ class TestPhase3ContractValidation:
         tenant = Tenant(
             id=uuid.uuid4(),
             slug="contract-test-tenant",
-            name="Contract Test Tenant",
-            timezone="UTC",
-            is_active=True
+            tz="UTC",
+            is_public_directory=False
         )
         db.session.add(tenant)
         db.session.commit()
@@ -71,7 +71,7 @@ class TestPhase3ContractValidation:
         """Create test user."""
         user = User(
             id=uuid.uuid4(),
-            email="contract@example.com",
+            primary_email="contract@example.com",
             display_name="Contract Test User"
         )
         db.session.add(user)

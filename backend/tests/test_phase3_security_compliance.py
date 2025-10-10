@@ -21,7 +21,8 @@ from app import create_app
 from app.extensions import db
 from app.models.core import Tenant, User, Membership
 from app.models.business import Customer, Service, Resource, Booking
-from app.models.financial import Payment, PaymentMethod, Refund, Coupon, GiftCard
+from app.models.financial import Payment, PaymentMethod, Refund
+from app.models.promotions import Coupon, GiftCard
 from app.models.notification import Notification, NotificationTemplate
 from app.services.financial import PaymentService, BillingService
 from app.services.promotion import PromotionService

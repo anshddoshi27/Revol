@@ -1,0 +1,269 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Tithi Platform Overview",
+    "tags": ["tithi", "overview"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Requests/sec",
+            "min": 0
+          }
+        ],
+        "xAxes": [
+          {
+            "label": "Time"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Seconds",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Tenants",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(tenant_active)",
+            "legendFormat": "Active Tenants"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Active Users",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(user_active)",
+            "legendFormat": "Active Users"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "Bookings Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(booking_created_total[1d]))",
+            "legendFormat": "Bookings Today"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 8
+        }
+      },
+      {
+        "id": 7,
+        "title": "Revenue Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(payment_completed_total[1d]))",
+            "legendFormat": "Revenue Today"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 8
+        }
+      },
+      {
+        "id": 8,
+        "title": "Database Connections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "db_connections_active",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "db_connections_max",
+            "legendFormat": "Max Connections"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Connections",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 9,
+        "title": "Redis Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes",
+            "legendFormat": "Memory Used"
+          },
+          {
+            "expr": "redis_memory_max_bytes",
+            "legendFormat": "Memory Max"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bytes",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 10,
+        "title": "Celery Workers",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "celery_workers_active",
+            "legendFormat": "Active Workers"
+          },
+          {
+            "expr": "celery_tasks_pending",
+            "legendFormat": "Pending Tasks"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Count",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 11,
+        "title": "Feature Flag Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(feature_flag_evaluations_total[5m])",
+            "legendFormat": "{{flag_name}} - {{variant}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Evaluations/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "schemaVersion": 16,
+    "version": 1
+  }
+}

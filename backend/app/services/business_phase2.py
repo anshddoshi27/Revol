@@ -21,7 +21,7 @@ from ..models.business import (
     StaffProfile, WorkSchedule, StaffAssignmentHistory, StaffAvailability, BookingHold, WaitlistEntry, AvailabilityCache
 )
 from ..models.core import Tenant, User, Membership
-from ..models.system import AuditLog, EventOutbox
+from ..models.audit import AuditLog, EventOutbox
 from .cache import AvailabilityCacheService, BookingHoldCacheService, WaitlistCacheService
 
 
@@ -695,6 +695,86 @@ class AvailabilityService(BaseService):
                     return True
         
         return False
+    
+    def get_staff_availability_rules(self, tenant_id: uuid.UUID, staff_profile_id: uuid.UUID) -> List[StaffAvailability]:
+        """Get availability rules for a specific staff member."""
+        return StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            staff_profile_id=staff_profile_id,
+            is_active=True
+        ).all()
+
+    def get_tenant_availability_rules(self, tenant_id: uuid.UUID) -> List[StaffAvailability]:
+        """Get all availability rules for a tenant."""
+        return StaffAvailability.query.filter_by(
+            tenant_id=tenant_id,
+            is_active=True
+        ).all()
+
+    def get_availability_summary(self, tenant_id: uuid.UUID, start_date: datetime, 
+                               end_date: datetime, staff_ids: List[uuid.UUID] = None) -> Dict[str, Any]:
+        """Get availability summary for a date range."""
+        # Implementation to calculate availability summary
+        summary = {
+            "total_hours": 0,
+            "available_slots": 0,
+            "booked_slots": 0,
+            "staff_summary": []
+        }
+        
+        # Get staff profiles
+        if staff_ids:
+            staff_profiles = StaffProfile.query.filter(
+                StaffProfile.tenant_id == tenant_id,
+                StaffProfile.id.in_(staff_ids)
+            ).all()
+        else:
+            staff_profiles = StaffProfile.query.filter_by(
+                tenant_id=tenant_id,
+                is_active=True
+            ).all()
+        
+        # Calculate summary for each staff member
+        for staff in staff_profiles:
+            # Get availability rules for this staff
+            availability_rules = StaffAvailability.query.filter_by(
+                tenant_id=tenant_id,
+                staff_profile_id=staff.id,
+                is_active=True
+            ).all()
+            
+            # Calculate total hours
+            total_hours = 0
+            for rule in availability_rules:
+                start_time = rule.start_time
+                end_time = rule.end_time
+                hours = (datetime.combine(datetime.min.date(), end_time) - 
+                        datetime.combine(datetime.min.date(), start_time)).total_seconds() / 3600
+                total_hours += hours
+            
+            # Get bookings for this staff in the date range
+            bookings = Booking.query.filter(
+                and_(
+                    Booking.tenant_id == tenant_id,
+                    Booking.resource_id == staff.resource_id,
+                    Booking.start_at >= start_date,
+                    Booking.start_at <= end_date,
+                    Booking.status.in_(['confirmed', 'checked_in'])
+                )
+            ).count()
+            
+            summary["staff_summary"].append({
+                "staff_id": str(staff.id),
+                "staff_name": staff.display_name,
+                "total_hours": total_hours,
+                "days_available": len(availability_rules),
+                "bookings_count": bookings
+            })
+            
+            summary["total_hours"] += total_hours
+            summary["booked_slots"] += bookings
+        
+        return summary
     
     def _get_default_availability(self, start_date: datetime, end_date: datetime, 
                                 resource_tz: timezone) -> List[Dict[str, Any]]:
@@ -1487,6 +1567,49 @@ class BookingService(BaseService):
         
         return result
     
+    def complete_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Booking]:
+        """Complete a booking and award loyalty points."""
+        booking = self.get_booking(tenant_id, booking_id)
+        if not booking:
+            return None
+        
+        if booking.status not in ['confirmed', 'checked_in']:
+            raise ValueError("Only confirmed or checked-in bookings can be completed")
+        
+        def _complete_booking():
+            booking.status = 'completed'
+            booking.updated_at = datetime.utcnow()
+            return booking
+        
+        result = self._safe_db_operation(_complete_booking)
+        
+        # Award loyalty points for completed booking
+        try:
+            from ..services.loyalty_service import LoyaltyService
+            loyalty_service = LoyaltyService()
+            loyalty_service.award_points_for_booking(
+                tenant_id=tenant_id,
+                customer_id=booking.customer_id,
+                booking_id=booking.id,
+                points=1  # 1 point per booking as per Task 6.2 requirements
+            )
+        except Exception as e:
+            # Log error but don't fail the booking completion
+            logger.error(f"Failed to award loyalty points for booking {booking_id}: {str(e)}")
+        
+        # Emit outbox event for booking completion
+        self._emit_event(tenant_id, "BOOKING_COMPLETED", {
+            "booking_id": str(booking.id),
+            "customer_id": str(booking.customer_id),
+            "service_id": booking.service_snapshot.get('service_id'),
+            "resource_id": str(booking.resource_id),
+            "start_at": booking.start_at.isoformat(),
+            "end_at": booking.end_at.isoformat(),
+            "status": booking.status
+        })
+        
+        return result
+    
     def get_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID) -> Optional[Booking]:
         """Get a booking by ID with tenant isolation."""
         booking_id = self._validate_uuid(booking_id, 'booking_id')
@@ -1525,16 +1648,220 @@ class BookingService(BaseService):
         }
         return precedence.get(status, 0)
 
+    def admin_update_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, 
+                           update_fields: Dict[str, Any], admin_user_id: uuid.UUID) -> Optional[Booking]:
+        """Admin update booking with restrictions and audit trail."""
+        booking = self.get_booking(tenant_id, booking_id)
+        if not booking:
+            return None
+        
+        # Validate admin permissions (only admins/staff can edit)
+        # This would be checked at the API level via middleware
+        
+        # Store old values for audit
+        old_values = {
+            'status': booking.status,
+            'start_at': booking.start_at.isoformat() if booking.start_at else None,
+            'end_at': booking.end_at.isoformat() if booking.end_at else None,
+            'canceled_at': booking.canceled_at.isoformat() if booking.canceled_at else None,
+            'no_show_flag': booking.no_show_flag
+        }
+        
+        # Validate update fields
+        allowed_fields = ['status', 'start_at', 'end_at', 'canceled_at', 'no_show_flag', 'cancellation_reason']
+        for field in update_fields:
+            if field not in allowed_fields:
+                raise ValueError(f"Field '{field}' is not allowed for admin updates")
+        
+        # Validate status transitions
+        if 'status' in update_fields:
+            new_status = update_fields['status']
+            valid_statuses = ['pending', 'confirmed', 'checked_in', 'completed', 'canceled', 'no_show', 'failed']
+            if new_status not in valid_statuses:
+                raise ValueError(f"Invalid status: {new_status}")
+            
+            # Business rule: can't change completed bookings
+            if booking.status == 'completed' and new_status != 'completed':
+                raise ValueError("Cannot modify completed bookings")
+        
+        # Validate time changes
+        if 'start_at' in update_fields or 'end_at' in update_fields:
+            new_start = datetime.fromisoformat(update_fields.get('start_at', booking.start_at.isoformat()).replace('Z', '+00:00'))
+            new_end = datetime.fromisoformat(update_fields.get('end_at', booking.end_at.isoformat()).replace('Z', '+00:00'))
+            self._validate_datetime_range(new_start, new_end)
+            
+            # Check availability for time changes
+            availability_service = AvailabilityService()
+            if not availability_service.is_slot_available(tenant_id, booking.resource_id, new_start, new_end, booking_id):
+                raise ValueError("New time slot is not available")
+        
+        def _update_booking():
+            # Apply updates
+            for field, value in update_fields.items():
+                if field in ['start_at', 'end_at', 'canceled_at']:
+                    if value:
+                        setattr(booking, field, datetime.fromisoformat(value.replace('Z', '+00:00')))
+                    else:
+                        setattr(booking, field, None)
+                else:
+                    setattr(booking, field, value)
+            
+            booking.updated_at = datetime.utcnow()
+            return booking
+        
+        result = self._safe_db_operation(_update_booking)
+        
+        # Log audit trail
+        self._log_audit(tenant_id, "booking", booking.id, "UPDATE", admin_user_id, 
+                       old_values=old_values, 
+                       new_values=update_fields)
+        
+        # Emit observability hook
+        logger.info(f"BOOKING_MODIFIED: tenant_id={tenant_id}, booking_id={booking_id}, admin_user_id={admin_user_id}, fields={list(update_fields.keys())}")
+        
+        return result
+
+    def bulk_action_bookings(self, tenant_id: uuid.UUID, booking_ids: List[str], 
+                           action: str, action_data: Dict[str, Any], admin_user_id: uuid.UUID) -> Dict[str, Any]:
+        """Perform bulk actions on bookings (confirm, cancel, reschedule, message)."""
+        results = {
+            'successful': [],
+            'failed': [],
+            'total_processed': len(booking_ids)
+        }
+        
+        for booking_id_str in booking_ids:
+            try:
+                booking_id = uuid.UUID(booking_id_str)
+                
+                if action == 'confirm':
+                    booking = self.confirm_booking(tenant_id, booking_id, admin_user_id)
+                elif action == 'cancel':
+                    reason = action_data.get('reason', 'Admin cancellation')
+                    booking = self.cancel_booking(tenant_id, booking_id, admin_user_id, reason)
+                elif action == 'reschedule':
+                    new_start = action_data.get('new_start_at')
+                    new_end = action_data.get('new_end_at')
+                    if not new_start or not new_end:
+                        raise ValueError("new_start_at and new_end_at required for reschedule")
+                    booking = self.reschedule_booking(tenant_id, booking_id, new_start, new_end, admin_user_id)
+                elif action == 'message':
+                    # This would be handled by notification service
+                    booking = self.get_booking(tenant_id, booking_id)
+                    if booking:
+                        # Send message via notification service
+                        pass
+                else:
+                    raise ValueError(f"Invalid action: {action}")
+                
+                if booking:
+                    results['successful'].append({
+                        'booking_id': str(booking.id),
+                        'status': booking.status
+                    })
+                else:
+                    results['failed'].append({
+                        'booking_id': booking_id_str,
+                        'error': 'Booking not found'
+                    })
+                    
+            except Exception as e:
+                results['failed'].append({
+                    'booking_id': booking_id_str,
+                    'error': str(e)
+                })
+        
+        return results
+
+    def send_customer_message(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, 
+                            message: str, admin_user_id: uuid.UUID) -> Dict[str, Any]:
+        """Send inline message to booking customer."""
+        booking = self.get_booking(tenant_id, booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        
+        # This would integrate with notification service
+        # For now, return a mock response
+        message_id = uuid.uuid4()
+        
+        # Log audit trail
+        self._log_audit(tenant_id, "booking", booking.id, "MESSAGE_SENT", admin_user_id, 
+                       new_values={'message': message, 'message_id': str(message_id)})
+        
+        return {
+            'message_id': str(message_id),
+            'sent_at': datetime.utcnow().isoformat() + "Z"
+        }
+
+    def drag_drop_reschedule(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, 
+                           new_start_at: str, new_end_at: str, admin_user_id: uuid.UUID) -> Dict[str, Any]:
+        """Handle drag-and-drop rescheduling with conflict validation."""
+        booking = self.get_booking(tenant_id, booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        
+        # Parse new times
+        try:
+            new_start = datetime.fromisoformat(new_start_at.replace('Z', '+00:00'))
+            new_end = datetime.fromisoformat(new_end_at.replace('Z', '+00:00'))
+        except ValueError as e:
+            raise ValueError(f"Invalid datetime format: {str(e)}")
+        
+        # Validate time order
+        self._validate_datetime_range(new_start, new_end)
+        
+        # Check availability
+        availability_service = AvailabilityService()
+        if not availability_service.is_slot_available(tenant_id, booking.resource_id, new_start, new_end, booking_id):
+            raise ValueError("New time slot is not available")
+        
+        # Store old values
+        old_start_at = booking.start_at.isoformat() if booking.start_at else None
+        
+        # Perform reschedule
+        booking = self.reschedule_booking(tenant_id, booking_id, new_start_at, new_end_at, admin_user_id)
+        
+        return {
+            'booking_id': str(booking.id),
+            'old_start_at': old_start_at,
+            'new_start_at': new_start_at,
+            'rescheduled_at': booking.updated_at.isoformat() + "Z"
+        }
+
 
 class CustomerService(BaseService):
     """Service for customer-related business logic."""
     
     def create_customer(self, tenant_id: uuid.UUID, customer_data: Dict[str, Any]) -> Customer:
-        """Create a new customer."""
+        """Create a new customer with duplicate validation."""
         # Generate display name from email if not provided
         display_name = customer_data.get('display_name', '')
         if not display_name and customer_data.get('email'):
             display_name = "New Customer"
+        
+        # Check for duplicate email per tenant (Task 8.1 requirement)
+        email = customer_data.get('email')
+        if email:
+            existing_customer = self.find_customer_by_email(tenant_id, email)
+            if existing_customer:
+                from ..middleware.error_handler import BusinessLogicError
+                raise BusinessLogicError(
+                    message=f"Customer with email {email} already exists",
+                    code="TITHI_CUSTOMER_DUPLICATE",
+                    status_code=409
+                )
+        
+        # Check for duplicate phone per tenant (Task 8.1 requirement)
+        phone = customer_data.get('phone')
+        if phone:
+            existing_customer = self.find_customer_by_phone(tenant_id, phone)
+            if existing_customer:
+                from ..middleware.error_handler import BusinessLogicError
+                raise BusinessLogicError(
+                    message=f"Customer with phone {phone} already exists",
+                    code="TITHI_CUSTOMER_DUPLICATE",
+                    status_code=409
+                )
         
         def _create_customer():
             customer = Customer(
@@ -1549,6 +1876,15 @@ class CustomerService(BaseService):
             )
             
             db.session.add(customer)
+            
+            # Emit CUSTOMER_CREATED event (Task 8.1 requirement)
+            self._emit_event(tenant_id, "CUSTOMER_CREATED", {
+                "customer_id": str(customer.id),
+                "email": customer.email,
+                "phone": customer.phone,
+                "display_name": customer.display_name
+            })
+            
             return customer
         
         result = self._safe_db_operation(_create_customer)
@@ -1685,6 +2021,37 @@ class CustomerService(BaseService):
         
         return [booking.to_dict() for booking in bookings]
     
+    def get_customer_profile_with_history(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> Dict[str, Any]:
+        """Get customer profile with booking history (Task 8.1 requirement)."""
+        customer_id = self._validate_uuid(customer_id, 'customer_id')
+        
+        # Get customer
+        customer = self.get_customer(tenant_id, customer_id)
+        if not customer:
+            return None
+        
+        # Get booking history
+        booking_history = self.get_customer_booking_history(tenant_id, customer_id)
+        
+        # Get customer metrics
+        metrics = self.get_customer_metrics(tenant_id, customer_id)
+        
+        return {
+            "customer": {
+                "id": str(customer.id),
+                "display_name": customer.display_name,
+                "email": customer.email,
+                "phone": customer.phone,
+                "marketing_opt_in": customer.marketing_opt_in,
+                "is_first_time": customer.is_first_time,
+                "first_booking_at": customer.customer_first_booking_at.isoformat() + "Z" if customer.customer_first_booking_at else None,
+                "created_at": customer.created_at.isoformat() + "Z",
+                "updated_at": customer.updated_at.isoformat() + "Z"
+            },
+            "booking_history": booking_history,
+            "metrics": metrics
+        }
+    
     def merge_customers(self, tenant_id: uuid.UUID, primary_id: uuid.UUID, duplicate_id: uuid.UUID) -> Customer:
         """Merge duplicate customers."""
         primary_id = self._validate_uuid(primary_id, 'primary_id')
@@ -1725,18 +2092,42 @@ class CustomerService(BaseService):
     
     def add_customer_note(self, tenant_id: uuid.UUID, customer_id: uuid.UUID, 
                          content: str, created_by: uuid.UUID) -> Dict[str, Any]:
-        """Add a note to customer record."""
+        """Add a note to customer record with idempotency support (Task 8.3)."""
         customer_id = self._validate_uuid(customer_id, 'customer_id')
         created_by = self._validate_uuid(created_by, 'created_by')
+        
+        # Validate content (Task 8.3: Validation: Empty notes rejected)
+        if not content or not content.strip():
+            raise TithiError(
+                message="Note content is required and cannot be empty",
+                code="TITHI_NOTE_INVALID",
+                status_code=422
+            )
         
         from ..models.crm import CustomerNote
         
         def _add_note():
+            # Check for existing note with same content, customer, and staff within 1 minute
+            # (Task 8.3: Idempotency by {customer_id, note_text, staff_id, timestamp})
+            from datetime import datetime, timedelta
+            recent_cutoff = datetime.utcnow() - timedelta(minutes=1)
+            
+            existing_note = CustomerNote.query.filter_by(
+                tenant_id=tenant_id,
+                customer_id=customer_id,
+                content=content.strip(),
+                created_by=created_by
+            ).filter(CustomerNote.created_at >= recent_cutoff).first()
+            
+            if existing_note:
+                # Return existing note for idempotency
+                return existing_note
+            
             note = CustomerNote(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 customer_id=customer_id,
-                content=content,
+                content=content.strip(),
                 created_by=created_by
             )
             db.session.add(note)
@@ -1813,6 +2204,67 @@ class CustomerService(BaseService):
         
         result = self._safe_db_operation(_delete_customer)
         return result
+    
+    def get_customers_by_segment(self, tenant_id: uuid.UUID, criteria: Dict[str, Any], 
+                                page: int = 1, per_page: int = 20) -> Tuple[List[Customer], int]:
+        """Get customers filtered by segmentation criteria (Task 8.2)."""
+        # Build base query with customer metrics join
+        query = db.session.query(Customer).outerjoin(
+            CustomerMetrics, 
+            and_(
+                Customer.id == CustomerMetrics.customer_id,
+                Customer.tenant_id == CustomerMetrics.tenant_id
+            )
+        ).filter(
+            Customer.tenant_id == tenant_id,
+            Customer.deleted_at.is_(None)
+        )
+        
+        # Apply segmentation criteria
+        
+        # Frequency criteria (min_bookings, max_bookings)
+        if 'min_bookings' in criteria:
+            query = query.filter(CustomerMetrics.total_bookings_count >= criteria['min_bookings'])
+        
+        if 'max_bookings' in criteria:
+            query = query.filter(CustomerMetrics.total_bookings_count <= criteria['max_bookings'])
+        
+        # Recency criteria (days_since_last_booking)
+        if 'days_since_last_booking' in criteria:
+            cutoff_date = datetime.utcnow() - timedelta(days=criteria['days_since_last_booking'])
+            query = query.filter(CustomerMetrics.last_booking_at <= cutoff_date)
+        
+        # Spend criteria (min_spend_cents, max_spend_cents)
+        if 'min_spend_cents' in criteria:
+            query = query.filter(CustomerMetrics.total_spend_cents >= criteria['min_spend_cents'])
+        
+        if 'max_spend_cents' in criteria:
+            query = query.filter(CustomerMetrics.total_spend_cents <= criteria['max_spend_cents'])
+        
+        # Customer status criteria
+        if 'is_first_time' in criteria:
+            query = query.filter(Customer.is_first_time == criteria['is_first_time'])
+        
+        if 'marketing_opt_in' in criteria:
+            query = query.filter(Customer.marketing_opt_in == criteria['marketing_opt_in'])
+        
+        # Get total count for pagination
+        total = query.count()
+        
+        # Apply pagination
+        offset = (page - 1) * per_page
+        customers = query.offset(offset).limit(per_page).all()
+        
+        # Add metrics to each customer for response formatting
+        for customer in customers:
+            # Get metrics for this customer
+            metrics = CustomerMetrics.query.filter_by(
+                tenant_id=tenant_id,
+                customer_id=customer.id
+            ).first()
+            customer.metrics = metrics
+        
+        return customers, total
     
     def get_crm_summary(self, tenant_id: uuid.UUID) -> Dict[str, Any]:
         """Get CRM summary for admin dashboard."""

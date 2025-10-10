@@ -7,7 +7,7 @@ Celery task to idempotently process webhook events from webhook_events_inbox.
 from datetime import datetime
 
 from ..extensions import celery, db
-from ..models.system import WebhookEventInbox
+from ..models.audit import WebhookEventInbox
 
 
 @celery.task(name="app.jobs.webhook_inbox_worker.process_webhook_event")

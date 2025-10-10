@@ -10,6 +10,9 @@ from flask_cors import CORS
 import redis
 from typing import Optional
 from celery import Celery
+from app.middleware.sentry_middleware import init_sentry
+from app.middleware.metrics_middleware import MetricsMiddleware
+from app.middleware.enhanced_logging_middleware import EnhancedLoggingMiddleware
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -21,6 +24,10 @@ redis_client: Optional[redis.Redis] = None
 
 # Celery instance (initialized lazily)
 celery: Celery = Celery(__name__)
+
+# Observability middleware
+metrics_middleware = MetricsMiddleware()
+enhanced_logging_middleware = EnhancedLoggingMiddleware()
 
 
 def init_redis(app):
@@ -66,3 +73,22 @@ def init_celery(app):
                 return self.run(*args, **kwargs)
 
     celery.Task = ContextTask
+
+
+def init_app(app):
+    """Initialize all extensions with Flask app."""
+    # Initialize core extensions
+    db.init_app(app)
+    migrate.init_app(app, db)
+    cors.init_app(app)
+    
+    # Initialize Redis
+    init_redis(app)
+    
+    # Initialize Celery
+    init_celery(app)
+    
+    # Initialize observability stack
+    init_sentry(app)
+    metrics_middleware.init_app(app)
+    enhanced_logging_middleware.init_app(app)

@@ -136,13 +136,13 @@ def list_customers():
 @require_auth
 @require_tenant
 def create_customer():
-    """Create or lookup customer with deduplication heuristics."""
+    """Create customer with duplicate validation (Task 8.1)."""
     try:
         data = request.get_json()
         tenant_id = g.tenant_id
         customer_service = CustomerService()
         
-        # Validate required fields
+        # Validate required fields (Task 8.1: Input: {name, email, phone})
         if not data.get('email') and not data.get('phone'):
             raise TithiError(
                 message="Either email or phone is required",
@@ -150,33 +150,9 @@ def create_customer():
                 status_code=400
             )
         
-        # Check for existing customers using deduplication heuristics
-        existing_customer = None
-        if data.get('email'):
-            existing_customer = customer_service.find_customer_by_email(tenant_id, data['email'])
-        
-        if not existing_customer and data.get('phone'):
-            existing_customer = customer_service.find_customer_by_phone(tenant_id, data['phone'])
-        
-        if existing_customer:
-            # Return existing customer
-            return jsonify({
-                "customer": {
-                    "id": str(existing_customer.id),
-                    "display_name": existing_customer.display_name,
-                    "email": existing_customer.email,
-                    "phone": existing_customer.phone,
-                    "marketing_opt_in": existing_customer.marketing_opt_in,
-                    "is_first_time": existing_customer.is_first_time,
-                    "created_at": existing_customer.created_at.isoformat() + "Z",
-                    "updated_at": existing_customer.updated_at.isoformat() + "Z"
-                },
-                "is_existing": True
-            }), 200
-        
-        # Create new customer
+        # Create customer data (Task 8.1 requirements)
         customer_data = {
-            'display_name': data.get('display_name', ''),
+            'display_name': data.get('display_name', data.get('name', '')),
             'email': data.get('email'),
             'phone': data.get('phone'),
             'marketing_opt_in': data.get('marketing_opt_in', False),
@@ -184,12 +160,12 @@ def create_customer():
             'is_first_time': True
         }
         
+        # Create customer (will raise TITHI_CUSTOMER_DUPLICATE if duplicate email/phone)
         customer = customer_service.create_customer(tenant_id, customer_data)
         
-        # Log customer creation
-        logger.info(f"CUSTOMER_CREATED: tenant_id={tenant_id}, customer_id={customer.id}")
-        
+        # Return customer_id as required by Task 8.1
         return jsonify({
+            "customer_id": str(customer.id),
             "customer": {
                 "id": str(customer.id),
                 "display_name": customer.display_name,
@@ -199,8 +175,7 @@ def create_customer():
                 "is_first_time": customer.is_first_time,
                 "created_at": customer.created_at.isoformat() + "Z",
                 "updated_at": customer.updated_at.isoformat() + "Z"
-            },
-            "is_existing": False
+            }
         }), 201
         
     except TithiError:
@@ -217,53 +192,21 @@ def create_customer():
 @require_auth
 @require_tenant
 def get_customer(customer_id: str):
-    """Get customer details with full history."""
+    """Get customer profile with booking history (Task 8.1 requirement)."""
     try:
         tenant_id = g.tenant_id
         customer_service = CustomerService()
         
-        # Get customer
-        customer = customer_service.get_customer(tenant_id, customer_id)
-        if not customer:
+        # Get customer profile with history (Task 8.1: Testing: Profile retrieved with booking history)
+        profile_data = customer_service.get_customer_profile_with_history(tenant_id, customer_id)
+        if not profile_data:
             raise TithiError(
                 message="Customer not found",
                 code="TITHI_CRM_CUSTOMER_NOT_FOUND",
                 status_code=404
             )
         
-        # Get customer metrics
-        metrics = customer_service.get_customer_metrics(tenant_id, customer_id)
-        
-        # Get booking history
-        bookings = customer_service.get_customer_booking_history(tenant_id, customer_id)
-        
-        # Format booking history
-        booking_history = []
-        for booking in bookings:
-            booking_history.append({
-                "id": str(booking.id),
-                "start_at": booking.start_at.isoformat() + "Z",
-                "end_at": booking.end_at.isoformat() + "Z",
-                "status": booking.status,
-                "service_snapshot": booking.service_snapshot,
-                "created_at": booking.created_at.isoformat() + "Z"
-            })
-        
-        return jsonify({
-            "customer": {
-                "id": str(customer.id),
-                "display_name": customer.display_name,
-                "email": customer.email,
-                "phone": customer.phone,
-                "marketing_opt_in": customer.marketing_opt_in,
-                "is_first_time": customer.is_first_time,
-                "first_booking_at": customer.customer_first_booking_at.isoformat() + "Z" if customer.customer_first_booking_at else None,
-                "created_at": customer.created_at.isoformat() + "Z",
-                "updated_at": customer.updated_at.isoformat() + "Z"
-            },
-            "metrics": metrics,
-            "booking_history": booking_history
-        }), 200
+        return jsonify(profile_data), 200
         
     except TithiError:
         raise
@@ -503,24 +446,30 @@ def add_customer_note(customer_id: str):
         current_user = get_current_user()
         customer_service = CustomerService()
         
-        if not data.get('content'):
+        # Validate note content (Task 8.3: Validation: Empty notes rejected)
+        content = data.get('content', '').strip()
+        if not content:
             raise TithiError(
-                message="Note content is required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
+                message="Note content is required and cannot be empty",
+                code="TITHI_NOTE_INVALID",
+                status_code=422
             )
         
         # Add note
         note = customer_service.add_customer_note(
-            tenant_id, customer_id, data['content'], current_user.id
+            tenant_id, customer_id, content, current_user.id
         )
         
+        # Emit NOTE_ADDED observability hook (Task 8.3 requirement)
+        logger.info(f"NOTE_ADDED: tenant_id={tenant_id}, customer_id={customer_id}, note_id={note['id']}, created_by={current_user.id}")
+        
         return jsonify({
+            "note_id": note['id'],  # Task 8.3: Output: note_id
             "note": {
-                "id": str(note.id),
-                "content": note.content,
-                "created_by": str(note.created_by),
-                "created_at": note.created_at.isoformat() + "Z"
+                "id": note['id'],
+                "content": note['content'],
+                "created_by": note['created_by'],
+                "created_at": note['created_at']
             }
         }), 201
         
@@ -538,16 +487,95 @@ def add_customer_note(customer_id: str):
 @require_auth
 @require_tenant
 def get_customer_segments():
-    """Get customer segments and segmentation criteria."""
+    """Get customer segments with dynamic filtering (Task 8.2)."""
     try:
         tenant_id = g.tenant_id
         customer_service = CustomerService()
         
-        # Get segments
-        segments = customer_service.get_customer_segments(tenant_id)
+        # Get query parameters for segmentation criteria
+        criteria = {}
+        
+        # Frequency criteria
+        min_bookings = request.args.get('min_bookings')
+        max_bookings = request.args.get('max_bookings')
+        if min_bookings:
+            criteria['min_bookings'] = int(min_bookings)
+        if max_bookings:
+            criteria['max_bookings'] = int(max_bookings)
+        
+        # Recency criteria
+        days_since_last_booking = request.args.get('days_since_last_booking')
+        if days_since_last_booking:
+            criteria['days_since_last_booking'] = int(days_since_last_booking)
+        
+        # Spend criteria
+        min_spend_cents = request.args.get('min_spend_cents')
+        max_spend_cents = request.args.get('max_spend_cents')
+        if min_spend_cents:
+            criteria['min_spend_cents'] = int(min_spend_cents)
+        if max_spend_cents:
+            criteria['max_spend_cents'] = int(max_spend_cents)
+        
+        # Customer status criteria
+        is_first_time = request.args.get('is_first_time')
+        if is_first_time is not None:
+            criteria['is_first_time'] = is_first_time.lower() == 'true'
+        
+        marketing_opt_in = request.args.get('marketing_opt_in')
+        if marketing_opt_in is not None:
+            criteria['marketing_opt_in'] = marketing_opt_in.lower() == 'true'
+        
+        # Pagination
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        
+        # Get segmented customers
+        customers, total = customer_service.get_customers_by_segment(
+            tenant_id, criteria, page=page, per_page=per_page
+        )
+        
+        # Emit SEGMENT_CREATED observability hook (Task 8.2 requirement)
+        customer_service._emit_event(tenant_id, "SEGMENT_CREATED", {
+            "criteria": criteria,
+            "customer_count": total,
+            "page": page,
+            "per_page": per_page
+        })
+        
+        # Format response
+        customer_list = []
+        for customer in customers:
+            customer_data = {
+                "id": str(customer.id),
+                "display_name": customer.display_name,
+                "email": customer.email,
+                "phone": customer.phone,
+                "marketing_opt_in": customer.marketing_opt_in,
+                "is_first_time": customer.is_first_time,
+                "first_booking_at": customer.customer_first_booking_at.isoformat() + "Z" if customer.customer_first_booking_at else None,
+                "created_at": customer.created_at.isoformat() + "Z",
+                "updated_at": customer.updated_at.isoformat() + "Z"
+            }
+            
+            # Add customer metrics if available
+            if hasattr(customer, 'metrics') and customer.metrics:
+                customer_data["metrics"] = {
+                    "total_bookings": customer.metrics.total_bookings_count,
+                    "total_spend_cents": customer.metrics.total_spend_cents,
+                    "last_booking_at": customer.metrics.last_booking_at.isoformat() + "Z" if customer.metrics.last_booking_at else None
+                }
+            
+            customer_list.append(customer_data)
         
         return jsonify({
-            "segments": segments
+            "customers": customer_list,
+            "criteria": criteria,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "pages": (total + per_page - 1) // per_page
+            }
         }), 200
         
     except Exception as e:
@@ -562,35 +590,112 @@ def get_customer_segments():
 @require_auth
 @require_tenant
 def create_customer_segment():
-    """Create a new customer segment."""
+    """Create a customer segment with criteria (Task 8.2)."""
     try:
         data = request.get_json()
         tenant_id = g.tenant_id
         customer_service = CustomerService()
         
         # Validate required fields
-        if not data.get('name') or not data.get('criteria'):
+        if not data.get('criteria'):
             raise TithiError(
-                message="Segment name and criteria are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
+                message="Segment criteria are required",
+                code="TITHI_SEGMENT_INVALID_CRITERIA",
+                status_code=422
             )
         
-        # Create segment
-        segment = customer_service.create_customer_segment(
-            tenant_id, data['name'], data['criteria'], data.get('description', '')
+        criteria = data['criteria']
+        
+        # Validate criteria format (Task 8.2: Error Model Enforcement)
+        if not isinstance(criteria, dict):
+            raise TithiError(
+                message="Criteria must be a valid object",
+                code="TITHI_SEGMENT_INVALID_CRITERIA",
+                status_code=422
+            )
+        
+        # Validate criteria values
+        valid_criteria = ['min_bookings', 'max_bookings', 'days_since_last_booking', 
+                         'min_spend_cents', 'max_spend_cents', 'is_first_time', 'marketing_opt_in']
+        
+        for key, value in criteria.items():
+            if key not in valid_criteria:
+                raise TithiError(
+                    message=f"Invalid criteria key: {key}",
+                    code="TITHI_SEGMENT_INVALID_CRITERIA",
+                    status_code=422
+                )
+            
+            # Validate numeric criteria
+            if key in ['min_bookings', 'max_bookings', 'days_since_last_booking', 'min_spend_cents', 'max_spend_cents']:
+                if not isinstance(value, int) or value < 0:
+                    raise TithiError(
+                        message=f"Invalid value for {key}: must be a non-negative integer",
+                        code="TITHI_SEGMENT_INVALID_CRITERIA",
+                        status_code=422
+                    )
+            
+            # Validate boolean criteria
+            if key in ['is_first_time', 'marketing_opt_in']:
+                if not isinstance(value, bool):
+                    raise TithiError(
+                        message=f"Invalid value for {key}: must be a boolean",
+                        code="TITHI_SEGMENT_INVALID_CRITERIA",
+                        status_code=422
+                    )
+        
+        # Get pagination parameters
+        page = int(data.get('page', 1))
+        per_page = int(data.get('per_page', 20))
+        
+        # Get segmented customers
+        customers, total = customer_service.get_customers_by_segment(
+            tenant_id, criteria, page=page, per_page=per_page
         )
         
-        return jsonify({
-            "segment": {
-                "id": str(segment.id),
-                "name": segment.name,
-                "description": segment.description,
-                "criteria": segment.criteria,
-                "customer_count": segment.customer_count,
-                "created_at": segment.created_at.isoformat() + "Z"
+        # Emit SEGMENT_CREATED observability hook (Task 8.2 requirement)
+        customer_service._emit_event(tenant_id, "SEGMENT_CREATED", {
+            "criteria": criteria,
+            "customer_count": total,
+            "page": page,
+            "per_page": per_page
+        })
+        
+        # Format response
+        customer_list = []
+        for customer in customers:
+            customer_data = {
+                "id": str(customer.id),
+                "display_name": customer.display_name,
+                "email": customer.email,
+                "phone": customer.phone,
+                "marketing_opt_in": customer.marketing_opt_in,
+                "is_first_time": customer.is_first_time,
+                "first_booking_at": customer.customer_first_booking_at.isoformat() + "Z" if customer.customer_first_booking_at else None,
+                "created_at": customer.created_at.isoformat() + "Z",
+                "updated_at": customer.updated_at.isoformat() + "Z"
             }
-        }), 201
+            
+            # Add customer metrics if available
+            if hasattr(customer, 'metrics') and customer.metrics:
+                customer_data["metrics"] = {
+                    "total_bookings": customer.metrics.total_bookings_count,
+                    "total_spend_cents": customer.metrics.total_spend_cents,
+                    "last_booking_at": customer.metrics.last_booking_at.isoformat() + "Z" if customer.metrics.last_booking_at else None
+                }
+            
+            customer_list.append(customer_data)
+        
+        return jsonify({
+            "customers": customer_list,
+            "criteria": criteria,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "pages": (total + per_page - 1) // per_page
+            }
+        }), 200
         
     except TithiError:
         raise

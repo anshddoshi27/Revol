@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app import create_app
 from app.extensions import db
-from app.models.system import EventOutbox, WebhookEventInbox, AuditLog
+from app.models.audit import EventOutbox, WebhookEventInbox, AuditLog
 from app.services.quota_service import QuotaService
 from app.jobs.outbox_worker import process_ready_outbox_events
 from app.jobs.webhook_inbox_worker import process_webhook_event

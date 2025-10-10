@@ -25,7 +25,7 @@ class Config:
     TESTING = False
     
     # Database settings
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI")
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI") or "sqlite:///instance/dev.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
@@ -83,6 +83,11 @@ class Config:
     TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
     TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
     
+    # SendGrid settings
+    SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
+    SENDGRID_FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL", "noreply@tithi.com")
+    SENDGRID_FROM_NAME = os.environ.get("SENDGRID_FROM_NAME", "Tithi")
+    
     # File upload settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
@@ -95,8 +100,20 @@ class Config:
     # CORS settings
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
     
-    # Monitoring
+    # Monitoring and Observability
     SENTRY_DSN = os.environ.get("SENTRY_DSN")
+    SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+    SENTRY_PROFILES_SAMPLE_RATE = float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.1"))
+    ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
+    RELEASE_VERSION = os.environ.get("RELEASE_VERSION", "unknown")
+    
+    # Prometheus metrics
+    METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "true").lower() in ["true", "on", "1"]
+    METRICS_PORT = int(os.environ.get("METRICS_PORT", "9090"))
+    
+    # Structured logging
+    STRUCTURED_LOGGING = os.environ.get("STRUCTURED_LOGGING", "true").lower() in ["true", "on", "1"]
+    LOG_FORMAT = os.environ.get("LOG_FORMAT", "json")
     
     @staticmethod
     def validate_required_config():
@@ -129,9 +146,20 @@ class TestingConfig(Config):
     """Testing configuration."""
     
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "postgresql://postgres:password@localhost:5432/tithi_test")
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
     WTF_CSRF_ENABLED = False
     LOG_LEVEL = "WARNING"
+    
+    # Environment override for testing
+    ENVIRONMENT = "testing"
+    
+    # Sentry configuration for testing
+    SENTRY_DSN = os.environ.get("SENTRY_DSN", "https://test@sentry.io/123456")
+    SENTRY_TRACES_SAMPLE_RATE = 0.0  # Disable tracing in tests
+    SENTRY_PROFILES_SAMPLE_RATE = 0.0  # Disable profiling in tests
+    
+    # Slack webhook for testing
+    SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "https://hooks.slack.com/test")
 
 
 class ProductionConfig(Config):

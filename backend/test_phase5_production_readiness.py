@@ -34,7 +34,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import create_app
 from app.extensions import db
 from app.models.core import Tenant, User, Membership
-from app.models.system import AuditLog, EventOutbox
+from app.models.audit import AuditLog, EventOutbox
 from app.models.business import Booking, Customer
 from app.models.financial import Payment
 from app.models.notification import NotificationQueue

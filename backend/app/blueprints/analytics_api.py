@@ -193,7 +193,7 @@ def get_booking_analytics():
 @require_auth
 @require_tenant
 def get_customer_analytics():
-    """Get customer analytics and metrics."""
+    """Get customer analytics and metrics including churn and retention."""
     try:
         # Get parameters
         start_date_str = request.args.get('start_date')
@@ -202,12 +202,20 @@ def get_customer_analytics():
         if not start_date_str or not end_date_str:
             raise TithiError(
                 message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
+                code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
                 status_code=400
             )
         
         start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
         end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+        
+        # Validate date range
+        if start_date >= end_date:
+            raise TithiError(
+                message="start_date must be before end_date",
+                code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
+                status_code=400
+            )
         
         tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
@@ -215,6 +223,18 @@ def get_customer_analytics():
         customer_metrics = analytics_service.business_service.get_customer_metrics(
             tenant_id, start_date, end_date
         )
+        
+        # Emit observability hook
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("ANALYTICS_CUSTOMERS_QUERIED", extra={
+            "tenant_id": str(tenant_id),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "churn_rate": customer_metrics.get('churn_rate', 0),
+            "retention_rate": customer_metrics.get('retention_rate', 0),
+            "total_customers": customer_metrics.get('total_customers', 0)
+        })
         
         return jsonify({
             "period": {
@@ -227,7 +247,7 @@ def get_customer_analytics():
     except ValueError as e:
         raise TithiError(
             message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
+            code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
             status_code=400
         )
     except TithiError:
@@ -243,11 +263,12 @@ def get_customer_analytics():
 @require_auth
 @require_tenant
 def get_staff_analytics():
-    """Get staff performance analytics."""
+    """Get staff performance analytics including utilization, cancellations, and no-shows."""
     try:
         # Get parameters
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
+        staff_id = request.args.get('staff_id')  # Optional staff filter
         
         if not start_date_str or not end_date_str:
             raise TithiError(
@@ -256,22 +277,81 @@ def get_staff_analytics():
                 status_code=400
             )
         
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+        # Validate date format and range
+        try:
+            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
+            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+        except ValueError:
+            raise TithiError(
+                message="Invalid date format. Use ISO format (YYYY-MM-DD)",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Validate date range
+        if start_date > end_date:
+            raise TithiError(
+                message="start_date cannot be after end_date",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Validate date range is not too large (max 1 year)
+        if (end_date - start_date).days > 365:
+            raise TithiError(
+                message="Date range cannot exceed 365 days",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
         
         tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
         
+        # Emit observability hook
+        from ..services.event_service import EventService
+        event_service = EventService()
+        event_service.emit_event(
+            tenant_id=tenant_id,
+            event_code="ANALYTICS_STAFF_QUERIED",
+            payload={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "staff_id": staff_id,
+                "user_id": str(g.user_id) if hasattr(g, 'user_id') else None
+            }
+        )
+        
         staff_metrics = analytics_service.business_service.get_staff_metrics(
             tenant_id, start_date, end_date
         )
+        
+        # Filter by specific staff if requested
+        if staff_id:
+            try:
+                staff_uuid = uuid.UUID(staff_id)
+                filtered_metrics = [
+                    metric for metric in staff_metrics.get('staff_metrics', [])
+                    if metric['staff_id'] == staff_id
+                ]
+                staff_metrics['staff_metrics'] = filtered_metrics
+            except ValueError:
+                raise TithiError(
+                    message="Invalid staff_id format",
+                    code="TITHI_VALIDATION_ERROR",
+                    status_code=400
+                )
         
         return jsonify({
             "period": {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat()
             },
-            "staff_metrics": staff_metrics
+            "staff_metrics": staff_metrics.get('staff_metrics', []),
+            "aggregate_metrics": staff_metrics.get('aggregate_metrics', {}),
+            "metadata": {
+                "total_staff_count": len(staff_metrics.get('staff_metrics', [])),
+                "query_timestamp": datetime.utcnow().isoformat()
+            }
         }), 200
         
     except ValueError as e:
@@ -283,9 +363,27 @@ def get_staff_analytics():
     except TithiError:
         raise
     except Exception as e:
+        # Emit error event for observability
+        try:
+            from ..services.event_service import EventService
+            event_service = EventService()
+            event_service.emit_event(
+                tenant_id=g.tenant_id,
+                event_code="ANALYTICS_STAFF_ERROR",
+                payload={
+                    "error_message": str(e),
+                    "start_date": start_date_str,
+                    "end_date": end_date_str,
+                    "staff_id": staff_id
+                }
+            )
+        except:
+            pass  # Don't let observability errors break the main error handling
+        
         raise TithiError(
             message="Failed to get staff analytics",
-            code="TITHI_ANALYTICS_STAFF_ERROR"
+            code="TITHI_ANALYTICS_CALCULATION_ERROR",
+            status_code=500
         )
 
 

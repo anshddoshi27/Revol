@@ -1080,6 +1080,123 @@ If task implementation involves assumptions that may change in v2+ (e.g., staff 
 
 ---
 
+## Phase 8 — CRM & Customer Management (Module K) - COMPLETION CRITERIA
+
+**End Goal:** Deliver a full CRM layer so every booking automatically creates a customer record with contact info, booking history, preferences, and notes. No customer logins; CRM is business-owned.
+
+**Requirements:**
+
+**Module K — CRM & Customer Management**
+- Customer profiles automatically created at first booking with tenant scoping
+- Must store: name, phone, email, marketing opt-in, booking history, notes
+- Segmentation: Support filtering customers into meaningful groups (e.g. frequent, lapsed, high-LTV)
+- Notes & Interactions: Staff/Admin can add notes; all notes audited with author + timestamp
+- Duplication Handling: Detect duplicates by fuzzy email/phone, allow merging. Preserve booking history
+- GDPR Compliance: Export and delete flows must be functional per customer
+- Loyalty Tracking: Points accrual + redemption APIs (configurable per tenant)
+- Contract tests: tenant isolation, customer history integrity, loyalty points correctness
+- Observability: logs for CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_MERGED
+
+**Phase Completion Criteria:**
+- Every booking automatically creates/updates customer profile
+- Customer segmentation and filtering functional
+- Staff notes and interactions fully audited
+- Duplicate detection and merging operational
+- GDPR export/delete flows tested and functional
+- Loyalty program operational with tenant configuration
+- No customer ever exists outside their tenant; booking in two businesses = two distinct profiles
+- All contract tests pass; observability hooks emit required metrics
+
+---
+
+## Phase 9 — Analytics & Reporting (Module L) - COMPLETION CRITERIA
+
+**End Goal:** Build a powerful analytics engine so businesses can make data-driven decisions about revenue, retention, and operations.
+
+**Requirements:**
+
+**Module L — Analytics & Reporting**
+- Revenue Analytics: Breakdown by service, staff, and payment method. Exclude refunds by default. Support date ranges
+- Customer Analytics: Track churn (90-day no-booking definition), retention, lifetime value, and new vs returning customers
+- Staff & Service Analytics: Utilization rates, revenue per staff, cancellation/no-show rates, most popular services
+- Operational Analytics: No-show %, cancellation %, average booking lead time, peak hours
+- Marketing Analytics: Campaign ROI, coupon redemption, gift card usage
+- Dashboards: Fast-loading, aggregated views; staleness indicators for materialized views
+- Event ingestion pipeline from bookings, payments, notifications operational
+- Materialized views for dashboards refreshed according to latency requirements
+- Access control: only tenant owners/admins can query analytics
+- Contract tests validate multi-tenant isolation, correct aggregation, and edge cases
+- Observability: logs for ANALYTICS_EVENT_INGESTED, DASHBOARD_REFRESH
+
+**Phase Completion Criteria:**
+- All analytics endpoints functional with proper tenant scoping
+- Revenue, customer, staff, and operational analytics operational
+- Marketing analytics and campaign tracking functional
+- Dashboard views load quickly with materialized view refresh logic
+- Analytics must never leak data across tenants; refresh jobs must be scoped strictly by tenant_id
+- All contract tests pass; observability hooks emit required metrics
+
+---
+
+## Phase 10 — Admin Dashboard & Operations (Module M) - COMPLETION CRITERIA
+
+**End Goal:** Provide tenant owners/admins with a complete operational interface to manage staff, bookings, branding, and finances.
+
+**Requirements:**
+
+**Module M — Admin Dashboard & Operations**
+- Admin Booking Management: Admins can view/edit/cancel bookings with full audit trails. Must respect availability + payment integrity
+- Staff & Services Management: CRUD staff and services. Enforce unique staff emails. Prevent deleting staff with active bookings (must reassign)
+- Branding & White-Label Settings: Upload logos, colors, fonts, welcome message. Support live preview. Custom domain setup + SSL provisioning
+- Admin Analytics Dashboard: Prebuilt widgets for revenue, bookings, customers, staff. Must paginate large results
+- Audit Logging: Every admin action logged in audit_logs. Immutable
+- Backend support for all admin actions (availability scheduler, services, bookings, CRM, promotions, notifications, staff, branding, billing, audit logs)
+- Drag-and-drop rescheduling updates work_schedules and bookings atomically
+- Bulk actions implemented for booking table (confirm, cancel, reschedule, message)
+- Live theme preview sandboxed for unpublished themes
+- Contract tests verify all admin actions respect tenant RLS, error codes, and idempotency
+- Observability: logs for ADMIN_ACTION_PERFORMED, including tenant_id, user_id, action_type
+
+**Phase Completion Criteria:**
+- Admin can manage customers, bookings, promotions, staff, branding, and notifications fully
+- All admin actions are tenant-scoped and auditable — impersonation, quota management, theme edits must never cross tenants
+- Booking management with availability and payment integrity validation
+- Staff and services management with proper constraints
+- Branding and white-label settings with live preview functionality
+- Admin analytics dashboard with prebuilt widgets and pagination
+- All contract tests pass; observability hooks emit required metrics
+
+---
+
+## Phase 11 — Cross-Cutting Utilities (Module N) - COMPLETION CRITERIA
+
+**End Goal:** Harden the platform with reliability, security, and operational excellence features required for production readiness.
+
+**Requirements:**
+
+**Module N — Cross-Cutting Utilities**
+- Audit Logging: Immutable records for bookings, payments, refunds, staff edits. Queryable in admin UI
+- Rate Limiting: Apply per-tenant and per-user request caps (100 req/min default). Return 429 RATE_LIMITED
+- Timezone Handling: All times stored in UTC; tenant timezone applied only at display/API layer. Must pass DST edge cases
+- Idempotency Keys: Required for booking/payment endpoints. Client must be able to safely retry
+- Error Monitoring & Alerts: Sentry + Slack alerts for errors; PII scrubbed from traces. Critical failures must generate structured alerts
+- Quotas & Usage Tracking: Track per-tenant usage of bookings, notifications, promotions. Block gracefully when exceeded
+- Outbox pattern for outbound events (notifications, webhooks) implemented with Celery workers
+- Webhook inbox handles incoming provider events idempotently with signature validation
+- Backup & restore procedures implemented with daily backups & point-in-time recovery
+- Contract tests validate outbox/inbox reliability, replay protection, quota enforcement, and audit log completeness
+- Observability: logs for EVENT_OUTBOX_ENQUEUED, EVENT_PROCESSED, QUOTA_EXCEEDED, AUDIT_LOG_CREATED
+
+**Phase Completion Criteria:**
+- All external provider integrations (Stripe, Twilio, SendGrid) operate reliably with retry and idempotency guarantees
+- Admins can view and retry failed events
+- Quotas enforced correctly per tenant; alerts generated
+- Audit logs capture all sensitive actions, with immutable storage and PII redaction
+- Cross-tenant data isolation and determinism are never compromised by retries, reschedules, or admin overrides
+- All contract tests pass; observability hooks emit required metrics
+
+---
+
 ## Phase 9 — Analytics
 
 ### Task 9.1: Revenue Analytics

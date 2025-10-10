@@ -21,7 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import db
 from ..models.business import StaffProfile, WorkSchedule
 from ..models.core import Tenant, User, Membership
-from ..models.system import AuditLog, EventOutbox
+from ..models.audit import AuditLog, EventOutbox
 
 
 @dataclass

@@ -13,7 +13,8 @@ from unittest.mock import patch, MagicMock
 
 from app import create_app
 from app.extensions import db
-from app.models.financial import Coupon, GiftCard, GiftCardTransaction, PromotionUsage
+from app.models.promotions import Coupon, GiftCard, GiftCardTransaction
+from app.models.financial import PromotionUsage
 from app.models.business import Booking
 from app.models.core import Tenant
 from app.models.business import Customer
@@ -838,6 +839,76 @@ class TestPromotionAPI:
                     response = client.post('/api/promotions/apply')
                     # This will fail because coupon doesn't exist, but tests the endpoint
                     assert response.status_code in [400, 500]  # Expected to fail in test environment
+    
+    def test_list_coupons_api(self, client, app):
+        """Test coupon listing via API."""
+        with app.app_context():
+            # Mock authentication and tenant context
+            with patch('app.middleware.auth_middleware.require_auth') as mock_auth, \
+                 patch('app.middleware.tenant_middleware.require_tenant') as mock_tenant:
+                
+                mock_auth.return_value = lambda f: f
+                mock_tenant.return_value = lambda f: f
+                
+                # Mock request context
+                with patch('flask.request') as mock_request:
+                    mock_request.tenant_id = str(uuid.uuid4())
+                    mock_request.args = {}
+                    
+                    response = client.get('/api/promotions/coupons')
+                    assert response.status_code == 200
+                    
+                    data = response.get_json()
+                    assert "coupons" in data
+                    assert "pagination" in data
+                    assert isinstance(data["coupons"], list)
+    
+    def test_update_coupon_api(self, client, app):
+        """Test coupon update via API."""
+        with app.app_context():
+            # Mock authentication and tenant context
+            with patch('app.middleware.auth_middleware.require_auth') as mock_auth, \
+                 patch('app.middleware.tenant_middleware.require_tenant') as mock_tenant:
+                
+                mock_auth.return_value = lambda f: f
+                mock_tenant.return_value = lambda f: f
+                
+                # Mock request context
+                with patch('flask.request') as mock_request:
+                    mock_request.tenant_id = str(uuid.uuid4())
+                    mock_request.json = {
+                        "name": "Updated Test Coupon",
+                        "description": "Updated description",
+                        "is_active": False
+                    }
+                    
+                    # Mock coupon ID
+                    coupon_id = str(uuid.uuid4())
+                    
+                    response = client.put(f'/api/promotions/coupons/{coupon_id}')
+                    # Should return 404 since coupon doesn't exist
+                    assert response.status_code == 404
+    
+    def test_delete_coupon_api(self, client, app):
+        """Test coupon deletion via API."""
+        with app.app_context():
+            # Mock authentication and tenant context
+            with patch('app.middleware.auth_middleware.require_auth') as mock_auth, \
+                 patch('app.middleware.tenant_middleware.require_tenant') as mock_tenant:
+                
+                mock_auth.return_value = lambda f: f
+                mock_tenant.return_value = lambda f: f
+                
+                # Mock request context
+                with patch('flask.request') as mock_request:
+                    mock_request.tenant_id = str(uuid.uuid4())
+                    
+                    # Mock coupon ID
+                    coupon_id = str(uuid.uuid4())
+                    
+                    response = client.delete(f'/api/promotions/coupons/{coupon_id}')
+                    # Should return 404 since coupon doesn't exist
+                    assert response.status_code == 404
 
 
 if __name__ == '__main__':

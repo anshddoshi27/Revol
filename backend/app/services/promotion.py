@@ -15,7 +15,8 @@ from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import Session
 
 from ..extensions import db
-from ..models.financial import Coupon, GiftCard, GiftCardTransaction, PromotionUsage
+from ..models.promotions import Coupon, GiftCard, GiftCardTransaction
+from ..models.financial import PromotionUsage
 from ..models.business import Booking
 from ..models.business import Customer
 from ..exceptions import TithiError

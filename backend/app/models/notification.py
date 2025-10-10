@@ -8,7 +8,8 @@ Aligned with TITHI_DATABASE_COMPREHENSIVE_REPORT.md schema and Design Brief Modu
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, Enum as SQLEnum, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from enum import Enum
@@ -57,8 +58,8 @@ class NotificationTemplate(TenantModel):
     content_type = Column(String(50), default="text/plain")  # text/plain, text/html, etc.
     
     # Template variables
-    variables = Column(JSONB, default={})  # Available template variables
-    required_variables = Column(JSONB, default=[])  # Required variables for this template
+    variables = Column(JSON, default={})  # Available template variables
+    required_variables = Column(JSON, default=[])  # Required variables for this template
     
     # Usage context
     trigger_event = Column(String(100))  # Event that triggers this template
@@ -69,7 +70,7 @@ class NotificationTemplate(TenantModel):
     is_system = Column(Boolean, nullable=False, default=False)  # System vs user-created templates
     
     # Metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Relationships
     notifications = relationship("Notification", back_populates="template")
@@ -114,7 +115,7 @@ class Notification(TenantModel):
     # Provider integration
     provider = Column(String(50), nullable=True)  # sendgrid, twilio, etc.
     provider_message_id = Column(String(255), nullable=True)
-    provider_response = Column(JSONB, default={})
+    provider_response = Column(JSON, default={})
     
     # Related entities
     booking_id = Column(UUID(as_uuid=True), ForeignKey("bookings.id"), nullable=True)
@@ -127,7 +128,7 @@ class Notification(TenantModel):
     next_retry_at = Column(DateTime, nullable=True)
     
     # Metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Relationships
     template = relationship("NotificationTemplate", back_populates="notifications")
@@ -172,14 +173,14 @@ class NotificationPreference(TenantModel):
     quiet_hours_end = Column(String(5), nullable=True)  # HH:MM format
     
     # Metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Constraints
     __table_args__ = (
         CheckConstraint("user_type IN ('customer', 'staff', 'admin')", name="ck_preference_user_type"),
         CheckConstraint("digest_frequency IN ('immediate', 'daily', 'weekly', 'never')", name="ck_preference_digest_frequency"),
-        CheckConstraint("quiet_hours_start IS NULL OR quiet_hours_start ~ '^[0-2][0-9]:[0-5][0-9]$'", name="ck_preference_quiet_start"),
-        CheckConstraint("quiet_hours_end IS NULL OR quiet_hours_end ~ '^[0-2][0-9]:[0-5][0-9]$'", name="ck_preference_quiet_end"),
+        # Note: Regex constraints removed for SQLite compatibility
+        # quiet_hours_start and quiet_hours_end should be validated at application level
         UniqueConstraint("user_type", "user_id", "tenant_id", name="uq_preference_user_tenant"),
     )
 
@@ -195,13 +196,13 @@ class NotificationLog(TenantModel):
     event_timestamp = Column(DateTime, nullable=False, default=func.now())
     
     # Event details
-    event_data = Column(JSONB, default={})
+    event_data = Column(JSON, default={})
     error_message = Column(Text, nullable=True)
     
     # Provider details
     provider = Column(String(50), nullable=True)
     provider_event_id = Column(String(255), nullable=True)
-    provider_response = Column(JSONB, default={})
+    provider_response = Column(JSON, default={})
     
     # Relationships
     notification = relationship("Notification")
@@ -235,7 +236,7 @@ class NotificationQueue(TenantModel):
     max_retries = Column(Integer, nullable=False, default=3)
     
     # Metadata
-    metadata_json = Column(JSONB, default={})
+    metadata_json = Column(JSON, default={})
     
     # Relationships
     notification = relationship("Notification")

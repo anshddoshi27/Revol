@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..models.notification import NotificationTemplate
-from ..models.system import AuditLog, EventOutbox
+from ..models.audit import AuditLog, EventOutbox
 from ..models.business import Booking, Customer, Service, StaffProfile
 from ..models.core import Tenant
 from .quota_service import QuotaService

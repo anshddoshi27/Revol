@@ -6,7 +6,7 @@ This module contains business-related models for customers, services, resources,
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, UniqueConstraint, Date, ARRAY, Time
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, JSON, UniqueConstraint, Date, Time
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from ..extensions import db
@@ -190,7 +190,7 @@ class StaffProfile(TenantModel):
     resource_id = Column(UUID(as_uuid=True), ForeignKey("resources.id"), nullable=False)
     display_name = Column(String(255), nullable=False)
     bio = Column(Text)
-    specialties = Column(ARRAY(String))
+    specialties = Column(JSON)  # Array of strings stored as JSON for SQLite compatibility
     hourly_rate_cents = Column(Integer)
     is_active = Column(Boolean, nullable=False, default=True)
     max_concurrent_bookings = Column(Integer, default=1)

@@ -15,6 +15,58 @@ Features:
 import logging
 from typing import Optional, Dict, Any, List
 from flask import request, g, current_app, jsonify
+import sentry_sdk
+from .sentry_middleware import capture_exception
+
+
+def emit_error_observability_hook(error: Exception, error_code: str, severity: str = "error"):
+    """Emit ERROR_REPORTED observability hook for monitoring."""
+    try:
+        # Emit structured log for observability
+        current_app.logger.info("ERROR_REPORTED", extra={
+            "event_type": "ERROR_REPORTED",
+            "error_code": error_code,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "severity": severity,
+            "tenant_id": getattr(g, "tenant_id", None),
+            "user_id": getattr(g, "user_id", None),
+            "request_id": getattr(g, "request_id", None),
+            "url": request.url if request else None,
+            "method": request.method if request else None
+        })
+        
+        # Send alert if critical, high, or medium error
+        if hasattr(current_app, 'alerting_service') and severity in ['critical', 'high', 'medium']:
+            from ..services.alerting_service import AlertType, AlertSeverity, Alert
+            alerting_service = current_app.alerting_service
+            
+            severity_map = {
+                'critical': AlertSeverity.CRITICAL,
+                'high': AlertSeverity.HIGH,
+                'medium': AlertSeverity.MEDIUM,
+                'low': AlertSeverity.LOW
+            }
+            
+            alert = Alert(
+                alert_type=AlertType.ERROR_RATE,
+                severity=severity_map.get(severity, AlertSeverity.MEDIUM),
+                message=f"Error reported: {error_code} - {str(error)}",
+                details={
+                    'error_code': error_code,
+                    'error_type': type(error).__name__,
+                    'error_message': str(error),
+                    'url': request.url if request else None,
+                    'method': request.method if request else None
+                },
+                tenant_id=getattr(g, "tenant_id", None),
+                user_id=getattr(g, "user_id", None)
+            )
+            alerting_service.send_alert(alert)
+            
+    except Exception as e:
+        # Don't let observability hook failures break error handling
+        current_app.logger.error(f"Failed to emit error observability hook: {e}")
 
 
 class TithiError(Exception):
@@ -98,6 +150,20 @@ def register_error_handlers(app):
     @app.errorhandler(TithiError)
     def handle_tithi_error(error: TithiError):
         """Handle custom Tithi errors."""
+        # Determine severity based on status code
+        severity = "critical" if error.status_code >= 500 else "high" if error.status_code >= 400 else "medium"
+        
+        # Emit observability hook
+        emit_error_observability_hook(error, error.code, severity)
+        
+        # Capture in Sentry for server errors
+        if error.status_code >= 500:
+            capture_exception(error, 
+                           error_code=error.code,
+                           status_code=error.status_code,
+                           tenant_id=getattr(g, "tenant_id", None),
+                           user_id=getattr(g, "user_id", None))
+        
         app.logger.error(f"Tithi error: {error.code}", extra={
             "error_code": error.code,
             "error_message": error.message,
@@ -118,6 +184,9 @@ def register_error_handlers(app):
             "tenant_id": getattr(g, "tenant_id", None),
             "user_id": getattr(g, "user_id", None)
         })
+        
+        # Emit observability hook for alerting
+        emit_error_observability_hook(error, error.code, "medium")
         
         return jsonify(error.to_dict()), error.status_code
     
@@ -168,6 +237,9 @@ def register_error_handlers(app):
     @app.errorhandler(ExternalServiceError)
     def handle_external_error(error: ExternalServiceError):
         """Handle external service errors."""
+        # Emit observability hook for external service errors
+        emit_error_observability_hook(error, error.code, "high")
+        
         app.logger.error(f"External service error: {error.code}", extra={
             "error_code": error.code,
             "tenant_id": getattr(g, "tenant_id", None),

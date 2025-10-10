@@ -16,9 +16,10 @@ from app import create_app
 from app.extensions import db
 from app.models.core import Tenant, User, Membership
 from app.models.business import Customer, Service, Resource, Booking
-from app.models.financial import Payment, Coupon, GiftCard
+from app.models.financial import Payment
+from app.models.promotions import Coupon, GiftCard
 from app.models.notification import Notification
-from app.models.system import AuditLog
+from app.models.audit import AuditLog
 from app.services.financial import PaymentService, BillingService
 from app.services.promotion import PromotionService
 from app.services.notification import NotificationService

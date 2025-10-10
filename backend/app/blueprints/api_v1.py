@@ -677,6 +677,47 @@ def cancel_booking(booking_id: str):
         )
 
 
+@api_v1_bp.route("/bookings/<booking_id>/complete", methods=["POST"])
+@require_auth
+@require_tenant
+def complete_booking(booking_id: str):
+    """Complete a booking and award loyalty points."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        
+        booking_service = BookingService()
+        booking = booking_service.complete_booking(tenant_id, uuid.UUID(booking_id), user_id)
+        
+        if not booking:
+            raise TithiError(
+                message="Booking not found",
+                code="TITHI_BOOKING_NOT_FOUND",
+                status_code=404
+            )
+        
+        return jsonify({
+            "message": "Booking completed successfully and loyalty points awarded",
+            "booking_id": booking_id,
+            "status": booking.status,
+            "customer_id": str(booking.customer_id)
+        }), 200
+        
+    except ValueError as e:
+        raise TithiError(
+            message=str(e),
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to complete booking",
+            code="TITHI_BOOKING_COMPLETE_ERROR"
+        )
+
+
 # Staff Management (Module E)
 @api_v1_bp.route("/staff", methods=["GET"])
 @require_auth
@@ -1318,4 +1359,460 @@ def get_availability_slots(resource_id: str):
         raise TithiError(
             message="Failed to get availability slots",
             code="TITHI_AVAILABILITY_ERROR"
+        )
+
+
+# Categories Management (Frontend Step 3)
+@api_v1_bp.route("/categories", methods=["GET"])
+@require_auth
+@require_tenant
+def list_categories():
+    """List categories for the current tenant."""
+    try:
+        tenant_id = g.tenant_id
+        service_service = ServiceService()
+        
+        # Get unique categories from services
+        services = service_service.get_services(tenant_id)
+        categories = list(set(service.category for service in services if service.category))
+        
+        return jsonify({
+            "categories": [{
+                "id": f"cat_{i}",
+                "name": category,
+                "description": f"Category for {category} services",
+                "service_count": len([s for s in services if s.category == category]),
+                "created_at": datetime.utcnow().isoformat() + "Z"
+            } for i, category in enumerate(categories)],
+            "total": len(categories)
+        }), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to list categories",
+            code="TITHI_CATEGORY_LIST_ERROR"
+        )
+
+
+@api_v1_bp.route("/categories", methods=["POST"])
+@require_auth
+@require_tenant
+def create_category():
+    """Create a new category."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data or not data.get('name'):
+            raise TithiError(
+                message="Category name is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Categories are stored as strings in services, so we just validate
+        category_name = data['name'].strip()
+        
+        return jsonify({
+            "id": f"cat_{category_name.lower().replace(' ', '_')}",
+            "name": category_name,
+            "description": data.get('description', ''),
+            "service_count": 0,
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }), 201
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to create category",
+            code="TITHI_CATEGORY_CREATE_ERROR"
+        )
+
+
+@api_v1_bp.route("/categories/<category_id>", methods=["GET"])
+@require_auth
+@require_tenant
+def get_category(category_id: str):
+    """Get a specific category."""
+    try:
+        tenant_id = g.tenant_id
+        service_service = ServiceService()
+        services = service_service.get_services(tenant_id)
+        
+        # Extract category name from ID
+        category_name = category_id.replace('cat_', '').replace('_', ' ').title()
+        category_services = [s for s in services if s.category == category_name]
+        
+        if not category_services:
+            raise TithiError(
+                message="Category not found",
+                code="TITHI_CATEGORY_NOT_FOUND",
+                status_code=404
+            )
+        
+        return jsonify({
+            "id": category_id,
+            "name": category_name,
+            "description": f"Category for {category_name} services",
+            "service_count": len(category_services),
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to get category",
+            code="TITHI_CATEGORY_GET_ERROR"
+        )
+
+
+@api_v1_bp.route("/categories/<category_id>", methods=["PUT"])
+@require_auth
+@require_tenant
+def update_category(category_id: str):
+    """Update a category."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data or not data.get('name'):
+            raise TithiError(
+                message="Category name is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Update category name in all services
+        service_service = ServiceService()
+        services = service_service.get_services(tenant_id)
+        
+        old_category_name = category_id.replace('cat_', '').replace('_', ' ').title()
+        new_category_name = data['name'].strip()
+        
+        updated_count = 0
+        for service in services:
+            if service.category == old_category_name:
+                service.category = new_category_name
+                updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            "id": f"cat_{new_category_name.lower().replace(' ', '_')}",
+            "name": new_category_name,
+            "description": data.get('description', ''),
+            "service_count": updated_count,
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        raise TithiError(
+            message="Failed to update category",
+            code="TITHI_CATEGORY_UPDATE_ERROR"
+        )
+
+
+@api_v1_bp.route("/categories/<category_id>", methods=["DELETE"])
+@require_auth
+@require_tenant
+def delete_category(category_id: str):
+    """Delete a category."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        
+        # Remove category from all services
+        service_service = ServiceService()
+        services = service_service.get_services(tenant_id)
+        
+        category_name = category_id.replace('cat_', '').replace('_', ' ').title()
+        
+        updated_count = 0
+        for service in services:
+            if service.category == category_name:
+                service.category = ""
+                updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": f"Category deleted and removed from {updated_count} services"
+        }), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to delete category",
+            code="TITHI_CATEGORY_DELETE_ERROR"
+        )
+
+
+# Availability Rules Management (Frontend Step 4)
+@api_v1_bp.route("/availability/rules", methods=["GET"])
+@require_auth
+@require_tenant
+def list_availability_rules():
+    """List availability rules for the current tenant."""
+    try:
+        tenant_id = g.tenant_id
+        staff_id = request.args.get('staff_id')
+        
+        availability_service = AvailabilityService()
+        
+        if staff_id:
+            # Get rules for specific staff
+            rules = availability_service.get_staff_availability_rules(tenant_id, uuid.UUID(staff_id))
+        else:
+            # Get all rules for tenant
+            rules = availability_service.get_tenant_availability_rules(tenant_id)
+        
+        return jsonify({
+            "rules": [{
+                "id": str(rule.id),
+                "staff_id": str(rule.staff_profile_id),
+                "day_of_week": rule.weekday,
+                "start_time": rule.start_time.strftime('%H:%M'),
+                "end_time": rule.end_time.strftime('%H:%M'),
+                "is_recurring": True,
+                "break_start": getattr(rule, 'break_start', None),
+                "break_end": getattr(rule, 'break_end', None),
+                "is_active": rule.is_active,
+                "created_at": rule.created_at.isoformat() + "Z",
+                "updated_at": rule.updated_at.isoformat() + "Z"
+            } for rule in rules],
+            "total": len(rules)
+        }), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to list availability rules",
+            code="TITHI_AVAILABILITY_RULES_LIST_ERROR"
+        )
+
+
+@api_v1_bp.route("/availability/rules", methods=["POST"])
+@require_auth
+@require_tenant
+def create_availability_rule():
+    """Create a new availability rule."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data:
+            raise TithiError(
+                message="Request body is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Validate required fields
+        required_fields = ['staff_id', 'day_of_week', 'start_time', 'end_time']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise TithiError(
+                message=f"Missing required fields: {', '.join(missing_fields)}",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        staff_availability_service = StaffAvailabilityService()
+        availability = staff_availability_service.create_availability(
+            tenant_id=tenant_id,
+            staff_profile_id=uuid.UUID(data['staff_id']),
+            availability_data={
+                'weekday': data['day_of_week'],
+                'start_time': data['start_time'],
+                'end_time': data['end_time'],
+                'is_active': data.get('is_active', True)
+            },
+            user_id=user_id
+        )
+        
+        return jsonify({
+            "id": str(availability.id),
+            "staff_id": str(availability.staff_profile_id),
+            "day_of_week": availability.weekday,
+            "start_time": availability.start_time.strftime('%H:%M'),
+            "end_time": availability.end_time.strftime('%H:%M'),
+            "is_recurring": True,
+            "break_start": None,
+            "break_end": None,
+            "is_active": availability.is_active,
+            "created_at": availability.created_at.isoformat() + "Z",
+            "updated_at": availability.updated_at.isoformat() + "Z"
+        }), 201
+        
+    except ValueError as e:
+        raise TithiError(
+            message=f"Invalid data: {str(e)}",
+            code="TITHI_VALIDATION_ERROR",
+            status_code=400
+        )
+    except Exception as e:
+        raise TithiError(
+            message="Failed to create availability rule",
+            code="TITHI_AVAILABILITY_RULE_CREATE_ERROR"
+        )
+
+
+@api_v1_bp.route("/availability/rules/bulk", methods=["POST"])
+@require_auth
+@require_tenant
+def create_availability_rules_bulk():
+    """Create multiple availability rules at once."""
+    try:
+        tenant_id = g.tenant_id
+        user_id = g.user_id
+        data = request.get_json()
+        
+        if not data or not data.get('rules'):
+            raise TithiError(
+                message="Rules array is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        staff_availability_service = StaffAvailabilityService()
+        created_rules = []
+        
+        for rule_data in data['rules']:
+            try:
+                availability = staff_availability_service.create_availability(
+                    tenant_id=tenant_id,
+                    staff_profile_id=uuid.UUID(rule_data['staff_id']),
+                    availability_data={
+                        'weekday': rule_data['day_of_week'],
+                        'start_time': rule_data['start_time'],
+                        'end_time': rule_data['end_time'],
+                        'is_active': rule_data.get('is_active', True)
+                    },
+                    user_id=user_id
+                )
+                
+                created_rules.append({
+                    "id": str(availability.id),
+                    "staff_id": str(availability.staff_profile_id),
+                    "day_of_week": availability.weekday,
+                    "start_time": availability.start_time.strftime('%H:%M'),
+                    "end_time": availability.end_time.strftime('%H:%M'),
+                    "is_recurring": True,
+                    "is_active": availability.is_active,
+                    "created_at": availability.created_at.isoformat() + "Z"
+                })
+            except Exception as e:
+                # Continue with other rules if one fails
+                continue
+        
+        return jsonify({
+            "rules": created_rules,
+            "total": len(created_rules),
+            "message": f"Created {len(created_rules)} availability rules"
+        }), 201
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to create availability rules",
+            code="TITHI_AVAILABILITY_RULES_BULK_CREATE_ERROR"
+        )
+
+
+@api_v1_bp.route("/availability/rules/validate", methods=["POST"])
+@require_auth
+@require_tenant
+def validate_availability_rules():
+    """Validate availability rules for conflicts."""
+    try:
+        tenant_id = g.tenant_id
+        data = request.get_json()
+        
+        if not data or not data.get('rules'):
+            raise TithiError(
+                message="Rules array is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Basic validation - check for overlapping times
+        conflicts = []
+        rules = data['rules']
+        
+        for i, rule1 in enumerate(rules):
+            for j, rule2 in enumerate(rules[i+1:], i+1):
+                if (rule1['staff_id'] == rule2['staff_id'] and 
+                    rule1['day_of_week'] == rule2['day_of_week']):
+                    
+                    # Check for time overlap
+                    start1 = datetime.strptime(rule1['start_time'], '%H:%M').time()
+                    end1 = datetime.strptime(rule1['end_time'], '%H:%M').time()
+                    start2 = datetime.strptime(rule2['start_time'], '%H:%M').time()
+                    end2 = datetime.strptime(rule2['end_time'], '%H:%M').time()
+                    
+                    if not (end1 <= start2 or end2 <= start1):
+                        conflicts.append({
+                            "rule1_index": i,
+                            "rule2_index": j,
+                            "message": f"Time overlap between {rule1['start_time']}-{rule1['end_time']} and {rule2['start_time']}-{rule2['end_time']}"
+                        })
+        
+        return jsonify({
+            "valid": len(conflicts) == 0,
+            "conflicts": conflicts,
+            "message": f"Found {len(conflicts)} conflicts" if conflicts else "No conflicts found"
+        }), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to validate availability rules",
+            code="TITHI_AVAILABILITY_RULES_VALIDATE_ERROR"
+        )
+
+
+@api_v1_bp.route("/availability/summary", methods=["GET"])
+@require_auth
+@require_tenant
+def get_availability_summary():
+    """Get availability summary for the current tenant."""
+    try:
+        tenant_id = g.tenant_id
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        staff_ids = request.args.getlist('staff_ids')
+        
+        if not start_date or not end_date:
+            raise TithiError(
+                message="start_date and end_date parameters are required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        availability_service = AvailabilityService()
+        
+        # Get summary data
+        summary = availability_service.get_availability_summary(
+            tenant_id=tenant_id,
+            start_date=datetime.fromisoformat(start_date.replace('Z', '+00:00')),
+            end_date=datetime.fromisoformat(end_date.replace('Z', '+00:00')),
+            staff_ids=[uuid.UUID(sid) for sid in staff_ids] if staff_ids else None
+        )
+        
+        return jsonify({
+            "summary": summary,
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "staff_ids": staff_ids
+        }), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to get availability summary",
+            code="TITHI_AVAILABILITY_SUMMARY_ERROR"
         )

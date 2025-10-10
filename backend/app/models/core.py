@@ -66,6 +66,7 @@ class Tenant(GlobalModel):
     bookings = relationship("Booking", back_populates="tenant")
     themes = relationship("Theme", back_populates="tenant")
     branding = relationship("Branding", back_populates="tenant")
+    automations = relationship("Automation", back_populates="tenant")
 
 
 class User(GlobalModel):
@@ -76,6 +77,13 @@ class User(GlobalModel):
     display_name = Column(String(255))
     primary_email = Column(String(255), unique=True)
     avatar_url = Column(String(500))
+    
+    # Auth fields
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255))
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    phone = Column(String(20))
     
     # Relationships
     tenants = relationship("Tenant", secondary="memberships", back_populates="users", foreign_keys="[memberships.c.tenant_id, memberships.c.user_id]")

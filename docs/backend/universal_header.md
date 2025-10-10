@@ -267,57 +267,11 @@ Real-time Updates
 ## 7. Phase Context & Task Management
 
 ### 7.1 Phase ENDGOALS (tasks makeup phases)
-## Phase 6 — NFRs, Testing, CI/CD, Deployment (Global across all modules) - COMPLETION CRITERIA
+## PRIORITIZED ACTION PLAN
 
-**End Goal:** System non-functional requirements fully met — performance, security, reliability, maintainability, observability, compliance. CI/CD pipelines validate correctness; deployments follow safe practices.
 
-**Requirements:**
 
-**Performance**
-- API median response < 500ms; public booking flow < 2s on 3G.
-- Caching layer (Redis) integrated for tenant bootstrap and availability queries.
-- Contract tests and load tests validate performance SLAs.
 
-**Security**
-- RLS enforced on all tables.
-- JWT verification and rotation implemented.
-- Field-level encryption for sensitive PII.
-- PCI compliance verified: no raw card storage.
-- Contract/adversarial tests validate RLS, JWT tampering, PII protection.
-
-**Reliability**
-- Backup & restore procedures implemented with daily backups & point-in-time recovery.
-- Outbox/inbox ensures at-least-once delivery; retry policies in place.
-- CI/CD tests validate idempotency, failover, and partial failure handling.
-
-**Maintainability**
-- Frozen DTOs and migrations enforced.
-- Contract tests and OpenAPI spec generation automated.
-- Micro-ticket system used for task tracking.
-
-**Observability**
-- Structured logs, Sentry, Prometheus metrics fully integrated.
-- Alerts configured for failures, high no-show rates, provider outages.
-
-**Compliance**
-- GDPR flows for export/delete implemented per tenant and per customer.
-- Marketing opt-in enforced for notifications.
-- Audit logs capture PII access and changes.
-
-**CI/CD**
-- Linting, unit tests, contract tests, pgTAP validation pass before merge.
-- Integration tests run in staging.
-- Canary/feature flag deployment supported.
-- Rollback plan tested and documented.
-
-**Phase Completion Criteria:**
-- All NFRs verified via automated tests and staging verification.
-- CI/CD pipelines fully operational; deployments to production follow safe, repeatable steps.
-- Observability and alerting systems operational.
-- GDPR, PCI, and other compliance requirements validated.
-
----
----
 ### 7.2 Reference to Backend Report & Historical Files
 **Authoritative Sources**: Before execution, the executor must read and cross-reference backend_report.md and all previously generated files for this project.
 
@@ -445,51 +399,8 @@ Every atomic prompt will contain a **Task Definition Block** (see Section 8). Th
 
 ## 8. Task Definition Block (Embedded Atomic Task)
 
-## Phase 6
-
-### Task 6.1: Coupons & Gift Codes
-**Context:** Allow tenants to create coupons/gift codes for customers.
-
-**Deliverable:**
-- `/promotions/coupons` CRUD
-- `coupons` table
-
-**Constraints:**
-- Code unique per tenant
-- Expiry dates enforced
-
-**Inputs/Outputs:**
-- Input: {code, discount, expiry}
-- Output: coupon record
-
-**Validation:** Expired coupons rejected
-
-**Testing:** Apply coupon → discount applied
-
-**Dependencies:** Task 5.1
-
-**Executive Rationale:** Promotions drive customer acquisition and retention.
-
-**North-Star Invariants:**
-- Discount never exceeds 100%
-- Expired coupons never valid
-
-**Contract Tests (Black-box):** Given a coupon expired yesterday, When applied at checkout, Then system rejects with TITHI_COUPON_EXPIRED.
-
-**Schema/DTO Freeze Note:** `coupons` schema frozen.
-
-**Observability Hooks:** Emit `COUPON_REDEEMED`
-
-**Error Model Enforcement:**
-- `TITHI_COUPON_INVALID`
-- `TITHI_COUPON_EXPIRED`
-
-**Idempotency & Retry Guarantee:** Coupon redemption atomic
 
 ---
-
-
-
 ## 9. Execution Standards & Requirements
 
 ### 9.1 Environment Defaults

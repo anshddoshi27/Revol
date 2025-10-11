@@ -1,0 +1,547 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-01-27",
+  "description": "Complete analytics event taxonomy for Tithi platform with PII flags, sampling rules, and data retention policies",
+  "events": {
+    "onboarding.step_complete": {
+      "description": "User completes an onboarding step",
+      "payload": {
+        "step": "string",
+        "tenant_id": "string",
+        "user_id": "string",
+        "step_duration_ms": "number",
+        "previous_step": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "onboarding"
+    },
+    "onboarding.step_abandon": {
+      "description": "User abandons onboarding at a specific step",
+      "payload": {
+        "step": "string",
+        "tenant_id": "string",
+        "user_id": "string",
+        "time_on_step_ms": "number",
+        "abandon_reason": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "onboarding"
+    },
+    "onboarding.complete": {
+      "description": "User successfully completes onboarding",
+      "payload": {
+        "tenant_id": "string",
+        "user_id": "string",
+        "total_duration_ms": "number",
+        "steps_completed": "number",
+        "business_category": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "onboarding"
+    },
+    "booking.service_select": {
+      "description": "User selects a service for booking",
+      "payload": {
+        "service_id": "string",
+        "service_name": "string",
+        "service_price_cents": "number",
+        "service_duration_minutes": "number",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "booking"
+    },
+    "booking.availability_view": {
+      "description": "User views available time slots",
+      "payload": {
+        "service_id": "string",
+        "date_range_start": "string",
+        "date_range_end": "string",
+        "slots_available": "number",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 30,
+      "critical_journey": "booking"
+    },
+    "booking.slot_select": {
+      "description": "User selects a specific time slot",
+      "payload": {
+        "service_id": "string",
+        "slot_datetime": "string",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "booking"
+    },
+    "booking.checkout_start": {
+      "description": "User begins checkout process",
+      "payload": {
+        "service_id": "string",
+        "slot_datetime": "string",
+        "total_amount_cents": "number",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "booking"
+    },
+    "booking.checkout_complete": {
+      "description": "User successfully completes booking checkout",
+      "payload": {
+        "booking_id": "string",
+        "service_id": "string",
+        "slot_datetime": "string",
+        "total_amount_cents": "number",
+        "payment_method": "string",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "booking"
+    },
+    "booking.checkout_abandon": {
+      "description": "User abandons checkout process",
+      "payload": {
+        "service_id": "string",
+        "slot_datetime": "string",
+        "total_amount_cents": "number",
+        "abandon_step": "string",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "booking"
+    },
+    "payment.intent_create": {
+      "description": "Payment intent is created",
+      "payload": {
+        "booking_id": "string",
+        "amount_cents": "number",
+        "currency": "string",
+        "payment_method": "string",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "payment"
+    },
+    "payment.intent_success": {
+      "description": "Payment intent succeeds",
+      "payload": {
+        "booking_id": "string",
+        "payment_intent_id": "string",
+        "amount_cents": "number",
+        "currency": "string",
+        "payment_method": "string",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "payment"
+    },
+    "payment.intent_failed": {
+      "description": "Payment intent fails",
+      "payload": {
+        "booking_id": "string",
+        "payment_intent_id": "string",
+        "amount_cents": "number",
+        "currency": "string",
+        "payment_method": "string",
+        "error_code": "string",
+        "error_message": "string",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "payment"
+    },
+    "notification.email_sent": {
+      "description": "Email notification is sent",
+      "payload": {
+        "notification_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "template_id": "string",
+        "delivery_status": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 90,
+      "critical_journey": "notifications"
+    },
+    "notification.sms_sent": {
+      "description": "SMS notification is sent",
+      "payload": {
+        "notification_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "template_id": "string",
+        "delivery_status": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 90,
+      "critical_journey": "notifications"
+    },
+    "notification.email_delivered": {
+      "description": "Email notification is delivered",
+      "payload": {
+        "notification_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "template_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 90,
+      "critical_journey": "notifications"
+    },
+    "notification.sms_delivered": {
+      "description": "SMS notification is delivered",
+      "payload": {
+        "notification_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "template_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 90,
+      "critical_journey": "notifications"
+    },
+    "loyalty.points_earned": {
+      "description": "Customer earns loyalty points",
+      "payload": {
+        "customer_id": "string",
+        "booking_id": "string",
+        "points_earned": "number",
+        "points_total": "number",
+        "tenant_id": "string"
+      },
+      "pii_flags": ["customer_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "loyalty"
+    },
+    "loyalty.points_redeemed": {
+      "description": "Customer redeems loyalty points",
+      "payload": {
+        "customer_id": "string",
+        "booking_id": "string",
+        "points_redeemed": "number",
+        "points_remaining": "number",
+        "tenant_id": "string"
+      },
+      "pii_flags": ["customer_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "loyalty"
+    },
+    "automation.trigger_fired": {
+      "description": "Automation rule is triggered",
+      "payload": {
+        "automation_id": "string",
+        "trigger_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "trigger_data": "object"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "automations"
+    },
+    "automation.action_executed": {
+      "description": "Automation action is executed",
+      "payload": {
+        "automation_id": "string",
+        "action_type": "string",
+        "booking_id": "string",
+        "tenant_id": "string",
+        "execution_status": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "automations"
+    },
+    "admin.booking_attended": {
+      "description": "Admin marks booking as attended",
+      "payload": {
+        "booking_id": "string",
+        "tenant_id": "string",
+        "user_id": "string",
+        "attended_at": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "admin.booking_no_show": {
+      "description": "Admin marks booking as no-show",
+      "payload": {
+        "booking_id": "string",
+        "tenant_id": "string",
+        "user_id": "string",
+        "no_show_at": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "admin.booking_cancelled": {
+      "description": "Admin cancels a booking",
+      "payload": {
+        "booking_id": "string",
+        "tenant_id": "string",
+        "user_id": "string",
+        "cancelled_at": "string",
+        "cancellation_reason": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "admin.service_created": {
+      "description": "Admin creates a new service",
+      "payload": {
+        "service_id": "string",
+        "service_name": "string",
+        "service_price_cents": "number",
+        "service_duration_minutes": "number",
+        "tenant_id": "string",
+        "user_id": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "admin.service_updated": {
+      "description": "Admin updates a service",
+      "payload": {
+        "service_id": "string",
+        "service_name": "string",
+        "service_price_cents": "number",
+        "service_duration_minutes": "number",
+        "tenant_id": "string",
+        "user_id": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "admin.availability_updated": {
+      "description": "Admin updates availability schedule",
+      "payload": {
+        "tenant_id": "string",
+        "user_id": "string",
+        "schedule_type": "string",
+        "date_range_start": "string",
+        "date_range_end": "string"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "admin"
+    },
+    "admin.branding_updated": {
+      "description": "Admin updates business branding",
+      "payload": {
+        "tenant_id": "string",
+        "user_id": "string",
+        "branding_type": "string",
+        "has_logo": "boolean",
+        "has_custom_colors": "boolean"
+      },
+      "pii_flags": ["user_id"],
+      "sampling_rate": 1.0,
+      "retention_days": 365,
+      "critical_journey": "admin"
+    },
+    "analytics.schema_loaded": {
+      "description": "Analytics schema is loaded and validated",
+      "payload": {
+        "schema_version": "string",
+        "loaded_at": "string",
+        "event_count": "number"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 30,
+      "critical_journey": "system"
+    },
+    "analytics.event_emitted": {
+      "description": "Analytics event is successfully emitted",
+      "payload": {
+        "event_name": "string",
+        "emitted_at": "string",
+        "tenant_id": "string",
+        "session_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.01,
+      "retention_days": 7,
+      "critical_journey": "system"
+    },
+    "analytics.pii_violation": {
+      "description": "PII violation detected in event payload",
+      "payload": {
+        "event_name": "string",
+        "violation_type": "string",
+        "violated_fields": "array",
+        "detected_at": "string",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 30,
+      "critical_journey": "system"
+    },
+    "analytics.schema_violation": {
+      "description": "Event schema validation failed",
+      "payload": {
+        "event_name": "string",
+        "validation_errors": "array",
+        "detected_at": "string",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 30,
+      "critical_journey": "system"
+    },
+    "error.frontend_error": {
+      "description": "Frontend error occurs",
+      "payload": {
+        "error_type": "string",
+        "error_message": "string",
+        "error_stack": "string",
+        "component": "string",
+        "route": "string",
+        "tenant_id": "string",
+        "user_agent": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 1.0,
+      "retention_days": 90,
+      "critical_journey": "system"
+    },
+    "performance.page_load": {
+      "description": "Page load performance metrics",
+      "payload": {
+        "route": "string",
+        "load_time_ms": "number",
+        "lcp_ms": "number",
+        "cls_score": "number",
+        "fid_ms": "number",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 30,
+      "critical_journey": "system"
+    },
+    "performance.api_call": {
+      "description": "API call performance metrics",
+      "payload": {
+        "endpoint": "string",
+        "method": "string",
+        "response_time_ms": "number",
+        "status_code": "number",
+        "tenant_id": "string"
+      },
+      "pii_flags": [],
+      "sampling_rate": 0.1,
+      "retention_days": 30,
+      "critical_journey": "system"
+    }
+  },
+  "sampling_rules": {
+    "production": {
+      "default": 1.0,
+      "high_volume": 0.1,
+      "system_events": 0.01
+    },
+    "staging": {
+      "default": 0.1,
+      "high_volume": 0.01,
+      "system_events": 0.001
+    },
+    "development": {
+      "default": 0.01,
+      "high_volume": 0.001,
+      "system_events": 0.0001
+    }
+  },
+  "pii_policy": {
+    "sensitive_fields": [
+      "user_id",
+      "customer_id",
+      "email",
+      "phone",
+      "name",
+      "address",
+      "payment_method",
+      "card_number",
+      "ssn",
+      "date_of_birth"
+    ],
+    "redaction_rules": {
+      "user_id": "hash",
+      "customer_id": "hash",
+      "email": "hash",
+      "phone": "mask",
+      "name": "hash",
+      "address": "hash",
+      "payment_method": "hash",
+      "card_number": "mask",
+      "ssn": "mask",
+      "date_of_birth": "hash"
+    },
+    "retention_policy": {
+      "default_days": 90,
+      "critical_journey_days": 365,
+      "system_events_days": 30,
+      "pii_violations_days": 30
+    }
+  },
+  "critical_journeys": [
+    "onboarding",
+    "booking",
+    "payment",
+    "notifications",
+    "loyalty",
+    "automations",
+    "admin",
+    "system"
+  ]
+}

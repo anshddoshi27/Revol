@@ -1,0 +1,180 @@
+groups:
+  - name: tithi-backend-alerts
+    rules:
+      # High-level service alerts
+      - alert: TithiBackendDown
+        expr: up{job="tithi-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Tithi backend service is down"
+          description: "Tithi backend service has been down for more than 1 minute"
+
+      - alert: TithiBackendHighErrorRate
+        expr: rate(http_requests_total{status_code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      - alert: TithiBackendHighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s"
+
+      - alert: TithiBackendHighRequestRate
+        expr: rate(http_requests_total[5m]) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High request rate detected"
+          description: "Request rate is {{ $value }} requests/sec"
+
+      # Database alerts
+      - alert: TithiDatabaseConnectionsHigh
+        expr: database_connections_active > 80
+        for: 2m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High database connection count"
+          description: "Database has {{ $value }} active connections"
+
+      - alert: TithiDatabaseConnectionsCritical
+        expr: database_connections_active > 95
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Critical database connection count"
+          description: "Database has {{ $value }} active connections"
+
+      # Redis alerts
+      - alert: TithiRedisConnectionsHigh
+        expr: redis_connections_active > 50
+        for: 2m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "High Redis connection count"
+          description: "Redis has {{ $value }} active connections"
+
+      # Business logic alerts
+      - alert: TithiBookingFailureRateHigh
+        expr: rate(bookings_total{status="failed"}[5m]) / rate(bookings_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: bookings
+        annotations:
+          summary: "High booking failure rate"
+          description: "Booking failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: TithiPaymentFailureRateHigh
+        expr: rate(payments_total{status="failed"}[5m]) / rate(payments_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: payments
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: TithiNotificationFailureRateHigh
+        expr: rate(notifications_total{status="failed"}[5m]) / rate(notifications_total[5m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          service: notifications
+        annotations:
+          summary: "High notification failure rate"
+          description: "Notification failure rate is {{ $value | humanizePercentage }}"
+
+      # Security alerts
+      - alert: TithiSecurityViolationDetected
+        expr: increase(security_violations_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: security
+        annotations:
+          summary: "Security violation detected"
+          description: "{{ $value }} security violations detected in the last 5 minutes"
+
+      - alert: TithiJWTTokenExpired
+        expr: rate(jwt_tokens_expired_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+          service: auth
+        annotations:
+          summary: "High JWT token expiration rate"
+          description: "{{ $value }} JWT tokens expired per second"
+
+      # Resource utilization alerts
+      - alert: TithiMemoryUsageHigh
+        expr: (process_resident_memory_bytes / 1024 / 1024) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }} MB"
+
+      - alert: TithiCPUUsageHigh
+        expr: rate(process_cpu_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanizePercentage }}"
+
+      # Feature flag alerts
+      - alert: TithiFeatureFlagError
+        expr: rate(feature_flag_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: feature-flags
+        annotations:
+          summary: "Feature flag errors detected"
+          description: "{{ $value }} feature flag errors per second"
+
+      # Backup alerts
+      - alert: TithiBackupFailed
+        expr: time() - backup_last_successful_timestamp > 86400
+        for: 0m
+        labels:
+          severity: critical
+          service: backup
+        annotations:
+          summary: "Backup has not run successfully in 24 hours"
+          description: "Last successful backup was {{ $value }} seconds ago"
+
+      - alert: TithiBackupStale
+        expr: time() - backup_last_successful_timestamp > 172800
+        for: 0m
+        labels:
+          severity: critical
+          service: backup
+        annotations:
+          summary: "Backup is stale"
+          description: "Last successful backup was {{ $value }} seconds ago"

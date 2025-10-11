@@ -1,0 +1,191 @@
+# Tithi Platform Alerting Rules
+# This file defines alerting rules for Prometheus
+
+groups:
+  - name: tithi.critical
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: tithi-backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }}% for the last 5 minutes"
+          runbook_url: "https://docs.tithi.com/runbooks/high-error-rate"
+
+      # High response time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: critical
+          service: tithi-backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s"
+          runbook_url: "https://docs.tithi.com/runbooks/high-response-time"
+
+      # Database connection issues
+      - alert: DatabaseConnectionHigh
+        expr: db_connections_active / db_connections_max * 100 > 80
+        for: 2m
+        labels:
+          severity: critical
+          service: tithi-database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database connections are at {{ $value }}% of maximum"
+          runbook_url: "https://docs.tithi.com/runbooks/database-connections"
+
+      # Redis memory usage high
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 85
+        for: 2m
+        labels:
+          severity: critical
+          service: tithi-redis
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis memory usage is at {{ $value }}% of maximum"
+          runbook_url: "https://docs.tithi.com/runbooks/redis-memory"
+
+      # Celery workers down
+      - alert: CeleryWorkersDown
+        expr: celery_workers_active < 2
+        for: 1m
+        labels:
+          severity: critical
+          service: tithi-celery
+        annotations:
+          summary: "Celery workers are down"
+          description: "Only {{ $value }} Celery workers are active"
+          runbook_url: "https://docs.tithi.com/runbooks/celery-workers"
+
+  - name: tithi.warning
+    rules:
+      # High no-show rate
+      - alert: HighNoShowRate
+        expr: rate(booking_no_show_total[1h]) / rate(booking_completed_total[1h]) * 100 > 20
+        for: 10m
+        labels:
+          severity: warning
+          service: tithi-business
+        annotations:
+          summary: "High no-show rate detected"
+          description: "No-show rate is {{ $value }}% for the last hour"
+          runbook_url: "https://docs.tithi.com/runbooks/high-no-show-rate"
+
+      # Low booking conversion rate
+      - alert: LowBookingConversion
+        expr: rate(booking_created_total[1h]) / rate(booking_attempt_total[1h]) * 100 < 30
+        for: 15m
+        labels:
+          severity: warning
+          service: tithi-business
+        annotations:
+          summary: "Low booking conversion rate"
+          description: "Booking conversion rate is {{ $value }}% for the last hour"
+          runbook_url: "https://docs.tithi.com/runbooks/low-conversion-rate"
+
+      # High pending tasks
+      - alert: HighPendingTasks
+        expr: celery_tasks_pending > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: tithi-celery
+        annotations:
+          summary: "High number of pending tasks"
+          description: "{{ $value }} tasks are pending in Celery queue"
+          runbook_url: "https://docs.tithi.com/runbooks/pending-tasks"
+
+      # Feature flag health issues
+      - alert: FeatureFlagHealthIssue
+        expr: feature_flag_health_status != 1
+        for: 2m
+        labels:
+          severity: warning
+          service: tithi-feature-flags
+        annotations:
+          summary: "Feature flag health issue detected"
+          description: "Feature flag {{ $labels.flag_name }} has health issues"
+          runbook_url: "https://docs.tithi.com/runbooks/feature-flag-health"
+
+  - name: tithi.info
+    rules:
+      # New tenant registered
+      - alert: NewTenantRegistered
+        expr: increase(tenant_registered_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: tithi-business
+        annotations:
+          summary: "New tenant registered"
+          description: "{{ $value }} new tenants registered in the last hour"
+          runbook_url: "https://docs.tithi.com/runbooks/new-tenant"
+
+      # High revenue day
+      - alert: HighRevenueDay
+        expr: sum(increase(payment_completed_total[1d])) > 10000
+        for: 0m
+        labels:
+          severity: info
+          service: tithi-business
+        annotations:
+          summary: "High revenue day"
+          description: "Daily revenue is ${{ $value }}"
+          runbook_url: "https://docs.tithi.com/runbooks/high-revenue"
+
+      # Backup completed
+      - alert: BackupCompleted
+        expr: increase(backup_completed_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: tithi-backup
+        annotations:
+          summary: "Backup completed"
+          description: "{{ $value }} backups completed in the last hour"
+          runbook_url: "https://docs.tithi.com/runbooks/backup-completed"
+
+  - name: tithi.security
+    rules:
+      # Suspicious login attempts
+      - alert: SuspiciousLoginAttempts
+        expr: rate(auth_failed_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          service: tithi-security
+        annotations:
+          summary: "Suspicious login attempts detected"
+          description: "{{ $value }} failed login attempts per second"
+          runbook_url: "https://docs.tithi.com/runbooks/suspicious-logins"
+
+      # High RLS policy violations
+      - alert: HighRLSViolations
+        expr: rate(rls_policy_violation_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: tithi-security
+        annotations:
+          summary: "High RLS policy violations"
+          description: "{{ $value }} RLS policy violations per second"
+          runbook_url: "https://docs.tithi.com/runbooks/rls-violations"
+
+      # Unusual data access patterns
+      - alert: UnusualDataAccess
+        expr: rate(audit_log_total{action="data_access"}[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+          service: tithi-security
+        annotations:
+          summary: "Unusual data access patterns"
+          description: "{{ $value }} data access operations per second"
+          runbook_url: "https://docs.tithi.com/runbooks/unusual-data-access"

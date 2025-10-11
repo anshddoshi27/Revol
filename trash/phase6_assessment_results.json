@@ -1,0 +1,22 @@
+{
+  "timestamp": "2025-09-19T20:22:20.954168",
+  "categories": {
+    "performance": {
+      "name": "Performance",
+      "score": 0
+    },
+    "observability": {
+      "name": "Observability",
+      "score": 33.3
+    },
+    "cicd": {
+      "name": "CI/CD",
+      "score": 100.0
+    },
+    "testing": {
+      "name": "Testing Framework",
+      "score": 100.0
+    }
+  },
+  "overall_score": 58.3
+}

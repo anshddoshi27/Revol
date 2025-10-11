@@ -179,6 +179,9 @@ export const Step8Payments: React.FC = () => {
         setGoLiveData(paymentSetup.goLiveData);
         setCurrentStep('success');
         setShowGoLiveModal(false);
+        
+        // Clear onboarding data from localStorage since onboarding is complete
+        localStorage.removeItem('onboarding_data');
       }
     } catch (error: any) {
       console.error('Go live failed:', error);

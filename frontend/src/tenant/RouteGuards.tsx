@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { RouteGuardProps } from './types';
 import { useTenantContext, useTenantResolved } from './TenantContext';
 // import { telemetry } from '@/observability';
-import { getToken } from '@/lib/env';
+import { getToken } from '../lib/env';
 
 /**
  * Authentication Guard

@@ -121,7 +121,7 @@ export const deleteService = async (serviceId: string): Promise<void> => {
 // Categories API
 export const getCategories = async (): Promise<Category[]> => {
   try {
-    const response = await apiClient.get('/api/v1/categories');
+    const response = await apiClient.get('/categories');
     return response.data.categories;
   } catch (error) {
     console.error('Failed to fetch categories:', error);
@@ -131,7 +131,7 @@ export const getCategories = async (): Promise<Category[]> => {
 
 export const createCategory = async (categoryData: { name: string; description?: string; color?: string }): Promise<Category> => {
   try {
-    const response = await apiClient.post('/api/v1/categories', categoryData);
+    const response = await apiClient.post('/categories', categoryData);
     return response.data;
   } catch (error) {
     console.error('Failed to create category:', error);
@@ -141,7 +141,7 @@ export const createCategory = async (categoryData: { name: string; description?:
 
 export const updateCategory = async (categoryId: string, categoryData: Partial<{ name: string; description?: string; color?: string }>): Promise<Category> => {
   try {
-    const response = await apiClient.put(`/api/v1/categories/${categoryId}`, categoryData);
+    const response = await apiClient.put(`/categories/${categoryId}`, categoryData);
     return response.data;
   } catch (error) {
     console.error('Failed to update category:', error);
@@ -151,7 +151,7 @@ export const updateCategory = async (categoryId: string, categoryData: Partial<{
 
 export const deleteCategory = async (categoryId: string): Promise<void> => {
   try {
-    await apiClient.delete(`/api/v1/categories/${categoryId}`);
+    await apiClient.delete(`/categories/${categoryId}`);
   } catch (error) {
     console.error('Failed to delete category:', error);
     throw error;

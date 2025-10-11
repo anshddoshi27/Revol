@@ -12,3 +12,4 @@ export const OnboardingStep6: React.FC = () => {
   return <Step6Policies />;
 };
 
+

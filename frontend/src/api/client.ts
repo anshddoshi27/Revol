@@ -22,14 +22,17 @@ interface ExtendedAxiosResponse extends AxiosResponse {
     duration?: number;
   };
 }
-// Simple API client for now - will be enhanced later
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5001';
+// API client configuration for Tithi backend
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api/v1';
+
+// Constants for rate limiting and idempotency
+const DEFAULT_RATE_LIMIT_BACKOFF_MS = 1000;
+const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
 
 // Simple token getter
 const getToken = (): string | null => {
   return localStorage.getItem('auth_token');
 };
-// TithiError is used in error handling
 
 // Maximum number of retries for 429 responses
 const MAX_RETRIES = 3;

@@ -304,19 +304,22 @@ export const CategoryCRUD: React.FC<CategoryCRUDProps> = ({
     getNextAvailableColor,
     availableColors,
   } = useCategoryManagement({
-    initialCategories,
+    initialCategories: [], // Don't use initialCategories to avoid circular dependency
     onCategoryCreated: (category) => {
       setShowForm(false);
       setEditingCategory(undefined);
-      onCategoriesChange?.(categories);
+      // Don't call onCategoriesChange here as it can cause infinite loops
+      // The parent component will get updated categories through the hook
     },
     onCategoryUpdated: (category) => {
       setShowForm(false);
       setEditingCategory(undefined);
-      onCategoriesChange?.(categories);
+      // Don't call onCategoriesChange here as it can cause infinite loops
+      // The parent component will get updated categories through the hook
     },
     onCategoryDeleted: (categoryId) => {
-      onCategoriesChange?.(categories);
+      // Don't call onCategoriesChange here as it can cause infinite loops
+      // The parent component will get updated categories through the hook
     },
     onError,
   });

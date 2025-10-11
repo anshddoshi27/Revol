@@ -49,7 +49,8 @@ def health_check():
     try:
         # Check database connectivity
         from ..extensions import db
-        db.session.execute('SELECT 1')
+        from sqlalchemy import text
+        db.session.execute(text('SELECT 1'))
         return jsonify({
             'status': 'healthy',
             'timestamp': time.time(),

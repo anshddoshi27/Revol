@@ -155,6 +155,10 @@ class ServiceService(BaseService):
     
     def create_service(self, tenant_id: uuid.UUID, service_data: Dict[str, Any], user_id: uuid.UUID) -> Service:
         """Create a new service with validation."""
+        # Handle both duration_min and duration_minutes field names
+        if 'duration_minutes' in service_data and 'duration_min' not in service_data:
+            service_data['duration_min'] = service_data['duration_minutes']
+        
         # Validate required fields
         self._validate_required_fields(service_data, ['name', 'duration_min', 'price_cents'])
         
@@ -236,6 +240,10 @@ class ServiceService(BaseService):
             update_data['price_cents'] = self._validate_positive_number(
                 update_data['price_cents'], 'price_cents'
             )
+        
+        # Handle both duration_min and duration_minutes field names
+        if 'duration_minutes' in update_data and 'duration_min' not in update_data:
+            update_data['duration_min'] = update_data['duration_minutes']
         
         # Validate duration if provided
         if 'duration_min' in update_data:

@@ -20,7 +20,8 @@ import {
   Phone,
   Mail
 } from 'lucide-react';
-import { getPublicServices, getPublicAvailableTimeSlots, createPublicBooking } from '../../api/services/bookingApi';
+import { getPublicServices, createPublicBooking } from '../../api/services/bookingApi';
+import { getPublicAvailableTimeSlots } from '../../api/services/availabilityApi';
 import { getPublicServices as getPublicServicesApi } from '../../api/services/serviceApi';
 
 interface Business {

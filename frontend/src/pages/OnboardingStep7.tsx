@@ -12,3 +12,4 @@ export const OnboardingStep7: React.FC = () => {
   return <Step7GiftCards />;
 };
 
+

@@ -101,8 +101,10 @@ def initialize_extensions(app: Flask) -> None:
     # CORS
     cors.init_app(app, resources={
         r"/api/*": {"origins": "*"},
+        r"/api/v1/*": {"origins": "*"},
         r"/v1/*": {"origins": "*"},
-        r"/health/*": {"origins": "*"}
+        r"/health/*": {"origins": "*"},
+        r"/auth/*": {"origins": "*"}
     })
     
     # Redis
@@ -163,7 +165,7 @@ def register_blueprints(app: Flask) -> None:
     
     # Onboarding blueprint
     from .blueprints.onboarding import onboarding_bp
-    app.register_blueprint(onboarding_bp, url_prefix='/onboarding')
+    app.register_blueprint(onboarding_bp, url_prefix='/api/v1/onboarding')
     
     # Payment API blueprint
     from .blueprints.payment_api import payment_bp

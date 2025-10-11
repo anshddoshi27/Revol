@@ -5,7 +5,7 @@
  * Handles category CRUD operations, validation, and form state management.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { categoriesService } from '../api/services/services';
 import type {
   CategoryData,
@@ -63,6 +63,32 @@ export const useCategoryManagement = (options: UseCategoryManagementOptions = {}
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<CategoryValidationError[]>([]);
+
+  // Load categories from API on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setIsLoading(true);
+        const response = await categoriesService.getCategories();
+        const categoriesData: CategoryData[] = response.map(category => ({
+          id: category.id,
+          name: category.name,
+          description: category.description,
+          color: category.color,
+          sort_order: category.sort_order,
+          created_at: category.created_at,
+          updated_at: category.updated_at,
+        }));
+        setCategories(categoriesData);
+      } catch (error) {
+        onError?.(error instanceof Error ? error : new Error('Failed to load categories'));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadCategories();
+  }, []); // Empty dependency array - only run on mount
 
   // Category operations
   const createCategory = useCallback(async (categoryData: CategoryFormData): Promise<CategoryData | null> => {

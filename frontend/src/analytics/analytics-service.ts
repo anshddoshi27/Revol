@@ -124,6 +124,22 @@ export class AnalyticsService {
   }
 
   /**
+   * Track an analytics event (alias for emitEvent)
+   */
+  async track<T extends AnalyticsEventData>(
+    eventName: string,
+    eventData: T,
+    options: {
+      tenantId?: string;
+      userId?: string;
+      sessionId?: string;
+      skipSampling?: boolean;
+    } = {}
+  ): Promise<void> {
+    return this.emitEvent(eventName, eventData, options);
+  }
+
+  /**
    * Emit an analytics event
    */
   async emitEvent<T extends AnalyticsEventData>(

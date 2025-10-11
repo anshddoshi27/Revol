@@ -48,7 +48,7 @@ export interface BusinessAnalytics {
 // Dashboard API
 export const getDashboardStats = async (): Promise<DashboardStats> => {
   try {
-    const response = await apiClient.get('/admin/dashboard/stats');
+    const response = await apiClient.get('/api/v1/admin/dashboard/stats');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch dashboard stats:', error);
@@ -58,7 +58,7 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
 
 export const getRecentBookings = async (limit: number = 10): Promise<RecentBooking[]> => {
   try {
-    const response = await apiClient.get(`/admin/bookings/recent?limit=${limit}`);
+    const response = await apiClient.get(`/api/v1/admin/bookings/recent?limit=${limit}`);
     return response.data.bookings;
   } catch (error) {
     console.error('Failed to fetch recent bookings:', error);
@@ -68,7 +68,7 @@ export const getRecentBookings = async (limit: number = 10): Promise<RecentBooki
 
 export const getBusinessAnalytics = async (period: 'week' | 'month' | 'year' = 'month'): Promise<BusinessAnalytics> => {
   try {
-    const response = await apiClient.get(`/admin/analytics?period=${period}`);
+    const response = await apiClient.get(`/api/v1/analytics?period=${period}`);
     return response.data;
   } catch (error) {
     console.error('Failed to fetch business analytics:', error);
@@ -79,7 +79,7 @@ export const getBusinessAnalytics = async (period: 'week' | 'month' | 'year' = '
 // Business Settings API
 export const getBusinessSettings = async () => {
   try {
-    const response = await apiClient.get('/admin/settings');
+    const response = await apiClient.get('/api/v1/admin/settings');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch business settings:', error);
@@ -89,7 +89,7 @@ export const getBusinessSettings = async () => {
 
 export const updateBusinessSettings = async (settings: any) => {
   try {
-    const response = await apiClient.put('/admin/settings', settings);
+    const response = await apiClient.put('/api/v1/admin/settings', settings);
     return response.data;
   } catch (error) {
     console.error('Failed to update business settings:', error);
@@ -100,7 +100,7 @@ export const updateBusinessSettings = async (settings: any) => {
 // Staff Management API
 export const getStaffMembers = async () => {
   try {
-    const response = await apiClient.get('/admin/staff');
+    const response = await apiClient.get('/api/v1/admin/staff');
     return response.data.staff;
   } catch (error) {
     console.error('Failed to fetch staff members:', error);
@@ -110,7 +110,7 @@ export const getStaffMembers = async () => {
 
 export const createStaffMember = async (staffData: any) => {
   try {
-    const response = await apiClient.post('/admin/staff', staffData);
+    const response = await apiClient.post('/api/v1/admin/staff', staffData);
     return response.data;
   } catch (error) {
     console.error('Failed to create staff member:', error);
@@ -120,7 +120,7 @@ export const createStaffMember = async (staffData: any) => {
 
 export const updateStaffMember = async (staffId: string, staffData: any) => {
   try {
-    const response = await apiClient.put(`/admin/staff/${staffId}`, staffData);
+    const response = await apiClient.put(`/api/v1/admin/staff/${staffId}`, staffData);
     return response.data;
   } catch (error) {
     console.error('Failed to update staff member:', error);
@@ -130,7 +130,7 @@ export const updateStaffMember = async (staffId: string, staffData: any) => {
 
 export const deleteStaffMember = async (staffId: string) => {
   try {
-    const response = await apiClient.delete(`/admin/staff/${staffId}`);
+    const response = await apiClient.delete(`/api/v1/admin/staff/${staffId}`);
     return response.data;
   } catch (error) {
     console.error('Failed to delete staff member:', error);
@@ -141,7 +141,7 @@ export const deleteStaffMember = async (staffId: string) => {
 // Business Profile API
 export const getBusinessProfile = async () => {
   try {
-    const response = await apiClient.get('/admin/profile');
+    const response = await apiClient.get('/api/v1/admin/profile');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch business profile:', error);
@@ -151,7 +151,7 @@ export const getBusinessProfile = async () => {
 
 export const updateBusinessProfile = async (profileData: any) => {
   try {
-    const response = await apiClient.put('/admin/profile', profileData);
+    const response = await apiClient.put('/api/v1/admin/profile', profileData);
     return response.data;
   } catch (error) {
     console.error('Failed to update business profile:', error);
@@ -165,7 +165,7 @@ export const uploadBusinessLogo = async (file: File) => {
     const formData = new FormData();
     formData.append('logo', file);
     
-    const response = await apiClient.post('/admin/upload/logo', formData, {
+    const response = await apiClient.post('/api/v1/admin/upload/logo', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -182,7 +182,7 @@ export const uploadBusinessCover = async (file: File) => {
     const formData = new FormData();
     formData.append('cover', file);
     
-    const response = await apiClient.post('/admin/upload/cover', formData, {
+    const response = await apiClient.post('/api/v1/admin/upload/cover', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

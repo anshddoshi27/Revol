@@ -7,7 +7,7 @@
 
 export const environment = {
   // API Configuration
-  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1',
+  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api/v1',
   
   // Supabase Configuration
   SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co',

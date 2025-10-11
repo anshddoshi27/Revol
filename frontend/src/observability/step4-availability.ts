@@ -5,7 +5,7 @@
  * Provides structured event tracking for availability calendar setup.
  */
 
-import { analyticsService } from '../analytics';
+import { analyticsService } from '../analytics/analytics-service';
 
 export interface OnboardingStep4Event {
   event_type: 'onboarding.step4_started' | 'onboarding.step4_complete' | 'onboarding.time_block_created' | 'onboarding.time_block_updated' | 'onboarding.time_block_deleted' | 'onboarding.availability_copy_week' | 'onboarding.availability_overlap_detected' | 'onboarding.availability_validation_error';

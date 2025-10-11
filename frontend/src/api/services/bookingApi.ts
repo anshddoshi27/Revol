@@ -67,7 +67,7 @@ export const getBookings = async (filters: BookingFilters = {}): Promise<{ booki
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.limit) params.append('limit', filters.limit.toString());
 
-    const response = await apiClient.get(`/admin/bookings?${params.toString()}`);
+    const response = await apiClient.get(`/api/v1/admin/bookings?${params.toString()}`);
     return response.data;
   } catch (error) {
     console.error('Failed to fetch bookings:', error);
@@ -77,7 +77,7 @@ export const getBookings = async (filters: BookingFilters = {}): Promise<{ booki
 
 export const getBookingById = async (bookingId: string): Promise<Booking> => {
   try {
-    const response = await apiClient.get(`/admin/bookings/${bookingId}`);
+    const response = await apiClient.get(`/api/v1/admin/bookings/${bookingId}`);
     return response.data;
   } catch (error) {
     console.error('Failed to fetch booking:', error);
@@ -87,7 +87,7 @@ export const getBookingById = async (bookingId: string): Promise<Booking> => {
 
 export const createBooking = async (bookingData: CreateBookingData): Promise<Booking> => {
   try {
-    const response = await apiClient.post('/admin/bookings', bookingData);
+    const response = await apiClient.post('/api/v1/admin/bookings', bookingData);
     return response.data;
   } catch (error) {
     console.error('Failed to create booking:', error);
@@ -97,7 +97,7 @@ export const createBooking = async (bookingData: CreateBookingData): Promise<Boo
 
 export const updateBooking = async (bookingId: string, bookingData: Partial<CreateBookingData>): Promise<Booking> => {
   try {
-    const response = await apiClient.put(`/admin/bookings/${bookingId}`, bookingData);
+    const response = await apiClient.put(`/api/v1/admin/bookings/${bookingId}`, bookingData);
     return response.data;
   } catch (error) {
     console.error('Failed to update booking:', error);
@@ -127,7 +127,7 @@ export const markAttendance = async (bookingId: string, attended: boolean): Prom
 
 export const deleteBooking = async (bookingId: string): Promise<void> => {
   try {
-    await apiClient.delete(`/admin/bookings/${bookingId}`);
+    await apiClient.delete(`/api/v1/admin/bookings/${bookingId}`);
   } catch (error) {
     console.error('Failed to delete booking:', error);
     throw error;
@@ -136,7 +136,7 @@ export const deleteBooking = async (bookingId: string): Promise<void> => {
 
 export const getBookingStats = async (): Promise<BookingStats> => {
   try {
-    const response = await apiClient.get('/admin/bookings/stats');
+    const response = await apiClient.get('/api/v1/admin/bookings/stats');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch booking stats:', error);
@@ -159,7 +159,7 @@ export const bulkUpdateBookingStatus = async (bookingIds: string[], status: stri
 
 export const bulkDeleteBookings = async (bookingIds: string[]): Promise<void> => {
   try {
-    await apiClient.delete('/admin/bookings/bulk', { 
+    await apiClient.delete('/api/v1/admin/bookings/bulk', { 
       data: { booking_ids: bookingIds } 
     });
   } catch (error) {
@@ -178,7 +178,7 @@ export const exportBookings = async (filters: BookingFilters = {}): Promise<Blob
     if (filters.staffId) params.append('staff_id', filters.staffId);
     if (filters.serviceId) params.append('service_id', filters.serviceId);
 
-    const response = await apiClient.get(`/admin/bookings/export?${params.toString()}`, {
+    const response = await apiClient.get(`/api/v1/admin/bookings/export?${params.toString()}`, {
       responseType: 'blob'
     });
     return response.data;

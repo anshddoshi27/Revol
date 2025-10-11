@@ -91,7 +91,7 @@ const calculateContrastRatio = (color1: string, color2: string): number => {
 /**
  * Validates contrast ratio against WCAG standards
  */
-const validateContrast = (ratio: number): ContrastValidationResult => {
+const validateContrastRatio = (ratio: number): ContrastValidationResult => {
   const passesAA = ratio >= MIN_AA_RATIO;
   const passesAAA = ratio >= MIN_AAA_RATIO;
   
@@ -145,11 +145,18 @@ const generateColorScale = (primaryColor: string): Record<string, string> => {
 // ===== HOOK IMPLEMENTATION =====
 
 export const useColorContrast = (): UseColorContrastReturn => {
-  const [state, setState] = useState<ColorSelectionState>({
-    selectedColor: '#3B82F6', // Default blue
-    contrastResult: null,
-    isValid: false,
-    error: null,
+  const [state, setState] = useState<ColorSelectionState>(() => {
+    // Initialize with default color and validate contrast immediately
+    const defaultColor = '#3B82F6';
+    const ratio = calculateContrastRatio(defaultColor, DEFAULT_BACKGROUND_COLOR);
+    const result = validateContrastRatio(ratio);
+    
+    return {
+      selectedColor: defaultColor,
+      contrastResult: result,
+      isValid: result.passesAA,
+      error: null,
+    };
   });
 
   const setColor = useCallback((color: string) => {
@@ -162,24 +169,26 @@ export const useColorContrast = (): UseColorContrastReturn => {
 
   const validateContrast = useCallback((backgroundColor: string = DEFAULT_BACKGROUND_COLOR) => {
     try {
-      const ratio = calculateContrastRatio(state.selectedColor, backgroundColor);
-      const result = validateContrast(ratio);
-      
-      setState(prev => ({
-        ...prev,
-        contrastResult: result,
-        isValid: result.passesAA,
-        error: null,
-      }));
-
-      // Emit analytics event
-      trackEvent('onboarding.color_contrast_check', {
-        selected_color: state.selectedColor,
-        background_color: backgroundColor,
-        contrast_ratio: result.ratio,
-        passes_aa: result.passesAA,
-        passes_aaa: result.passesAAA,
-        level: result.level,
+      setState(prev => {
+        const ratio = calculateContrastRatio(prev.selectedColor, backgroundColor);
+        const result = validateContrastRatio(ratio);
+        
+        // Emit analytics event
+        trackEvent('onboarding.color_contrast_check', {
+          selected_color: prev.selectedColor,
+          background_color: backgroundColor,
+          contrast_ratio: result.ratio,
+          passes_aa: result.passesAA,
+          passes_aaa: result.passesAAA,
+          level: result.level,
+        });
+        
+        return {
+          ...prev,
+          contrastResult: result,
+          isValid: result.passesAA,
+          error: null,
+        };
       });
 
     } catch (error) {

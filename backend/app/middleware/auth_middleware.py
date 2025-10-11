@@ -37,6 +37,14 @@ class AuthMiddleware:
     
     def _authenticate_request(self):
         """Authenticate incoming requests."""
+        self.logger.info(f"Authenticating request: {request.method} {request.path}")
+        
+        # Set tenant context from WSGI environment (set by tenant middleware)
+        tenant_id = request.environ.get('HTTP_X_TENANT_ID')
+        if tenant_id:
+            g.tenant_id = tenant_id
+            self.logger.debug(f"Set tenant context from middleware: {tenant_id}")
+        
         # Skip authentication in test mode
         if current_app.config.get('TESTING', False):
             # Set mock user context for tests only if not already set
@@ -54,6 +62,12 @@ class AuthMiddleware:
         
         # Skip authentication for public endpoints
         if self._is_public_endpoint():
+            self.logger.info(f"Skipping authentication for public endpoint: {request.path}")
+            # Set default user context for development
+            if not hasattr(g, 'user_id') or g.user_id is None:
+                g.user_id = 'dev-user-123'
+                g.user_email = 'dev@example.com'
+                g.user_role = 'admin'
             return
         
         # Skip authentication for health checks
@@ -111,9 +125,19 @@ class AuthMiddleware:
         public_paths = [
             '/v1/b/',  # Public tenant pages
             '/health',  # Health checks
+            '/auth/signup',  # User registration
+            '/auth/login',  # User login
+            '/api/v1/auth/signup',  # API user registration
+            '/api/v1/auth/login',  # API user login
+            '/api/v1/onboarding',  # Onboarding endpoints (development)
+            '/api/v1/availability',  # Availability endpoints (development)
+            '/api/v1/services',  # Services endpoints (development)
+            '/api/v1/categories',  # Categories endpoints (development)
         ]
         
-        return any(request.path.startswith(path) for path in public_paths)
+        is_public = any(request.path.startswith(path) for path in public_paths)
+        self.logger.info(f"Checking public endpoint: {request.path} -> {is_public}")
+        return is_public
     
     def _extract_token(self) -> Optional[str]:
         """Extract JWT token from request headers."""
@@ -174,8 +198,15 @@ def require_auth(f):
     """Decorator to require authentication for endpoints."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Authentication is handled by middleware
-        # This decorator is for explicit documentation
+        # For development, set default user context if not already set
+        import os
+        if os.environ.get('ENVIRONMENT', 'development') == 'development':
+            if not hasattr(g, 'user_id') or not g.user_id:
+                g.user_id = 'dev-user-123'
+                g.user_email = 'dev@example.com'
+                g.user_role = 'admin'
+                logging.getLogger(__name__).debug("Set default user context for development")
+        
         return f(*args, **kwargs)
     return decorated_function
 

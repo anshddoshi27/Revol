@@ -43,12 +43,16 @@ export const Step1BusinessDetails: React.FC = () => {
       //   has_social_links: Object.values(data.social_links).some(link => !!link),
       // });
 
+      // Save to localStorage for persistence
+      const onboardingData = {
+        step1Data: data,
+        prefill: prefillData,
+      };
+      localStorage.setItem('onboarding_data', JSON.stringify(onboardingData));
+
       // Navigate to next step with form data
       navigate('/onboarding/logo-colors', {
-        state: {
-          step1Data: data,
-          prefill: prefillData,
-        },
+        state: onboardingData,
       });
     } catch (error) {
       console.error('Failed to proceed to next step:', error);

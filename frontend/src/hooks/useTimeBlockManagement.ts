@@ -18,7 +18,7 @@ import {
   timeBlockToAvailabilityRule,
   isValidTimeRange,
   isValidTimeBlockDuration,
-  timeRangesOverlaps,
+  timeRangesOverlap,
   formatTime,
   calculateDuration,
 } from '../utils/availabilityHelpers';
@@ -146,7 +146,7 @@ export const useTimeBlockManagement = ({
         block.staff_id === formData.staff_id &&
         block.day_of_week === formData.day_of_week &&
         block.id !== editingBlockId &&
-        timeRangesOverlaps(
+        timeRangesOverlap(
           formData.start_time,
           formData.end_time,
           block.start_time,

@@ -56,7 +56,7 @@ export const getAvailabilityRules = async (filters: AvailabilityFilters = {}): P
     
     if (filters.staffId) params.append('staff_id', filters.staffId);
 
-    const response = await apiClient.get(`/api/v1/availability/rules?${params.toString()}`);
+    const response = await apiClient.get(`/availability/rules?${params.toString()}`);
     return response.data.rules;
   } catch (error) {
     console.error('Failed to fetch availability rules:', error);

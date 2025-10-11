@@ -30,7 +30,7 @@ export const servicesService = {
    */
   getServices: async (): Promise<ServiceResponse[]> => {
     const client = tithiApiClient();
-    const response = await client.get<{ services: ServiceResponse[] }>('/api/v1/services');
+    const response = await client.get<{ services: ServiceResponse[] }>('/services');
     return response.services;
   },
 
@@ -39,7 +39,7 @@ export const servicesService = {
    */
   getService: async (serviceId: string): Promise<ServiceResponse> => {
     const client = tithiApiClient();
-    return client.get<ServiceResponse>(`/api/v1/services/${serviceId}`);
+    return client.get<ServiceResponse>(`/services/${serviceId}`);
   },
 
   /**
@@ -47,7 +47,7 @@ export const servicesService = {
    */
   createService: async (serviceData: CreateServiceRequest): Promise<ServiceResponse> => {
     const client = tithiApiClient();
-    return client.post<ServiceResponse>('/api/v1/services', serviceData);
+    return client.post<ServiceResponse>('/services', serviceData);
   },
 
   /**
@@ -55,7 +55,7 @@ export const servicesService = {
    */
   updateService: async (serviceId: string, serviceData: UpdateServiceRequest): Promise<ServiceResponse> => {
     const client = tithiApiClient();
-    return client.put<ServiceResponse>(`/api/v1/services/${serviceId}`, serviceData);
+    return client.put<ServiceResponse>(`/services/${serviceId}`, serviceData);
   },
 
   /**
@@ -63,7 +63,7 @@ export const servicesService = {
    */
   deleteService: async (serviceId: string): Promise<void> => {
     const client = tithiApiClient();
-    await client.delete(`/api/v1/services/${serviceId}`);
+    await client.delete(`/services/${serviceId}`);
   },
 
   /**
@@ -71,7 +71,7 @@ export const servicesService = {
    */
   getServiceCatalog: async (): Promise<ServiceCatalogResponse> => {
     const client = tithiApiClient();
-    return client.get<ServiceCatalogResponse>('/api/v1/services/catalog');
+    return client.get<ServiceCatalogResponse>('/services/catalog');
   },
 
   /**
@@ -88,7 +88,7 @@ export const servicesService = {
       formData.append('cropped_data_url', uploadData.cropped_data_url);
     }
 
-    return client.post<ServiceImageUploadResponse>('/api/v1/services/upload-image', formData, {
+    return client.post<ServiceImageUploadResponse>('/services/upload-image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -105,7 +105,7 @@ export const categoriesService = {
    */
   getCategories: async (): Promise<CategoryResponse[]> => {
     const client = tithiApiClient();
-    const response = await client.get<{ categories: CategoryResponse[] }>('/api/v1/categories');
+    const response = await client.get<{ categories: CategoryResponse[] }>('/categories');
     return response.categories;
   },
 
@@ -114,7 +114,7 @@ export const categoriesService = {
    */
   getCategory: async (categoryId: string): Promise<CategoryResponse> => {
     const client = tithiApiClient();
-    return client.get<CategoryResponse>(`/api/v1/categories/${categoryId}`);
+    return client.get<CategoryResponse>(`/categories/${categoryId}`);
   },
 
   /**
@@ -122,7 +122,7 @@ export const categoriesService = {
    */
   createCategory: async (categoryData: CreateCategoryRequest): Promise<CategoryResponse> => {
     const client = tithiApiClient();
-    return client.post<CategoryResponse>('/api/v1/categories', categoryData);
+    return client.post<CategoryResponse>('/categories', categoryData);
   },
 
   /**
@@ -130,7 +130,7 @@ export const categoriesService = {
    */
   updateCategory: async (categoryId: string, categoryData: UpdateCategoryRequest): Promise<CategoryResponse> => {
     const client = tithiApiClient();
-    return client.put<CategoryResponse>(`/api/v1/categories/${categoryId}`, categoryData);
+    return client.put<CategoryResponse>(`/categories/${categoryId}`, categoryData);
   },
 
   /**
@@ -138,7 +138,7 @@ export const categoriesService = {
    */
   deleteCategory: async (categoryId: string): Promise<void> => {
     const client = tithiApiClient();
-    await client.delete(`/api/v1/categories/${categoryId}`);
+    await client.delete(`/categories/${categoryId}`);
   },
 };
 

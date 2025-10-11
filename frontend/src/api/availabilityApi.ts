@@ -6,7 +6,7 @@
  */
 
 import { apiClient } from './client';
-import { generateIdempotencyKey } from './client';
+import { generateIdempotencyKey } from './idempotency';
 import { validateAvailabilityRules, validateAvailabilityRule } from '../validators/availabilityValidators';
 import type { AvailabilityRule, RecurringPattern, TimeBlock } from '../api/types/availability';
 import type { ApiResponse, TithiError } from '../api/types';
@@ -14,12 +14,12 @@ import type { ApiResponse, TithiError } from '../api/types';
 // ===== API ENDPOINTS =====
 
 const ENDPOINTS = {
-  RULES: '/api/v1/availability/rules',
-  RULES_BULK: '/api/v1/availability/rules/bulk',
-  RULES_VALIDATE: '/api/v1/availability/rules/validate',
-  RULES_COPY_WEEK: '/api/v1/availability/rules/copy-week',
-  RULES_SUMMARY: '/api/v1/availability/summary',
-  CALENDAR: '/api/v1/availability/calendar',
+  RULES: '/availability/rules',
+  RULES_BULK: '/availability/rules/bulk',
+  RULES_VALIDATE: '/availability/rules/validate',
+  RULES_COPY_WEEK: '/availability/rules/copy-week',
+  RULES_SUMMARY: '/availability/summary',
+  CALENDAR: '/availability/calendar',
 } as const;
 
 // ===== REQUEST/RESPONSE TYPES =====

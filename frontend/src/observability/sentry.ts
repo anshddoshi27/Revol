@@ -6,7 +6,7 @@
  */
 
 import * as Sentry from '@sentry/react';
-import { config } from '@/lib/env';
+import { config } from '../lib/env';
 
 // Sentry configuration options
 interface SentryConfig {

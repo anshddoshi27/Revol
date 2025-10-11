@@ -5,7 +5,7 @@
  * Provides structured event tracking for service catalog creation.
  */
 
-import { analyticsService } from '../analytics';
+import { analyticsService } from '../analytics/analytics-service';
 
 export interface OnboardingStep3Event {
   event_type: 'onboarding.step3_started' | 'onboarding.step3_complete' | 'onboarding.category_created' | 'onboarding.category_updated' | 'onboarding.category_deleted' | 'onboarding.service_created' | 'onboarding.service_updated' | 'onboarding.service_deleted' | 'onboarding.image_uploaded' | 'onboarding.image_upload_error';
@@ -54,7 +54,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.step3_started', event);
+    analyticsService.emitEvent('onboarding.step3_started', event);
   },
 
   /**
@@ -75,7 +75,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.step3_complete', event);
+    analyticsService.emitEvent('onboarding.step3_complete', event);
   },
 
   /**
@@ -88,7 +88,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.category_created', event);
+    analyticsService.emitEvent('onboarding.category_created', event);
   },
 
   /**
@@ -101,7 +101,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.category_updated', event);
+    analyticsService.emitEvent('onboarding.category_updated', event);
   },
 
   /**
@@ -114,7 +114,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.category_deleted', event);
+    analyticsService.emitEvent('onboarding.category_deleted', event);
   },
 
   /**
@@ -127,7 +127,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.service_created', event);
+    analyticsService.emitEvent('onboarding.service_created', event);
   },
 
   /**
@@ -140,7 +140,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.service_updated', event);
+    analyticsService.emitEvent('onboarding.service_updated', event);
   },
 
   /**
@@ -153,7 +153,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.service_deleted', event);
+    analyticsService.emitEvent('onboarding.service_deleted', event);
   },
 
   /**
@@ -166,7 +166,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.image_uploaded', event);
+    analyticsService.emitEvent('onboarding.image_uploaded', event);
   },
 
   /**
@@ -179,7 +179,7 @@ export const onboardingStep3Observability = {
       timestamp: new Date().toISOString(),
     };
 
-    analyticsService.track('onboarding.image_upload_error', event);
+    analyticsService.emitEvent('onboarding.image_upload_error', event);
   },
 };
 
@@ -191,7 +191,7 @@ export const onboardingStep3ErrorTracking = {
    * Track validation errors
    */
   trackValidationError: (error: { field: string; message: string; context: string }) => {
-    analyticsService.track('onboarding.step3_validation_error', {
+    analyticsService.emitEvent('onboarding.step3_validation_error', {
       error_type: 'validation',
       field: error.field,
       message: error.message,
@@ -204,7 +204,7 @@ export const onboardingStep3ErrorTracking = {
    * Track API errors
    */
   trackApiError: (error: { endpoint: string; status_code: number; error_code: string; message: string }) => {
-    analyticsService.track('onboarding.step3_api_error', {
+    analyticsService.emitEvent('onboarding.step3_api_error', {
       error_type: 'api',
       endpoint: error.endpoint,
       status_code: error.status_code,
@@ -218,7 +218,7 @@ export const onboardingStep3ErrorTracking = {
    * Track network errors
    */
   trackNetworkError: (error: { endpoint: string; error_type: string; message: string }) => {
-    analyticsService.track('onboarding.step3_network_error', {
+    analyticsService.emitEvent('onboarding.step3_network_error', {
       error_type: 'network',
       endpoint: error.endpoint,
       network_error_type: error.error_type,
@@ -231,7 +231,7 @@ export const onboardingStep3ErrorTracking = {
    * Track file upload errors
    */
   trackFileUploadError: (error: { file_type: string; file_size: number; error_type: string; message: string }) => {
-    analyticsService.track('onboarding.step3_file_upload_error', {
+    analyticsService.emitEvent('onboarding.step3_file_upload_error', {
       error_type: 'file_upload',
       file_type: error.file_type,
       file_size: error.file_size,
@@ -250,7 +250,7 @@ export const onboardingStep3PerformanceTracking = {
    * Track step load time
    */
   trackStepLoadTime: (loadTime: number) => {
-    analyticsService.track('onboarding.step3_performance', {
+    analyticsService.emitEvent('onboarding.step3_performance', {
       metric: 'step_load_time',
       value: loadTime,
       unit: 'milliseconds',
@@ -262,7 +262,7 @@ export const onboardingStep3PerformanceTracking = {
    * Track service creation time
    */
   trackServiceCreationTime: (creationTime: number, serviceData: { has_image: boolean; has_special_requests: boolean }) => {
-    analyticsService.track('onboarding.step3_performance', {
+    analyticsService.emitEvent('onboarding.step3_performance', {
       metric: 'service_creation_time',
       value: creationTime,
       unit: 'milliseconds',
@@ -276,7 +276,7 @@ export const onboardingStep3PerformanceTracking = {
    * Track category creation time
    */
   trackCategoryCreationTime: (creationTime: number) => {
-    analyticsService.track('onboarding.step3_performance', {
+    analyticsService.emitEvent('onboarding.step3_performance', {
       metric: 'category_creation_time',
       value: creationTime,
       unit: 'milliseconds',
@@ -288,7 +288,7 @@ export const onboardingStep3PerformanceTracking = {
    * Track image upload time
    */
   trackImageUploadTime: (uploadTime: number, fileSize: number) => {
-    analyticsService.track('onboarding.step3_performance', {
+    analyticsService.emitEvent('onboarding.step3_performance', {
       metric: 'image_upload_time',
       value: uploadTime,
       unit: 'milliseconds',
@@ -306,7 +306,7 @@ export const onboardingStep3InteractionTracking = {
    * Track form field interactions
    */
   trackFieldInteraction: (field: string, action: 'focus' | 'blur' | 'change', value?: any) => {
-    analyticsService.track('onboarding.step3_interaction', {
+    analyticsService.emitEvent('onboarding.step3_interaction', {
       interaction_type: 'field_interaction',
       field,
       action,
@@ -319,7 +319,7 @@ export const onboardingStep3InteractionTracking = {
    * Track button clicks
    */
   trackButtonClick: (button: string, context: string) => {
-    analyticsService.track('onboarding.step3_interaction', {
+    analyticsService.emitEvent('onboarding.step3_interaction', {
       interaction_type: 'button_click',
       button,
       context,
@@ -331,7 +331,7 @@ export const onboardingStep3InteractionTracking = {
    * Track tab switches
    */
   trackTabSwitch: (fromTab: string, toTab: string) => {
-    analyticsService.track('onboarding.step3_interaction', {
+    analyticsService.emitEvent('onboarding.step3_interaction', {
       interaction_type: 'tab_switch',
       from_tab: fromTab,
       to_tab: toTab,
@@ -343,7 +343,7 @@ export const onboardingStep3InteractionTracking = {
    * Track drag and drop interactions
    */
   trackDragAndDrop: (action: 'drag_start' | 'drag_over' | 'drop' | 'drag_leave', fileType?: string) => {
-    analyticsService.track('onboarding.step3_interaction', {
+    analyticsService.emitEvent('onboarding.step3_interaction', {
       interaction_type: 'drag_and_drop',
       action,
       file_type: fileType,

@@ -5,7 +5,7 @@
  * Handles service CRUD operations, validation, and form state management.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { servicesService, servicesUtils } from '../api/services/services';
 import type {
   ServiceData,
@@ -63,6 +63,41 @@ export const useServiceCatalog = (options: UseServiceCatalogOptions = {}): UseSe
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<ServiceValidationError[]>([]);
 
+  // Load services from API on mount
+  useEffect(() => {
+    const loadServices = async () => {
+      try {
+        setIsLoading(true);
+        const response = await servicesService.getServices();
+        const servicesData: ServiceData[] = response.map(service => ({
+          id: service.id,
+          name: service.name,
+          description: service.description,
+          duration_minutes: service.duration_minutes,
+          price_cents: service.price_cents,
+          category: service.category,
+          image_url: service.image_url,
+          special_requests_enabled: service.special_requests_enabled,
+          special_requests_limit: service.special_requests_limit,
+          quick_chips: service.quick_chips,
+          pre_appointment_instructions: service.pre_appointment_instructions,
+          buffer_before_minutes: service.buffer_before_minutes,
+          buffer_after_minutes: service.buffer_after_minutes,
+          active: service.active,
+          created_at: service.created_at,
+          updated_at: service.updated_at,
+        }));
+        setServices(servicesData);
+      } catch (error) {
+        onError?.(error instanceof Error ? error : new Error('Failed to load services'));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadServices();
+  }, []); // Empty dependency array - only run on mount
+
   // Service operations
   const createService = useCallback(async (serviceData: ServiceFormData): Promise<ServiceData | null> => {
     try {
@@ -76,11 +111,11 @@ export const useServiceCatalog = (options: UseServiceCatalogOptions = {}): UseSe
         return null;
       }
 
-      // Convert to API request format
+      // Convert to API request format - use duration_min instead of duration_minutes
       const createRequest: CreateServiceRequest = {
         name: serviceData.name,
         description: serviceData.description,
-        duration_minutes: serviceData.duration_minutes,
+        duration_min: serviceData.duration_minutes, // Backend expects duration_min
         price_cents: serviceData.price_cents,
         category: serviceData.category,
         image_url: serviceData.image_url,
@@ -145,12 +180,12 @@ export const useServiceCatalog = (options: UseServiceCatalogOptions = {}): UseSe
         return null;
       }
 
-      // Convert to API request format
+      // Convert to API request format - use duration_min instead of duration_minutes
       const updateRequest: UpdateServiceRequest = {
         id: serviceId,
         name: serviceData.name,
         description: serviceData.description,
-        duration_minutes: serviceData.duration_minutes,
+        duration_min: serviceData.duration_minutes, // Backend expects duration_min
         price_cents: serviceData.price_cents,
         category: serviceData.category,
         image_url: serviceData.image_url,

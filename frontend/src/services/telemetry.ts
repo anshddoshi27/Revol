@@ -226,9 +226,9 @@ class TelemetryService {
 
 // Create and export the telemetry service instance
 export const telemetry = new TelemetryService({
-  enabled: process.env.NODE_ENV === 'development',
-  endpoint: process.env.REACT_APP_TELEMETRY_ENDPOINT,
-  apiKey: process.env.REACT_APP_TELEMETRY_API_KEY,
+  enabled: import.meta.env.DEV,
+  endpoint: import.meta.env.VITE_TELEMETRY_ENDPOINT,
+  apiKey: import.meta.env.VITE_TELEMETRY_API_KEY,
 });
 
 // Export the service class for testing

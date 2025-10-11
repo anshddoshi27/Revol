@@ -39,7 +39,7 @@ export const availabilityService = {
     );
 
     const response = await apiClient.post<ApiResponse<AvailabilityRuleResponse>>(
-      '/api/v1/availability/rules',
+      '/availability/rules',
       rule,
       {
         headers: {
@@ -116,7 +116,7 @@ export const availabilityService = {
    */
   async getRules(): Promise<AvailabilityRuleResponse[]> {
     const response = await apiClient.get<ApiResponse<AvailabilityRuleResponse[]>>(
-      '/api/v1/availability/rules'
+      '/availability/rules'
     );
 
     if (!response.data.success) {

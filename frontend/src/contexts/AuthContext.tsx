@@ -83,11 +83,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // TODO: Replace with actual API call
       // Mock login for now
       const mockUser: User = {
-        id: '1',
+        id: 'dev-user-123',
         email,
         name: email.split('@')[0],
         role: email.includes('admin') ? 'admin' : 'customer',
-        tenantId: 'tenant-123',
+        tenantId: '550e8400-e29b-41d4-a716-446655440000',
         businessSlug: 'elegant-salon'
       };
 
@@ -131,10 +131,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // TODO: Replace with actual API call
       // Mock registration for now
       const mockUser: User = {
-        id: '1',
+        id: 'dev-user-123',
         email: userData.email,
         name: userData.name,
-        role: 'customer'
+        role: 'customer',
+        tenantId: '550e8400-e29b-41d4-a716-446655440000',
+        businessSlug: 'elegant-salon'
       };
 
       const mockToken = 'mock-jwt-token-' + Date.now();

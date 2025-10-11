@@ -54,38 +54,38 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   useEffect(() => {
     actions.setColor(initialColor);
     actions.validateContrast();
-  }, [initialColor, actions]);
+  }, [initialColor]); // Remove actions dependency to prevent infinite re-renders
 
   // Notify parent of color changes
   useEffect(() => {
     onColorChange(state.selectedColor, state.contrastResult);
-  }, [state.selectedColor, state.contrastResult, onColorChange]);
+  }, [state.selectedColor, state.contrastResult]); // Remove onColorChange dependency
 
   // Notify parent of errors
   useEffect(() => {
     if (state.error) {
       onError(state.error);
     }
-  }, [state.error, onError]);
+  }, [state.error]); // Remove onError dependency
 
   const handlePresetColorSelect = useCallback((color: string) => {
     actions.setColor(color);
     actions.validateContrast();
     setCustomColor(color);
     setShowCustomPicker(false);
-  }, [actions]);
+  }, []); // Remove actions dependency
 
   const handleCustomColorChange = useCallback((color: string) => {
     setCustomColor(color);
     actions.setColor(color);
     actions.validateContrast();
-  }, [actions]);
+  }, []); // Remove actions dependency
 
   const handleCustomColorSubmit = useCallback(() => {
     actions.setColor(customColor);
     actions.validateContrast();
     setShowCustomPicker(false);
-  }, [customColor, actions]);
+  }, [customColor]); // Remove actions dependency
 
   // Render contrast validation result
   const renderContrastResult = () => {

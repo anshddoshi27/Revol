@@ -138,7 +138,7 @@ export const useAvailabilityCalendar = ({
     };
 
     loadInitialData();
-  }, [initialTimeBlocks, staffMembers, onError]);
+  }, [initialTimeBlocks.length, staffMembers.length]);
 
   // Validate time blocks whenever they change
   useEffect(() => {

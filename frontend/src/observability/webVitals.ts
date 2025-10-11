@@ -6,7 +6,7 @@
  */
 
 import { onCLS, onFCP, onLCP, onTTFB, onINP, Metric } from 'web-vitals';
-import { config } from '@/lib/env';
+import { config } from '../lib/env';
 
 // Web Vitals metrics interface
 export interface WebVitalsMetrics {

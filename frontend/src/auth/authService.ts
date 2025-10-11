@@ -4,9 +4,8 @@
  * Service for handling authentication operations including signup, login, and token management.
  */
 
-// TODO: Import from actual backend API when available
-// import { auth, SignUpRequest, SignUpResponse, LoginRequest, LoginResponse } from '../api';
-// import { setTokenProvider } from '../api';
+import { apiClient } from '../api/client';
+import { setTokenProvider } from '../lib/env';
 
 // Temporary types until backend integration
 interface SignUpRequest {
@@ -18,8 +17,10 @@ interface SignUpRequest {
 }
 
 interface SignUpResponse {
+  user_id: string;
+  session_token: string;
   user: AuthUser;
-  token: string;
+  onboarding_prefill: any;
 }
 
 interface LoginRequest {
@@ -28,28 +29,25 @@ interface LoginRequest {
 }
 
 interface LoginResponse {
+  user_id: string;
+  session_token: string;
   user: AuthUser;
-  token: string;
 }
 import { AuthUser, AuthError } from './types';
 
-// Temporary auth function until backend integration
+// Backend authentication API
 const auth = {
-  signUp: async (_data: SignUpRequest): Promise<SignUpResponse> => {
-    // Mock implementation
-    throw new Error('Backend integration not yet implemented');
+  signUp: async (data: SignUpRequest): Promise<SignUpResponse> => {
+    const response = await apiClient.post('/auth/signup', data);
+    return response.data;
   },
-  login: async (_data: LoginRequest): Promise<LoginResponse> => {
-    // Mock implementation
-    throw new Error('Backend integration not yet implemented');
+  login: async (data: LoginRequest): Promise<LoginResponse> => {
+    const response = await apiClient.post('/auth/login', data);
+    return response.data;
   }
 };
 
-// Temporary setTokenProvider function
-const setTokenProvider = (provider: () => string | null) => {
-  // Mock implementation
-  console.log('setTokenProvider called with:', provider);
-};
+// Token provider is now properly imported from lib/env
 
 class AuthService {
   private token: string | null = null;
@@ -71,7 +69,7 @@ class AuthService {
       const response: SignUpResponse = await auth.signUp(formData);
       
       // Store token and user data
-      this.token = response.token;
+      this.token = response.session_token;
       this.user = response.user;
       
       // Persist to localStorage
@@ -79,8 +77,8 @@ class AuthService {
       
       return {
         user: response.user,
-        token: response.token,
-        onboardingPrefill: {}
+        token: response.session_token,
+        onboardingPrefill: response.onboarding_prefill
       };
     } catch (error: any) {
       throw this.normalizeAuthError(error);
@@ -95,7 +93,7 @@ class AuthService {
       const response: LoginResponse = await auth.login(formData);
       
       // Store token and user data
-      this.token = response.token;
+      this.token = response.session_token;
       this.user = response.user;
       
       // Persist to localStorage
@@ -103,7 +101,7 @@ class AuthService {
       
       return {
         user: response.user,
-        token: response.token
+        token: response.session_token
       };
     } catch (error: any) {
       throw this.normalizeAuthError(error);
@@ -155,7 +153,8 @@ class AuthService {
    */
   private saveTokenToStorage(): void {
     if (this.token) {
-      localStorage.setItem('tithi_auth_token', this.token);
+      localStorage.setItem('auth_token', this.token);
+      localStorage.setItem('auth_user', JSON.stringify(this.user));
     }
   }
 
@@ -163,11 +162,16 @@ class AuthService {
    * Load token from localStorage
    */
   private loadTokenFromStorage(): void {
-    const token = localStorage.getItem('tithi_auth_token');
-    if (token) {
+    const token = localStorage.getItem('auth_token');
+    const userStr = localStorage.getItem('auth_user');
+    if (token && userStr) {
       this.token = token;
-      // Note: In a real app, you might want to validate the token here
-      // For now, we'll assume it's valid if it exists
+      try {
+        this.user = JSON.parse(userStr);
+      } catch (error) {
+        console.error('Failed to parse user data:', error);
+        this.clearTokenFromStorage();
+      }
     }
   }
 
@@ -175,7 +179,8 @@ class AuthService {
    * Clear token from localStorage
    */
   private clearTokenFromStorage(): void {
-    localStorage.removeItem('tithi_auth_token');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
   }
 
   /**

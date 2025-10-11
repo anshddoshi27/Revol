@@ -5,10 +5,10 @@
  * This page allows business owners to set up staff availability schedules.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, AlertCircle, CheckCircle, Clock, Users } from 'lucide-react';
-import { AvailabilityCalendar } from '../../components/onboarding/AvailabilityCalendar';
+import { WorkingGridCalendar } from '../../components/onboarding/WorkingGridCalendar';
 import { useAvailabilityCalendar } from '../../hooks/useAvailabilityCalendar';
 import { onboardingStep4Observability } from '../../observability/step4-availability';
 import type { TimeBlock, StaffMember } from '../../api/types';
@@ -24,12 +24,121 @@ interface Step4AvailabilityState {
 export const Step4Availability: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [state, setState] = useState<Step4AvailabilityState>({});
+  
+  // Initialize state from navigation state or localStorage
+  const [state, setState] = useState<Step4AvailabilityState>(() => {
+    // Try to get from navigation state first
+    if (location.state) {
+      return location.state as Step4AvailabilityState;
+    }
+    
+    // Fallback to localStorage
+    try {
+      const savedOnboardingData = localStorage.getItem('onboarding_data');
+      if (savedOnboardingData) {
+        return JSON.parse(savedOnboardingData);
+      }
+    } catch (error) {
+      console.error('Failed to parse saved onboarding data:', error);
+    }
+    
+    return {};
+  });
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Get staff members from step 1 data
-  const staffMembers: StaffMember[] = state.step1Data?.staff || [];
+  const staffMembers: StaffMember[] = useMemo(() => {
+    return state.step1Data?.staff || [];
+  }, [state.step1Data?.staff]);
+
+  // Check if we have staff members - if not, show error
+  if (staffMembers.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-2xl w-full bg-white rounded-lg shadow-lg p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Setup Error</h2>
+          </div>
+          <p className="text-gray-600 mb-6">No staff members found. Please complete Step 1 first.</p>
+          
+          {/* Debug Information */}
+          <div className="mb-6 p-4 bg-gray-100 rounded-lg">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Debug Information:</h3>
+            <div className="text-xs text-gray-600 space-y-1">
+              <p><strong>Navigation State:</strong> {location.state ? 'Present' : 'None'}</p>
+              <p><strong>State Data:</strong> {JSON.stringify(state, null, 2)}</p>
+              <p><strong>Staff Members:</strong> {JSON.stringify(staffMembers, null, 2)}</p>
+              <p><strong>localStorage Data:</strong> {localStorage.getItem('onboarding_data') || 'None'}</p>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate('/onboarding/step-1')}
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+            >
+              Go to Step 1
+            </button>
+            <button
+              onClick={() => {
+                // Set up mock data for testing
+                const mockData = {
+                  step1Data: {
+                    name: "Test Business",
+                    slug: "test-business",
+                    staff: [
+                      {
+                        id: "staff-1",
+                        name: "John Doe",
+                        role: "Hair Stylist",
+                        email: "john@test.com",
+                        phone: "555-1234",
+                        color: "#3b82f6"
+                      }
+                    ]
+                  }
+                };
+                localStorage.setItem('onboarding_data', JSON.stringify(mockData));
+                window.location.reload();
+              }}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 transition-colors"
+            >
+              Setup Test Data
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Memoized error handlers to prevent infinite re-renders
+  const handleCalendarError = useCallback((error: Error) => {
+    setError(error.message);
+    onboardingStep4Observability.trackValidationError({
+      error_type: 'calendar_error',
+      message: error.message,
+      field: 'availability_calendar',
+    });
+  }, []);
+
+  const handleValidationChange = useCallback((isValid: boolean, errors: string[]) => {
+    if (!isValid && errors.length > 0) {
+      onboardingStep4Observability.trackValidationError({
+        error_type: 'validation_failed',
+        message: errors.join(', '),
+        field: 'time_blocks',
+      });
+    }
+  }, []);
 
   // Initialize availability calendar hook
   const {
@@ -47,23 +156,8 @@ export const Step4Availability: React.FC = () => {
     getTotalHoursForAllStaff,
   } = useAvailabilityCalendar({
     staffMembers,
-    onError: (error) => {
-      setError(error.message);
-      onboardingStep4Observability.trackValidationError({
-        error_type: 'calendar_error',
-        message: error.message,
-        field: 'availability_calendar',
-      });
-    },
-    onValidationChange: (isValid, errors) => {
-      if (!isValid && errors.length > 0) {
-        onboardingStep4Observability.trackValidationError({
-          error_type: 'validation_failed',
-          message: errors.join(', '),
-          field: 'time_blocks',
-        });
-      }
-    },
+    onError: handleCalendarError,
+    onValidationChange: handleValidationChange,
   });
 
   // Load initial data
@@ -71,17 +165,12 @@ export const Step4Availability: React.FC = () => {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        
-        // Get data from navigation state
-        if (location.state) {
-          setState(location.state as Step4AvailabilityState);
-        }
 
         // Track step started
         onboardingStep4Observability.trackStepStarted({
-          has_step1_data: !!(location.state as any)?.step1Data,
-          has_step2_data: !!(location.state as any)?.step2Data,
-          has_step3_data: !!(location.state as any)?.step3Data,
+          has_step1_data: !!state.step1Data,
+          has_step2_data: !!state.step2Data,
+          has_step3_data: !!state.step3Data,
           staff_count: staffMembers.length,
         });
 
@@ -104,7 +193,7 @@ export const Step4Availability: React.FC = () => {
     };
 
     loadInitialData();
-  }, [location.state, staffMembers.length]);
+  }, [state, staffMembers.length]);
 
   // Handle time block operations
   const handleTimeBlockAdd = async (timeBlock: TimeBlock) => {
@@ -232,17 +321,11 @@ export const Step4Availability: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* Progress Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
+          <div className="py-4">
             <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Set Up Availability</h1>
-                <p className="mt-1 text-sm text-gray-600">
-                  Configure when your staff members are available for appointments
-                </p>
-              </div>
               <div className="flex items-center gap-4">
                 <div className="text-sm text-gray-500">
                   Step 4 of 8
@@ -251,49 +334,31 @@ export const Step4Availability: React.FC = () => {
                   <div className="bg-blue-600 h-2 rounded-full" style={{ width: '50%' }} />
                 </div>
               </div>
+              
+              {/* Progress Summary */}
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm text-gray-600">{staffMembers.length} Staff</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-green-600" />
+                  <span className="text-sm text-gray-600">{staffWithAvailability} Available</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-purple-600" />
+                  <span className="text-sm text-gray-600">{totalHours.toFixed(1)}h/week</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center gap-3">
-              <Users className="w-8 h-8 text-blue-600" />
-              <div>
-                <div className="text-2xl font-bold text-gray-900">{staffMembers.length}</div>
-                <div className="text-sm text-gray-600">Staff Members</div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center gap-3">
-              <Clock className="w-8 h-8 text-green-600" />
-              <div>
-                <div className="text-2xl font-bold text-gray-900">{staffWithAvailability}</div>
-                <div className="text-sm text-gray-600">With Availability</div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-8 h-8 text-purple-600" />
-              <div>
-                <div className="text-2xl font-bold text-gray-900">{totalHours.toFixed(1)}h</div>
-                <div className="text-sm text-gray-600">Total Hours/Week</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Validation Errors */}
-        {hasValidationErrors && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+      {/* Validation Errors */}
+      {hasValidationErrors && (
+        <div className="bg-red-50 border-b border-red-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
               <div>
@@ -308,72 +373,55 @@ export const Step4Availability: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
-
-        {/* Availability Calendar */}
-        <AvailabilityCalendar
-          staffMembers={staffMembers}
-          timeBlocks={timeBlocks}
-          onTimeBlockAdd={handleTimeBlockAdd}
-          onTimeBlockUpdate={handleTimeBlockUpdate}
-          onTimeBlockDelete={handleTimeBlockDelete}
-          onCopyWeek={handleCopyWeek}
-          onError={(error) => setError(error.message)}
-          className="mb-8"
-        />
-
-        {/* Instructions */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-          <h3 className="text-lg font-medium text-blue-900 mb-3">How to Set Up Availability</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
-            <div>
-              <h4 className="font-medium mb-2">Adding Time Blocks:</h4>
-              <ul className="space-y-1">
-                <li>• Click "Add" in any day column for a staff member</li>
-                <li>• Set start and end times for availability</li>
-                <li>• Add break times if needed</li>
-                <li>• Mark as recurring for weekly schedules</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2">Managing Schedules:</h4>
-              <ul className="space-y-1">
-                <li>• Drag time blocks to move between days</li>
-                <li>• Use "Copy Week" to duplicate schedules</li>
-                <li>• Edit or delete blocks using the action buttons</li>
-                <li>• Set up recurring patterns for consistency</li>
-              </ul>
-            </div>
-          </div>
         </div>
+      )}
 
-        {/* Navigation */}
-        <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-          <button
-            onClick={handleBack}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Services
-          </button>
+      {/* Visual Calendar */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <WorkingGridCalendar
+            staffMembers={staffMembers}
+            timeBlocks={timeBlocks}
+            onTimeBlockAdd={handleTimeBlockAdd}
+            onTimeBlockUpdate={handleTimeBlockUpdate}
+            onTimeBlockDelete={handleTimeBlockDelete}
+            onCopyWeek={handleCopyWeek}
+            onError={(error) => setError(error.message)}
+            className=""
+          />
+        </div>
+      </div>
 
-          <div className="flex items-center gap-4">
-            {isSaving && (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                Saving...
-              </div>
-            )}
-            
+      {/* Navigation Footer */}
+      <div className="bg-white border-t border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
             <button
-              onClick={handleNext}
-              disabled={isSaving || hasValidationErrors}
-              className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              onClick={handleBack}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Continue to Policies
-              <ArrowRight className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" />
+              Back to Services
             </button>
+
+            <div className="flex items-center gap-4">
+              {isSaving && (
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  Saving...
+                </div>
+              )}
+              
+              <button
+                onClick={handleNext}
+                disabled={isSaving || hasValidationErrors}
+                className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Continue to Policies
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

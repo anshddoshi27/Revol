@@ -5,7 +5,7 @@
  * events, and performance data. Integrates with Sentry and Web Vitals.
  */
 
-import { config } from '@/lib/env';
+import { config } from '../lib/env';
 import { initSentry, captureException, captureMessage, addBreadcrumb } from './sentry';
 import { initWebVitals, addWebVitalsCallback, WebVitalsMetrics, getPerformanceScore } from './webVitals';
 

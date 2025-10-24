@@ -32,18 +32,26 @@ class TenantMiddleware:
         tenant_id = self._resolve_tenant(environ)
         
         if tenant_id:
-            g.tenant_id = tenant_id
+            # Store tenant ID in WSGI environment for later use
+            environ['HTTP_X_TENANT_ID'] = tenant_id
             self.logger.debug(f"Tenant resolved: {tenant_id}", extra={
                 "tenant_id": tenant_id,
                 "request_path": environ.get("PATH_INFO")
             })
+        else:
+            self.logger.warning(f"No tenant resolved for path: {environ.get('PATH_INFO')}")
         
         return self.app(environ, start_response)
     
     def _resolve_tenant(self, environ) -> Optional[str]:
         """Resolve tenant from request."""
         
-        # Try path-based resolution first
+        # Try header-based resolution first (for API calls)
+        tenant_id = self._resolve_from_headers(environ)
+        if tenant_id:
+            return tenant_id
+        
+        # Try path-based resolution
         tenant_id = self._resolve_from_path(environ)
         if tenant_id:
             return tenant_id
@@ -51,6 +59,26 @@ class TenantMiddleware:
         # Try host-based resolution
         tenant_id = self._resolve_from_host(environ)
         if tenant_id:
+            return tenant_id
+        
+        # For development, provide a default tenant if none found
+        # This allows API calls to work without authentication
+        # Check environment variable instead of current_app to avoid context issues
+        import os
+        if os.environ.get('ENVIRONMENT', 'development') == 'development':
+            default_tenant = "550e8400-e29b-41d4-a716-446655440000"  # Default dev tenant
+            self.logger.debug(f"Using default tenant for development: {default_tenant}")
+            return default_tenant
+        
+        return None
+    
+    def _resolve_from_headers(self, environ) -> Optional[str]:
+        """Resolve tenant from request headers."""
+        # Check for X-Tenant-ID header
+        tenant_id = environ.get("HTTP_X_TENANT_ID")
+        self.logger.debug(f"Checking headers for tenant. X-Tenant-ID: {tenant_id}")
+        if tenant_id:
+            self.logger.debug(f"Tenant resolved from X-Tenant-ID header: {tenant_id}")
             return tenant_id
         
         return None

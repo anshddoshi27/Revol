@@ -65,7 +65,8 @@ class UserService:
             email=user_data["email"],
             first_name=user_data["first_name"],
             last_name=user_data["last_name"],
-            phone=user_data.get("phone")
+            phone=user_data.get("phone"),
+            password_hash=user_data.get("password_hash")
         )
         
         db.session.add(user)

@@ -124,6 +124,10 @@ class LoggingMiddleware:
     
     def _cleanup(self):
         """Cleanup after request processing."""
-        # Remove request context
-        if hasattr(g, "request_id"):
-            delattr(g, "request_id")
+        # Remove request context - handle Flask context properly
+        try:
+            if hasattr(g, "request_id"):
+                delattr(g, "request_id")
+        except RuntimeError:
+            # Ignore context errors during cleanup
+            pass

@@ -85,8 +85,8 @@ class RateLimitMiddleware:
     
     def _check_rate_limit(self):
         """Check rate limit for incoming request."""
-        # Skip rate limiting in test mode
-        if current_app.config.get('TESTING', False):
+        # Skip rate limiting in test mode or development mode
+        if current_app.config.get('TESTING', False) or current_app.config.get('DEBUG', False):
             return
         
         # Skip rate limiting for health checks

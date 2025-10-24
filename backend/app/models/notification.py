@@ -54,15 +54,15 @@ class NotificationTemplate(TenantModel):
     description = Column(Text)
     channel = Column(SQLEnum(NotificationChannel), nullable=False)
     subject = Column(String(500))  # For email notifications
-    content = Column(Text, nullable=False)  # Template content with placeholders
+    content = Column(Text, nullable=False)  # Template content with placeholders (standardized from body)
     content_type = Column(String(50), default="text/plain")  # text/plain, text/html, etc.
     
     # Template variables
     variables = Column(JSON, default={})  # Available template variables
     required_variables = Column(JSON, default=[])  # Required variables for this template
     
-    # Usage context
-    trigger_event = Column(String(100))  # Event that triggers this template
+    # Usage context - standardized field names
+    trigger_event = Column(String(100))  # Event that triggers this template (standardized from event_code)
     category = Column(String(100))  # Template category (booking, payment, etc.)
     
     # Status and settings
@@ -73,7 +73,7 @@ class NotificationTemplate(TenantModel):
     metadata_json = Column(JSON, default={})
     
     # Relationships
-    notifications = relationship("Notification", back_populates="template")
+    # Note: No direct notification relationship in DB schema
     
     # Constraints
     __table_args__ = (
@@ -87,62 +87,54 @@ class Notification(TenantModel):
     __tablename__ = "notifications"
     
     # Core notification fields
-    template_id = Column(UUID(as_uuid=True), ForeignKey("notification_templates.id"), nullable=True)
+    event_code = Column(String(100), nullable=False)  # Event that triggers this notification
     channel = Column(SQLEnum(NotificationChannel), nullable=False)
-    recipient_type = Column(String(50), nullable=False)  # customer, staff, admin
-    recipient_id = Column(UUID(as_uuid=True), nullable=True)  # ID of the recipient
-    recipient_email = Column(String(255), nullable=True)
-    recipient_phone = Column(String(20), nullable=True)
-    recipient_name = Column(String(255), nullable=True)
+    status = Column(SQLEnum(NotificationStatus), default=NotificationStatus.PENDING)
+    
+    # Recipient fields (matches DB schema)
+    to_email = Column(String(255), nullable=True)
+    to_phone = Column(String(20), nullable=True)
+    target_json = Column(JSON, default={})  # Additional recipient data
     
     # Message content
     subject = Column(String(500))
-    content = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)  # Message content (matches DB)
     content_type = Column(String(50), default="text/plain")
     
     # Delivery settings
     priority = Column(SQLEnum(NotificationPriority), default=NotificationPriority.NORMAL)
-    scheduled_at = Column(DateTime, nullable=True)  # For scheduled notifications
+    scheduled_at = Column(DateTime, nullable=False, default=datetime.utcnow)  # For scheduled notifications
     expires_at = Column(DateTime, nullable=True)  # For expiring notifications
     
-    # Status tracking
-    status = Column(SQLEnum(NotificationStatus), default=NotificationStatus.PENDING)
+    # Status tracking (matches DB schema)
     sent_at = Column(DateTime, nullable=True)
-    delivered_at = Column(DateTime, nullable=True)
     failed_at = Column(DateTime, nullable=True)
-    failure_reason = Column(Text, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    last_attempt_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    dedupe_key = Column(String(255), nullable=True)  # Deduplication key
     
-    # Provider integration
-    provider = Column(String(50), nullable=True)  # sendgrid, twilio, etc.
+    # Provider integration (matches DB schema)
     provider_message_id = Column(String(255), nullable=True)
-    provider_response = Column(JSON, default={})
-    
-    # Related entities
-    booking_id = Column(UUID(as_uuid=True), ForeignKey("bookings.id"), nullable=True)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.id"), nullable=True)
-    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
-    
-    # Retry settings
-    retry_count = Column(Integer, nullable=False, default=0)
-    max_retries = Column(Integer, nullable=False, default=3)
-    next_retry_at = Column(DateTime, nullable=True)
+    provider_metadata = Column(JSON, default={})
     
     # Metadata
     metadata_json = Column(JSON, default={})
     
     # Relationships
-    template = relationship("NotificationTemplate", back_populates="notifications")
-    booking = relationship("Booking")
-    payment = relationship("Payment")
-    customer = relationship("Customer")
+    # Note: No direct template relationship in DB schema
+    # booking = relationship("Booking")
+    # payment = relationship("Payment")
+    # customer = relationship("Customer")
     
     # Constraints
     __table_args__ = (
-        CheckConstraint("recipient_type IN ('customer', 'staff', 'admin')", name="ck_notification_recipient_type"),
-        CheckConstraint("retry_count >= 0", name="ck_notification_retry_count"),
-        CheckConstraint("max_retries >= 0", name="ck_notification_max_retries"),
-        CheckConstraint("scheduled_at IS NULL OR scheduled_at >= created_at", name="ck_notification_scheduled_future"),
-        CheckConstraint("expires_at IS NULL OR expires_at > created_at", name="ck_notification_expires_future"),
+        CheckConstraint("attempts >= 0", name="ck_notification_attempts_non_negative"),
+        CheckConstraint("max_attempts > 0", name="ck_notification_max_attempts_positive"),
+        CheckConstraint("attempts <= max_attempts", name="ck_notification_attempts_lte_max"),
+        # Note: scheduled_at constraint removed for SQLite compatibility
+        # In production with PostgreSQL, this would be: scheduled_at <= now() + interval '1 year'
     )
 
 

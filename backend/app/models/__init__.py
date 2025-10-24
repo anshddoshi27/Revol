@@ -11,13 +11,25 @@ from .business import (
 )
 from .system import Theme, Branding
 from .financial import Payment, Invoice, Refund, PaymentMethod, TenantBilling, PromotionUsage
-from .analytics import Event, Metric
+from .analytics import Event, Metric, BusinessMetric, CustomerAnalytics, ServiceAnalytics, StaffAnalytics, RevenueAnalytics, DashboardWidget
 from .crm import CustomerNote, CustomerSegment, LoyaltyAccount, LoyaltyTransaction, CustomerSegmentMembership
 from .automation import Automation, AutomationExecution, AutomationStatus, AutomationTrigger, AutomationAction
 from .idempotency import IdempotencyKey
 from .availability import AvailabilityRule, AvailabilityException
-from .promotions import Coupon, GiftCard, Referral
-from .notification import NotificationTemplate, Notification, NotificationPreference, NotificationLog, NotificationQueue
+from .promotions import Coupon, GiftCard, Referral, CouponUsage, GiftCardTransaction
+from .notification import NotificationTemplate, Notification, NotificationPreference, NotificationLog, NotificationQueue, NotificationPlaceholder
+from .notification_enhanced import (
+    NotificationTemplateEnhanced, NotificationPlaceholder, NotificationQueueEnhanced, 
+    NotificationAutomation, NotificationAnalytics
+)
+from .team import TeamMember, TeamMemberAvailability, TeamMemberService, ServiceCategory, BusinessPolicy
+from .onboarding import (
+    OnboardingProgress, OnboardingChecklist, BusinessBranding, GiftCardTemplate
+)
+from .booking_flow import (
+    BookingSession, ServiceDisplay, AvailabilitySlot, CustomerBookingProfile,
+    BookingFlowAnalytics, BookingFlowConfiguration
+)
 from .usage import UsageCounter, Quota
 from .audit import AuditLog, EventOutbox, WebhookEventInbox
 from .oauth import OAuthProvider
@@ -37,7 +49,7 @@ __all__ = [
     'Payment', 'Invoice', 'Refund', 'PaymentMethod', 'TenantBilling', 'PromotionUsage',
     
     # Analytics models
-    'Event', 'Metric',
+    'Event', 'Metric', 'BusinessMetric', 'CustomerAnalytics', 'ServiceAnalytics', 'StaffAnalytics', 'RevenueAnalytics', 'DashboardWidget',
     
     # CRM models
     'CustomerNote', 'CustomerSegment', 'LoyaltyAccount', 'LoyaltyTransaction', 'CustomerSegmentMembership',
@@ -52,10 +64,22 @@ __all__ = [
     'AvailabilityRule', 'AvailabilityException',
     
     # Promotion models
-    'Coupon', 'GiftCard', 'Referral',
+    'Coupon', 'GiftCard', 'Referral', 'CouponUsage', 'GiftCardTransaction',
     
     # Notification models
-    'NotificationTemplate', 'Notification', 'NotificationPreference', 'NotificationLog', 'NotificationQueue',
+    'NotificationTemplate', 'Notification', 'NotificationPreference', 'NotificationLog', 'NotificationQueue', 'NotificationPlaceholder',
+    
+    # Enhanced notification models
+    'NotificationTemplateEnhanced', 'NotificationQueueEnhanced', 'NotificationAutomation', 'NotificationAnalytics',
+    
+    # Team models
+    'TeamMember', 'TeamMemberAvailability', 'TeamMemberService', 'ServiceCategory', 'BusinessPolicy',
+    
+    # Onboarding models
+    'OnboardingProgress', 'OnboardingChecklist', 'BusinessBranding', 'GiftCardTemplate',
+    
+    # Booking flow models
+    'BookingSession', 'ServiceDisplay', 'AvailabilitySlot', 'CustomerBookingProfile', 'BookingFlowAnalytics', 'BookingFlowConfiguration',
     
     # Usage models
     'UsageCounter', 'Quota',

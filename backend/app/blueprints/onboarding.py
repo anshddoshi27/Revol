@@ -36,6 +36,7 @@ from ..middleware.error_handler import TithiError, TenantError
 from ..middleware.auth_middleware import require_auth, get_current_user
 from ..services.core import TenantService
 from ..services.system import ThemeService
+from ..services.readiness import TenantReadinessService
 from ..models.core import Tenant, User, Membership
 from ..extensions import db
 
@@ -155,14 +156,23 @@ def create_default_policies(tenant_id: str) -> None:
             # Set default no-show fee percentage
             tenant.default_no_show_fee_percent = 3.00
             
-            # Set default trust copy
-            tenant.trust_copy_json = {
+            # Get user-provided policies
+            user_policies = tenant.policies_json or {}
+            
+            # Only set defaults where user hasn't provided custom policies
+            default_policies = {
                 "cancellation_policy": "Cancellations must be made at least 24 hours in advance.",
                 "no_show_policy": "No-show appointments will be charged a 3% fee.",
                 "rescheduling_policy": "Rescheduling is allowed up to 2 hours before your appointment.",
                 "payment_policy": "Payment is required at the time of booking.",
                 "refund_policy": "Refunds are available for cancellations made 24+ hours in advance."
             }
+            
+            # Merge user policies with defaults (user policies take precedence)
+            merged_policies = {**default_policies, **user_policies}
+            
+            # Set trust copy from merged policies
+            tenant.trust_copy_json = merged_policies
             
             # Set default billing configuration
             tenant.billing_json = {
@@ -197,7 +207,9 @@ def register_business():
     Request Body:
         {
             "business_name": "string (required)",
+            "legal_name": "string (optional, DBA name)",
             "category": "string (optional)",
+            "industry": "string (optional)",
             "logo": "string (optional, base64 or URL)",
             "policies": {
                 "cancellation_policy": "string (optional)",
@@ -208,9 +220,29 @@ def register_business():
             },
             "owner_email": "string (required)",
             "owner_name": "string (required)",
+            "phone": "string (optional)",
+            "website": "string (optional)",
             "timezone": "string (optional, default: UTC)",
             "currency": "string (optional, default: USD)",
-            "locale": "string (optional, default: en_US)"
+            "locale": "string (optional, default: en_US)",
+            "address": {
+                "street": "string (optional)",
+                "city": "string (optional)",
+                "state": "string (optional)",
+                "postal_code": "string (optional)",
+                "country": "string (optional)"
+            },
+            "branding": {
+                "primary_color": "string (optional)",
+                "secondary_color": "string (optional)",
+                "font": "string (optional)"
+            },
+            "socials": {
+                "facebook": "string (optional)",
+                "instagram": "string (optional)",
+                "twitter": "string (optional)",
+                "linkedin": "string (optional)"
+            }
         }
     
     Returns:
@@ -328,7 +360,15 @@ def register_business():
             "description": data.get("description", ""),
             "locale": data.get("locale", "en_US"),
             "category": data.get("category", ""),
-            "logo_url": data.get("logo")
+            "logo_url": data.get("logo"),
+            "legal_name": data.get("legal_name"),
+            "phone": data.get("phone"),
+            "website": data.get("website"),
+            "industry": data.get("industry"),
+            "address": data.get("address", {}),
+            "branding": data.get("branding", {}),
+            "socials": data.get("socials", {}),
+            "policies": data.get("policies", {})
         }
         
         # Create tenant
@@ -367,6 +407,173 @@ def register_business():
         raise TithiError(
             message="Failed to register business",
             code="TITHI_TENANT_REGISTRATION_ERROR"
+        )
+
+
+@onboarding_bp.route("/resolve-tenant", methods=["GET"])
+def resolve_tenant():
+    """
+    Resolve tenant by domain/subdomain and return fused config for booking page.
+    
+    Query Parameters:
+        host: The host/domain to resolve (e.g., "salonx.tithi.com" or "salonx")
+        subdomain: Alternative parameter for subdomain resolution
+    
+    Returns:
+        JSON response with fused tenant configuration including:
+        - Business information (name, contact, address)
+        - Branding (logo, colors, fonts)
+        - Policies (cancellation, no-show, etc.)
+        - Booking availability status
+        - Timezone and locale settings
+    """
+    try:
+        # Get host or subdomain from query parameters
+        host = request.args.get('host', '').strip()
+        subdomain = request.args.get('subdomain', '').strip()
+        
+        if not host and not subdomain:
+            raise TithiError(
+                message="Either 'host' or 'subdomain' parameter is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Extract subdomain from host if provided
+        if host:
+            if '.' in host:
+                # Extract subdomain from host like "salonx.tithi.com"
+                subdomain = host.split('.')[0]
+            else:
+                subdomain = host
+        
+        # Find tenant by slug/subdomain
+        tenant = Tenant.query.filter_by(slug=subdomain, deleted_at=None).first()
+        
+        if not tenant:
+            raise TithiError(
+                message="Tenant not found",
+                code="TITHI_TENANT_NOT_FOUND",
+                status_code=404
+            )
+        
+        # Check if tenant is active
+        if tenant.status != 'active':
+            raise TithiError(
+                message="Tenant is not active",
+                code="TITHI_TENANT_INACTIVE",
+                status_code=403
+            )
+        
+        # Check tenant readiness for go-live
+        readiness_service = TenantReadinessService()
+        is_ready, readiness_info = readiness_service.check_tenant_readiness(str(tenant.id))
+        
+        # Booking is only enabled if tenant is ready
+        booking_enabled = is_ready
+        
+        # Build fused configuration
+        config = {
+            # Business information
+            "business": {
+                "name": tenant.name,
+                "legal_name": tenant.legal_name,
+                "email": tenant.email,
+                "phone": tenant.phone,
+                "website": tenant.branding_json.get('website', ''),
+                "category": tenant.category,
+                "industry": tenant.branding_json.get('industry', ''),
+                "address": tenant.address_json,
+                "socials": tenant.social_links_json
+            },
+            
+            # Branding
+            "branding": {
+                "logo_url": tenant.logo_url,
+                "primary_color": tenant.branding_json.get('primary_color', ''),
+                "secondary_color": tenant.branding_json.get('secondary_color', ''),
+                "font": tenant.branding_json.get('font', ''),
+                **tenant.branding_json
+            },
+            
+            # Policies
+            "policies": tenant.trust_copy_json,
+            
+            # Settings
+            "settings": {
+                "timezone": tenant.tz,
+                "business_timezone": tenant.business_timezone,
+                "locale": tenant.locale,
+                "currency": tenant.billing_json.get('currency', 'USD')
+            },
+            
+            # Booking status
+            "booking": {
+                "enabled": booking_enabled,
+                "status": "available" if booking_enabled else "unavailable",
+                "readiness": {
+                    "is_ready": is_ready,
+                    "requirements": readiness_info.get("requirements", {}),
+                    "unmet_requirements": readiness_info.get("unmet_requirements", [])
+                }
+            },
+            
+            # Metadata
+            "tenant_id": str(tenant.id),
+            "slug": tenant.slug,
+            "subdomain": f"{tenant.slug}.tithi.com"
+        }
+        
+        return jsonify(config), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve tenant: {str(e)}")
+        raise TithiError(
+            message="Failed to resolve tenant",
+            code="TITHI_TENANT_RESOLUTION_ERROR"
+        )
+
+
+@onboarding_bp.route("/go-live-requirements/<tenant_id>", methods=["GET"])
+@require_auth
+def get_go_live_requirements(tenant_id: str):
+    """
+    Get go-live requirements for admin UI.
+    
+    Args:
+        tenant_id: The tenant ID to get requirements for
+    
+    Returns:
+        JSON response with go-live requirements and status
+    """
+    try:
+        # Get current user
+        current_user = get_current_user()
+        if not current_user:
+            raise TithiError(
+                message="User not authenticated",
+                code="TITHI_AUTH_ERROR",
+                status_code=401
+            )
+        
+        # Check if user has access to this tenant
+        # TODO: Add proper tenant access validation
+        
+        # Get readiness requirements
+        readiness_service = TenantReadinessService()
+        requirements = readiness_service.get_go_live_requirements(tenant_id)
+        
+        return jsonify(requirements), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get go-live requirements: {str(e)}")
+        raise TithiError(
+            message="Failed to get go-live requirements",
+            code="TITHI_GO_LIVE_REQUIREMENTS_ERROR"
         )
 
 

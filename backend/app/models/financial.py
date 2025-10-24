@@ -8,12 +8,32 @@ Aligned with TITHI_DATABASE_COMPREHENSIVE_REPORT.md schema.
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, CheckConstraint, Numeric, JSON, BigInteger, Enum as SQLEnum, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from ..extensions import db
 from .core import TenantModel
+
+
+class PaymentStatus(str, Enum):
+    """Payment status enumeration."""
+    REQUIRES_ACTION = "requires_action"
+    AUTHORIZED = "authorized"
+    CAPTURED = "captured"
+    REFUNDED = "refunded"
+    CANCELED = "canceled"
+    FAILED = "failed"
+
+
+class PaymentMethod(str, Enum):
+    """Payment method enumeration."""
+    CARD = "card"
+    CASH = "cash"
+    APPLE_PAY = "apple_pay"
+    PAYPAL = "paypal"
+    OTHER = "other"
 
 
 class Payment(TenantModel):
@@ -24,8 +44,8 @@ class Payment(TenantModel):
     # Core payment fields
     booking_id = Column(UUID(as_uuid=True), ForeignKey("bookings.id"), nullable=True)
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
-    status = Column(String(20), nullable=False, default="requires_action")
-    method = Column(String(20), nullable=False, default="card")
+    status = Column(SQLEnum(PaymentStatus), nullable=False, default=PaymentStatus.REQUIRES_ACTION)
+    method = Column(SQLEnum(PaymentMethod), nullable=False, default=PaymentMethod.CARD)
     currency_code = Column(String(3), default="USD", nullable=False)
     amount_cents = Column(Integer, nullable=False, default=0)
     tip_cents = Column(Integer, nullable=False, default=0)
@@ -64,14 +84,7 @@ class Payment(TenantModel):
     
     # Constraints
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('requires_action', 'authorized', 'captured', 'refunded', 'canceled', 'failed')",
-            name="ck_payment_status"
-        ),
-        CheckConstraint(
-            "method IN ('card', 'cash', 'apple_pay', 'paypal', 'other')",
-            name="ck_payment_method"
-        ),
+        # Note: Enum constraints are handled by SQLAlchemy enum types
         CheckConstraint("amount_cents >= 0", name="ck_payment_amount_positive"),
         CheckConstraint("tip_cents >= 0", name="ck_payment_tip_positive"),
         CheckConstraint("tax_cents >= 0", name="ck_payment_tax_positive"),

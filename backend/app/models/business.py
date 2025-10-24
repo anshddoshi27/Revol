@@ -34,6 +34,16 @@ class Customer(TenantModel):
     notes = relationship("CustomerNote", back_populates="customer")
     loyalty_accounts = relationship("LoyaltyAccount", back_populates="customer")
     segment_memberships = relationship("CustomerSegmentMembership", back_populates="customer")
+    
+    # New comprehensive relationships
+    preferences = relationship("CustomerPreference", back_populates="customer")
+    analytics = relationship("CustomerAnalytics", back_populates="customer")
+    notification_logs = relationship("NotificationLog", back_populates="customer")
+    notification_preferences = relationship("NotificationPreference", back_populates="customer")
+    coupon_usages = relationship("CouponUsage", back_populates="customer")
+    referrals_made = relationship("Referral", foreign_keys="[Referral.referrer_customer_id]", back_populates="referrer_customer")
+    referrals_received = relationship("Referral", foreign_keys="[Referral.referred_customer_id]", back_populates="referred_customer")
+    events = relationship("Event", back_populates="customer")
 
 
 class Service(TenantModel):
@@ -49,13 +59,30 @@ class Service(TenantModel):
     buffer_before_min = Column(Integer, nullable=False, default=0)
     buffer_after_min = Column(Integer, nullable=False, default=0)
     category = Column(String(255), default="")
+    category_id = Column(UUID(as_uuid=True), ForeignKey("service_categories.id"))
     active = Column(Boolean, nullable=False, default=True)
     metadata_json = Column('metadata', JSON, default={})
     deleted_at = Column(DateTime)
     
+    # Enhanced service fields
+    short_description = Column(Text)  # For booking flow display
+    image_url = Column(String(500))  # Service image
+    instructions = Column(Text)  # Pre-appointment instructions
+    is_featured = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, default=0)
+    requires_team_member_selection = Column(Boolean, nullable=False, default=True)
+    allow_group_booking = Column(Boolean, nullable=False, default=False)
+    max_group_size = Column(Integer, default=1)
+    
     # Relationships
     tenant = relationship("Tenant", back_populates="services")
     booking_items = relationship("BookingItem", back_populates="service")
+    service_category = relationship("ServiceCategory", back_populates="services")
+    
+    # New comprehensive relationships
+    team_assignments = relationship("TeamMemberService", back_populates="service")
+    analytics = relationship("ServiceAnalytics", back_populates="service")
+    events = relationship("Event", back_populates="service")
 
 
 class Resource(TenantModel):

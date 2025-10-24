@@ -169,6 +169,10 @@ def register_blueprints(app: Flask) -> None:
     from .blueprints.payment_api import payment_bp
     app.register_blueprint(payment_bp, url_prefix='/api/payments')
     
+    # Stripe Connect API blueprint
+    from .blueprints.stripe_connect_api import stripe_connect_bp
+    app.register_blueprint(stripe_connect_bp, url_prefix='/api/stripe-connect')
+    
     from .blueprints.promotion_api import promotion_bp
     app.register_blueprint(promotion_bp, url_prefix='/api/promotions')
     

@@ -433,41 +433,15 @@ class AvailabilityService(BaseService):
     
     def is_time_available(self, tenant_id: uuid.UUID, resource_id: uuid.UUID, 
                          start_at: datetime, end_at: datetime) -> bool:
-        """Check if a time slot is available with comprehensive validation."""
+        """Check if a time slot is available with comprehensive validation using unified availability."""
         # Validate datetime range
         self._validate_datetime_range(start_at, end_at)
         
-        # Check for existing bookings
-        existing_booking = Booking.query.filter(
-            and_(
-                Booking.tenant_id == tenant_id,
-                Booking.resource_id == resource_id,
-                Booking.status.in_(['pending', 'confirmed', 'checked_in']),
-                or_(
-                    and_(Booking.start_at < end_at, Booking.end_at > start_at)
-                )
-            )
-        ).first()
+        # Use unified availability service for validation
+        from .availability_unified import UnifiedAvailabilityService
+        unified_service = UnifiedAvailabilityService()
         
-        if existing_booking:
-            return False
-        
-        # Check for active holds
-        active_hold = BookingHold.query.filter(
-            and_(
-                BookingHold.tenant_id == tenant_id,
-                BookingHold.resource_id == resource_id,
-                BookingHold.hold_until > datetime.now(),
-                or_(
-                    and_(BookingHold.start_at < end_at, BookingHold.end_at > start_at)
-                )
-            )
-        ).first()
-        
-        if active_hold:
-            return False
-        
-        # Check staff availability
+        # Get staff profile for this resource
         staff_profile = StaffProfile.query.filter_by(
             tenant_id=tenant_id, 
             resource_id=resource_id,
@@ -477,11 +451,8 @@ class AvailabilityService(BaseService):
         if not staff_profile:
             return False
         
-        # Check work schedules
-        if not self._is_staff_available(staff_profile, start_at, end_at):
-            return False
-        
-        return True
+        # Use unified validation that checks StaffAvailability
+        return unified_service._is_slot_available(tenant_id, resource_id, start_at, end_at)
     
     def create_booking_hold(self, tenant_id: uuid.UUID, resource_id: uuid.UUID, 
                            service_id: uuid.UUID, start_at: datetime, end_at: datetime, 
@@ -1344,12 +1315,12 @@ class BookingService(BaseService):
     
     def create_booking(self, tenant_id: uuid.UUID, booking_data: Dict[str, Any], user_id: uuid.UUID) -> Booking:
         """Create a new booking with validation."""
-        # Handle customer creation if customer data is provided instead of customer_id
+        # Handle customer creation/upsert if customer data is provided instead of customer_id
         customer_id = booking_data.get('customer_id')
         if not customer_id and 'customer' in booking_data:
-            # Create customer from provided data
+            # Upsert customer from provided data
             customer_service = CustomerService()
-            customer = customer_service.create_customer(tenant_id, booking_data['customer'])
+            customer = customer_service.upsert_customer(tenant_id, booking_data['customer'])
             customer_id = customer.id
         elif not customer_id:
             raise ValueError("Missing required field: customer_id or customer data")
@@ -1388,14 +1359,26 @@ class BookingService(BaseService):
         
         # Check for idempotency using client_generated_id
         client_generated_id = booking_data.get('client_generated_id')
-        if client_generated_id:
-            existing_booking = Booking.query.filter_by(
-                tenant_id=tenant_id,
-                client_generated_id=client_generated_id
-            ).first()
-            
-            if existing_booking:
-                return existing_booking
+        if not client_generated_id:
+            # Generate idempotency key if not provided
+            client_generated_id = f"booking_{tenant_id}_{uuid.uuid4()}"
+        
+        # Check for existing booking with same idempotency key
+        existing_booking = Booking.query.filter_by(
+            tenant_id=tenant_id,
+            client_generated_id=client_generated_id
+        ).first()
+        
+        if existing_booking:
+            logger.info("Idempotent booking creation - returning existing booking", extra={
+                'tenant_id': str(tenant_id),
+                'booking_id': str(existing_booking.id),
+                'client_generated_id': client_generated_id,
+                'event_type': 'BOOKING_IDEMPOTENT_RETURN',
+                'service_id': str(service.id),
+                'customer_id': str(booking_data.get('customer_id', ''))
+            })
+            return existing_booking
         
         # Check for overlapping bookings first
         existing_booking = Booking.query.filter(
@@ -1412,10 +1395,25 @@ class BookingService(BaseService):
         if existing_booking:
             raise ValueError("Booking time conflicts with existing booking")
         
-        # Check availability
-        availability_service = AvailabilityService()
-        if not availability_service.is_time_available(tenant_id, booking_data['resource_id'], start_at, end_at):
-            raise ValueError("Selected time is not available")
+        # Enhanced availability validation using unified service
+        from .availability_unified import UnifiedAvailabilityService
+        unified_availability = UnifiedAvailabilityService()
+        
+        # Get staff profile for validation
+        staff_profile = StaffProfile.query.filter_by(
+            tenant_id=tenant_id,
+            resource_id=booking_data['resource_id'],
+            is_active=True
+        ).first()
+        
+        if not staff_profile:
+            raise ValueError("Staff member not found or inactive")
+        
+        # Validate booking is within staff availability + service duration + buffers
+        if not unified_availability.validate_booking_availability(
+            tenant_id, booking_data['service_id'], staff_profile.id, start_at, end_at
+        ):
+            raise ValueError("Selected time is not available or outside staff availability")
         
         def _create_booking():
             # Create booking
@@ -1438,6 +1436,24 @@ class BookingService(BaseService):
         
         result = self._safe_db_operation(_create_booking)
         
+        # Log booking creation with structured data
+        logger.info("Booking created successfully", extra={
+            'tenant_id': str(tenant_id),
+            'booking_id': str(result.id),
+            'customer_id': str(result.customer_id),
+            'service_id': result.service_snapshot.get('service_id'),
+            'resource_id': str(result.resource_id),
+            'start_at': result.start_at.isoformat(),
+            'end_at': result.end_at.isoformat(),
+            'status': result.status,
+            'client_generated_id': result.client_generated_id,
+            'event_type': 'BOOKING_CREATED',
+            'amount_cents': result.service_snapshot.get('price_cents', 0)
+        })
+        
+        # Update customer metrics
+        self._update_customer_metrics(tenant_id, result.customer_id, result)
+        
         # Emit outbox event for booking creation
         self._emit_event(tenant_id, "BOOKING_CREATED", {
             "booking_id": str(result.id),
@@ -1450,6 +1466,53 @@ class BookingService(BaseService):
         })
         
         return result
+    
+    def _update_customer_metrics(self, tenant_id: uuid.UUID, customer_id: uuid.UUID, booking: Booking):
+        """Update customer metrics after booking creation."""
+        try:
+            # Get or create customer metrics
+            metrics = CustomerMetrics.query.filter_by(
+                tenant_id=tenant_id,
+                customer_id=customer_id
+            ).first()
+            
+            if not metrics:
+                metrics = CustomerMetrics(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    customer_id=customer_id,
+                    bookings_count=0,
+                    revenue_cents=0,
+                    first_booking_at=None,
+                    last_booking_at=None
+                )
+                db.session.add(metrics)
+            
+            # Update metrics
+            metrics.bookings_count += 1
+            metrics.last_booking_at = booking.start_at
+            
+            # Set first booking timestamp if not set
+            if not metrics.first_booking_at:
+                metrics.first_booking_at = booking.start_at
+            
+            # Update revenue if booking is confirmed
+            if booking.status == 'confirmed':
+                service_price = booking.service_snapshot.get('price_cents', 0)
+                metrics.revenue_cents += service_price
+            
+            db.session.commit()
+            
+            logger.info("Customer metrics updated", extra={
+                'tenant_id': tenant_id,
+                'customer_id': str(customer_id),
+                'bookings_count': metrics.bookings_count,
+                'revenue_cents': metrics.revenue_cents
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating customer metrics: {str(e)}")
+            # Don't fail booking creation for metrics errors
     
     def confirm_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, user_id: uuid.UUID, require_payment: bool = False) -> bool:
         """Confirm a pending booking."""
@@ -1482,6 +1545,19 @@ class BookingService(BaseService):
             "end_at": booking.end_at.isoformat(),
             "status": booking.status
         })
+        
+        # Send immediate confirmation notification
+        try:
+            from .notification_service import NotificationService
+            notification_service = NotificationService()
+            notification_result = notification_service.send_booking_notification(booking, "booking_confirmed")
+            
+            if not notification_result.success:
+                # Log error but don't fail the confirmation
+                print(f"Failed to send confirmation notification: {notification_result.error_message}")
+        except Exception as e:
+            # Log error but don't fail the confirmation
+            print(f"Error sending confirmation notification: {str(e)}")
         
         return result
     
@@ -1890,6 +1966,39 @@ class CustomerService(BaseService):
         result = self._safe_db_operation(_create_customer)
         
         return result
+    
+    def upsert_customer(self, tenant_id: uuid.UUID, customer_data: Dict[str, Any]) -> Customer:
+        """Create or update a customer based on email."""
+        
+        # Validate required fields
+        self._validate_required_fields(customer_data, ['email'])
+        
+        # Check for existing customer with same email
+        existing_customer = Customer.query.filter_by(
+            tenant_id=tenant_id,
+            email=customer_data['email']
+        ).first()
+        
+        if existing_customer:
+            # Update existing customer
+            existing_customer.display_name = customer_data.get('display_name', existing_customer.display_name)
+            existing_customer.phone = customer_data.get('phone', existing_customer.phone)
+            existing_customer.marketing_opt_in = customer_data.get('marketing_opt_in', existing_customer.marketing_opt_in)
+            existing_customer.notification_preferences = customer_data.get('notification_preferences', existing_customer.notification_preferences)
+            existing_customer.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            
+            logger.info("Customer updated via upsert", extra={
+                'tenant_id': tenant_id,
+                'customer_id': str(existing_customer.id),
+                'email': existing_customer.email
+            })
+            
+            return existing_customer
+        else:
+            # Create new customer
+            return self.create_customer(tenant_id, customer_data)
     
     def get_customer(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> Optional[Customer]:
         """Get a customer by ID with tenant isolation."""

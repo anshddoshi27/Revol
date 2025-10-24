@@ -1,452 +1,366 @@
 """
 Analytics API Blueprint
 
-This blueprint provides comprehensive analytics and reporting endpoints
-including business metrics, performance analytics, and custom reporting.
+This blueprint provides comprehensive API endpoints for business analytics,
+reporting, and performance tracking across all business metrics.
 """
 
-from flask import Blueprint, jsonify, request, g, Response
+from flask import Blueprint, jsonify, request, g
 from flask_smorest import Api, abort
 import uuid
-import json
-from datetime import datetime, timedelta, date
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Any
 
 from ..middleware.error_handler import TithiError
 from ..middleware.auth_middleware import require_auth, require_tenant, get_current_user
-from ..services.analytics_service import (
-    AnalyticsService, AnalyticsPeriod, AnalyticsReport
-)
+from ..services.analytics_service import AnalyticsService
+from ..extensions import db
 
+logger = logging.getLogger(__name__)
 
 analytics_bp = Blueprint("analytics", __name__)
 
 
-@analytics_bp.route("/dashboard", methods=["GET"])
+@analytics_bp.route("/analytics/dashboard", methods=["GET"])
 @require_auth
 @require_tenant
-def get_dashboard_metrics():
-    """Get comprehensive dashboard metrics."""
+def get_dashboard_overview():
+    """
+    Get comprehensive dashboard overview with key metrics.
+    
+    Query Parameters:
+        - start_date: Start date for analytics (ISO format, default: 30 days ago)
+        - end_date: End date for analytics (ISO format, default: today)
+    
+    Returns:
+        Dashboard overview with:
+        - revenue: Revenue metrics and trends
+        - bookings: Booking metrics and conversion rates
+        - customers: Customer metrics and retention
+        - staff: Staff performance metrics
+        - services: Service performance metrics
+    """
     try:
-        # Get date range
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
+        # Get date range from query parameters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Default to last 30 days
         
-        if not start_date_str or not end_date_str:
-            # Default to last 30 days
-            end_date = date.today()
-            start_date = end_date - timedelta(days=30)
-        else:
-            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
         
-        tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
-        
-        metrics = analytics_service.get_dashboard_metrics(tenant_id, start_date, end_date)
+        data = analytics_service.get_dashboard_overview(
+            tenant_id=g.tenant_id,
+            date_range={
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            }
+        )
         
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat()
-            },
-            "metrics": metrics
+            "success": True,
+            "data": data
         }), 200
         
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
     except Exception as e:
-        raise TithiError(
-            message="Failed to get dashboard metrics",
-            code="TITHI_ANALYTICS_DASHBOARD_ERROR"
-        )
+        logger.error(f"Failed to get dashboard overview: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
 
 
-@analytics_bp.route("/revenue", methods=["GET"])
+@analytics_bp.route("/analytics/revenue", methods=["GET"])
 @require_auth
 @require_tenant
 def get_revenue_analytics():
-    """Get revenue analytics and metrics."""
+    """
+    Get comprehensive revenue analytics.
+    
+    Query Parameters:
+        - start_date: Start date for analytics (ISO format, default: 30 days ago)
+        - end_date: End date for analytics (ISO format, default: today)
+    
+    Returns:
+        Revenue analytics including:
+        - total_revenue_cents: Total revenue in cents
+        - revenue_by_payment_method: Revenue breakdown by payment method
+        - revenue_by_service: Revenue breakdown by service
+        - revenue_by_staff: Revenue breakdown by staff member
+        - daily_revenue_trend: Daily revenue trend data
+    """
     try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        period = request.args.get('period', 'daily')
+        # Get date range from query parameters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Default to last 30 days
         
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
         
-        # Validate period
-        try:
-            analytics_period = AnalyticsPeriod(period)
-        except ValueError:
-            raise TithiError(
-                message="Invalid period. Must be one of: hourly, daily, weekly, monthly, quarterly, yearly",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        
-        tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
-        
-        revenue_metrics = analytics_service.business_service.get_revenue_metrics(
-            tenant_id, start_date, end_date, analytics_period
+        data = analytics_service.get_revenue_analytics(
+            tenant_id=g.tenant_id,
+            date_range={
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            }
         )
         
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "granularity": period
-            },
-            "revenue_metrics": revenue_metrics
+            "success": True,
+            "data": data
         }), 200
         
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
-    except Exception as e:
-        raise TithiError(
-            message="Failed to get revenue analytics",
-            code="TITHI_ANALYTICS_REVENUE_ERROR"
-        )
-
-
-@analytics_bp.route("/bookings", methods=["GET"])
-@require_auth
-@require_tenant
-def get_booking_analytics():
-    """Get booking analytics and metrics."""
-    try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        period = request.args.get('period', 'daily')
-        
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate period
-        try:
-            analytics_period = AnalyticsPeriod(period)
-        except ValueError:
-            raise TithiError(
-                message="Invalid period. Must be one of: hourly, daily, weekly, monthly, quarterly, yearly",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        
-        tenant_id = g.tenant_id
-        analytics_service = AnalyticsService()
-        
-        booking_metrics = analytics_service.business_service.get_booking_metrics(
-            tenant_id, start_date, end_date, analytics_period
-        )
-        
+    except TithiError as e:
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "granularity": period
-            },
-            "booking_metrics": booking_metrics
-        }), 200
-        
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
     except Exception as e:
-        raise TithiError(
-            message="Failed to get booking analytics",
-            code="TITHI_ANALYTICS_BOOKING_ERROR"
-        )
+        logger.error(f"Failed to get revenue analytics: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
 
 
-@analytics_bp.route("/customers", methods=["GET"])
+@analytics_bp.route("/analytics/customers", methods=["GET"])
 @require_auth
 @require_tenant
 def get_customer_analytics():
-    """Get customer analytics and metrics including churn and retention."""
+    """
+    Get comprehensive customer analytics.
+    
+    Query Parameters:
+        - start_date: Start date for analytics (ISO format, default: 30 days ago)
+        - end_date: End date for analytics (ISO format, default: today)
+    
+    Returns:
+        Customer analytics including:
+        - new_customers: Number of new customers
+        - returning_customers: Number of returning customers
+        - customer_lifetime_value_cents: Average customer lifetime value
+        - retention_rate_percent: Customer retention rate
+        - top_customers: Top customers by revenue
+    """
     try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
+        # Get date range from query parameters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Default to last 30 days
         
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
-                status_code=400
-            )
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
         
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        
-        # Validate date range
-        if start_date >= end_date:
-            raise TithiError(
-                message="start_date must be before end_date",
-                code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
-                status_code=400
-            )
-        
-        tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
-        
-        customer_metrics = analytics_service.business_service.get_customer_metrics(
-            tenant_id, start_date, end_date
-        )
-        
-        # Emit observability hook
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info("ANALYTICS_CUSTOMERS_QUERIED", extra={
-            "tenant_id": str(tenant_id),
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-            "churn_rate": customer_metrics.get('churn_rate', 0),
-            "retention_rate": customer_metrics.get('retention_rate', 0),
-            "total_customers": customer_metrics.get('total_customers', 0)
-        })
-        
-        return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat()
-            },
-            "customer_metrics": customer_metrics
-        }), 200
-        
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_ANALYTICS_INVALID_DATE_RANGE",
-            status_code=400
-        )
-    except TithiError:
-        raise
-    except Exception as e:
-        raise TithiError(
-            message="Failed to get customer analytics",
-            code="TITHI_ANALYTICS_CUSTOMER_ERROR"
-        )
-
-
-@analytics_bp.route("/staff", methods=["GET"])
-@require_auth
-@require_tenant
-def get_staff_analytics():
-    """Get staff performance analytics including utilization, cancellations, and no-shows."""
-    try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        staff_id = request.args.get('staff_id')  # Optional staff filter
-        
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate date format and range
-        try:
-            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        except ValueError:
-            raise TithiError(
-                message="Invalid date format. Use ISO format (YYYY-MM-DD)",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate date range
-        if start_date > end_date:
-            raise TithiError(
-                message="start_date cannot be after end_date",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate date range is not too large (max 1 year)
-        if (end_date - start_date).days > 365:
-            raise TithiError(
-                message="Date range cannot exceed 365 days",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        tenant_id = g.tenant_id
-        analytics_service = AnalyticsService()
-        
-        # Emit observability hook
-        from ..services.event_service import EventService
-        event_service = EventService()
-        event_service.emit_event(
-            tenant_id=tenant_id,
-            event_code="ANALYTICS_STAFF_QUERIED",
-            payload={
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "staff_id": staff_id,
-                "user_id": str(g.user_id) if hasattr(g, 'user_id') else None
+        data = analytics_service.get_customer_analytics(
+            tenant_id=g.tenant_id,
+            date_range={
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
             }
         )
         
-        staff_metrics = analytics_service.business_service.get_staff_metrics(
-            tenant_id, start_date, end_date
-        )
-        
-        # Filter by specific staff if requested
-        if staff_id:
-            try:
-                staff_uuid = uuid.UUID(staff_id)
-                filtered_metrics = [
-                    metric for metric in staff_metrics.get('staff_metrics', [])
-                    if metric['staff_id'] == staff_id
-                ]
-                staff_metrics['staff_metrics'] = filtered_metrics
-            except ValueError:
-                raise TithiError(
-                    message="Invalid staff_id format",
-                    code="TITHI_VALIDATION_ERROR",
-                    status_code=400
-                )
-        
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat()
-            },
-            "staff_metrics": staff_metrics.get('staff_metrics', []),
-            "aggregate_metrics": staff_metrics.get('aggregate_metrics', {}),
-            "metadata": {
-                "total_staff_count": len(staff_metrics.get('staff_metrics', [])),
-                "query_timestamp": datetime.utcnow().isoformat()
+            "success": True,
+            "data": data
+        }), 200
+        
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
             }
-        }), 200
-        
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
+        }), e.status_code
     except Exception as e:
-        # Emit error event for observability
-        try:
-            from ..services.event_service import EventService
-            event_service = EventService()
-            event_service.emit_event(
-                tenant_id=g.tenant_id,
-                event_code="ANALYTICS_STAFF_ERROR",
-                payload={
-                    "error_message": str(e),
-                    "start_date": start_date_str,
-                    "end_date": end_date_str,
-                    "staff_id": staff_id
-                }
-            )
-        except:
-            pass  # Don't let observability errors break the main error handling
-        
-        raise TithiError(
-            message="Failed to get staff analytics",
-            code="TITHI_ANALYTICS_CALCULATION_ERROR",
-            status_code=500
-        )
+        logger.error(f"Failed to get customer analytics: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
 
 
-@analytics_bp.route("/performance", methods=["GET"])
+@analytics_bp.route("/analytics/bookings", methods=["GET"])
 @require_auth
 @require_tenant
-def get_performance_analytics():
-    """Get system performance analytics."""
+def get_booking_analytics():
+    """
+    Get comprehensive booking analytics.
+    
+    Query Parameters:
+        - start_date: Start date for analytics (ISO format, default: 30 days ago)
+        - end_date: End date for analytics (ISO format, default: today)
+    
+    Returns:
+        Booking analytics including:
+        - total_bookings: Total number of bookings
+        - booking_status_breakdown: Breakdown by booking status
+        - cancellation_rate_percent: Booking cancellation rate
+        - no_show_rate_percent: No-show rate
+        - peak_booking_hours: Peak booking hours
+    """
     try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
+        # Get date range from query parameters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Default to last 30 days
         
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
         
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        
-        tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
-        
-        performance_metrics = analytics_service.performance_service.get_system_performance(
-            tenant_id, start_date, end_date
+        data = analytics_service.get_booking_analytics(
+            tenant_id=g.tenant_id,
+            date_range={
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            }
         )
         
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat()
-            },
-            "performance_metrics": performance_metrics
+            "success": True,
+            "data": data
         }), 200
         
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
     except Exception as e:
-        raise TithiError(
-            message="Failed to get performance analytics",
-            code="TITHI_ANALYTICS_PERFORMANCE_ERROR"
-        )
+        logger.error(f"Failed to get booking analytics: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
 
 
-@analytics_bp.route("/reports", methods=["POST"])
+@analytics_bp.route("/analytics/staff", methods=["GET"])
 @require_auth
 @require_tenant
-def create_custom_report():
-    """Create a custom analytics report."""
+def get_staff_performance():
+    """
+    Get staff performance analytics.
+    
+    Query Parameters:
+        - start_date: Start date for analytics (ISO format, default: 30 days ago)
+        - end_date: End date for analytics (ISO format, default: today)
+    
+    Returns:
+        Staff performance analytics including:
+        - staff_performance: Individual staff performance metrics
+        - staff_utilization: Staff utilization rates
+    """
+    try:
+        # Get date range from query parameters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Default to last 30 days
+        
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
+        
+        analytics_service = AnalyticsService()
+        data = analytics_service.get_staff_performance(
+            tenant_id=g.tenant_id,
+            date_range={
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            }
+        )
+        
+        return jsonify({
+            "success": True,
+            "data": data
+        }), 200
+        
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
+    except Exception as e:
+        logger.error(f"Failed to get staff performance: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
+
+
+@analytics_bp.route("/analytics/events", methods=["POST"])
+@require_auth
+@require_tenant
+def track_event():
+    """
+    Track a business event for analytics.
+    
+    Request Body:
+        - event_type: Type of event (e.g., 'booking', 'customer', 'revenue')
+        - event_name: Name of event (e.g., 'booking_created', 'customer_registered')
+        - user_id: Optional user ID
+        - customer_id: Optional customer ID
+        - booking_id: Optional booking ID
+        - service_id: Optional service ID
+        - metadata: Additional event metadata
+        - ip_address: Optional IP address
+        - user_agent: Optional user agent
+    
+    Returns:
+        Event tracking confirmation
+    """
     try:
         data = request.get_json()
         
-        # Validate required fields
-        required_fields = ['title', 'start_date', 'end_date']
+        if not data:
+            raise TithiError(
+                message="Request body is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        required_fields = ['event_type', 'event_name']
         for field in required_fields:
             if field not in data:
                 raise TithiError(
@@ -455,228 +369,139 @@ def create_custom_report():
                     status_code=400
                 )
         
-        # Validate period
-        period = data.get('period', 'daily')
-        try:
-            analytics_period = AnalyticsPeriod(period)
-        except ValueError:
-            raise TithiError(
-                message="Invalid period. Must be one of: hourly, daily, weekly, monthly, quarterly, yearly",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate dates
-        start_date = datetime.fromisoformat(data['start_date'].replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(data['end_date'].replace('Z', '+00:00')).date()
-        
-        if start_date >= end_date:
-            raise TithiError(
-                message="start_date must be before end_date",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        tenant_id = g.tenant_id
         analytics_service = AnalyticsService()
-        
-        # Create report configuration
-        report_config = {
-            'title': data['title'],
-            'period': period,
-            'start_date': data['start_date'],
-            'end_date': data['end_date'],
-            'include_revenue': data.get('include_revenue', True),
-            'include_bookings': data.get('include_bookings', True),
-            'include_customers': data.get('include_customers', True),
-            'include_staff': data.get('include_staff', True),
-            'include_performance': data.get('include_performance', False)
-        }
-        
-        report = analytics_service.create_custom_report(tenant_id, report_config)
+        analytics_service.track_event(
+            tenant_id=g.tenant_id,
+            event_data=data
+        )
         
         return jsonify({
-            "report_id": report.report_id,
-            "title": report.title,
-            "period": report.period.value,
-            "start_date": report.start_date.isoformat(),
-            "end_date": report.end_date.isoformat(),
-            "generated_at": report.generated_at.isoformat() + "Z",
-            "summary": report.summary,
-            "metrics": report.metrics
-        }), 201
-        
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid data format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
-    except Exception as e:
-        raise TithiError(
-            message="Failed to create custom report",
-            code="TITHI_ANALYTICS_REPORT_ERROR"
-        )
-
-
-@analytics_bp.route("/export", methods=["GET"])
-@require_auth
-@require_tenant
-def export_analytics_data():
-    """Export analytics data in specified format."""
-    try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        format = request.args.get('format', 'json')
-        
-        if not start_date_str or not end_date_str:
-            raise TithiError(
-                message="start_date and end_date are required",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        # Validate format
-        if format not in ['json', 'csv']:
-            raise TithiError(
-                message="Invalid format. Must be 'json' or 'csv'",
-                code="TITHI_VALIDATION_ERROR",
-                status_code=400
-            )
-        
-        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
-        
-        tenant_id = g.tenant_id
-        analytics_service = AnalyticsService()
-        
-        # Export data
-        exported_data = analytics_service.export_analytics_data(
-            tenant_id, start_date, end_date, format
-        )
-        
-        # Set appropriate content type
-        content_type = 'application/json' if format == 'json' else 'text/csv'
-        filename = f"analytics_{start_date}_{end_date}.{format}"
-        
-        return Response(
-            exported_data,
-            mimetype=content_type,
-            headers={
-                'Content-Disposition': f'attachment; filename={filename}'
-            }
-        )
-        
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
-    except TithiError:
-        raise
-    except Exception as e:
-        raise TithiError(
-            message="Failed to export analytics data",
-            code="TITHI_ANALYTICS_EXPORT_ERROR"
-        )
-
-
-@analytics_bp.route("/periods", methods=["GET"])
-@require_auth
-@require_tenant
-def list_analytics_periods():
-    """List available analytics periods."""
-    try:
-        periods = [
-            {"value": period.value, "label": period.value.title()}
-            for period in AnalyticsPeriod
-        ]
-        
-        return jsonify({
-            "periods": periods,
-            "total": len(periods)
+            "success": True,
+            "message": "Event tracked successfully"
         }), 200
         
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
     except Exception as e:
-        raise TithiError(
-            message="Failed to list analytics periods",
-            code="TITHI_ANALYTICS_PERIODS_ERROR"
-        )
+        logger.error(f"Failed to track event: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
 
 
-@analytics_bp.route("/kpis", methods=["GET"])
+@analytics_bp.route("/analytics/export", methods=["GET"])
 @require_auth
 @require_tenant
-def get_key_performance_indicators():
-    """Get key performance indicators for the tenant."""
+def export_analytics():
+    """
+    Export analytics data in various formats.
+    
+    Query Parameters:
+        - format: Export format (csv, json, xlsx)
+        - data_type: Type of data to export (revenue, bookings, customers, staff)
+        - start_date: Start date for export (ISO format)
+        - end_date: End date for export (ISO format)
+    
+    Returns:
+        Exported analytics data in requested format
+    """
     try:
-        # Get parameters
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
+        export_format = request.args.get('format', 'json')
+        data_type = request.args.get('data_type', 'all')
         
-        if not start_date_str or not end_date_str:
-            # Default to last 30 days
-            end_date = date.today()
-            start_date = end_date - timedelta(days=30)
-        else:
-            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')).date()
-            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+        # Get date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
         
-        tenant_id = g.tenant_id
+        if 'start_date' in request.args:
+            start_date = datetime.fromisoformat(request.args['start_date'])
+        if 'end_date' in request.args:
+            end_date = datetime.fromisoformat(request.args['end_date'])
+        
         analytics_service = AnalyticsService()
         
-        # Get key metrics
-        revenue_metrics = analytics_service.business_service.get_revenue_metrics(
-            tenant_id, start_date, end_date
-        )
-        booking_metrics = analytics_service.business_service.get_booking_metrics(
-            tenant_id, start_date, end_date
-        )
-        customer_metrics = analytics_service.business_service.get_customer_metrics(
-            tenant_id, start_date, end_date
-        )
+        # Get data based on type
+        if data_type == 'revenue':
+            data = analytics_service.get_revenue_analytics(
+                tenant_id=g.tenant_id,
+                date_range={
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+            )
+        elif data_type == 'bookings':
+            data = analytics_service.get_booking_analytics(
+                tenant_id=g.tenant_id,
+                date_range={
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+            )
+        elif data_type == 'customers':
+            data = analytics_service.get_customer_analytics(
+                tenant_id=g.tenant_id,
+                date_range={
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+            )
+        elif data_type == 'staff':
+            data = analytics_service.get_staff_performance(
+                tenant_id=g.tenant_id,
+                date_range={
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+            )
+        else:  # all
+            data = analytics_service.get_dashboard_overview(
+                tenant_id=g.tenant_id,
+                date_range={
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+            )
         
-        # Calculate KPIs
-        kpis = {
-            "revenue": {
-                "total_revenue": revenue_metrics.get('total_revenue', 0),
-                "revenue_growth": revenue_metrics.get('revenue_growth', 0),
-                "average_booking_value": revenue_metrics.get('average_booking_value', 0)
-            },
-            "bookings": {
-                "total_bookings": booking_metrics.get('total_bookings', 0),
-                "conversion_rate": booking_metrics.get('conversion_rate', 0),
-                "no_show_rate": booking_metrics.get('no_show_rate', 0),
-                "cancellation_rate": booking_metrics.get('cancellation_rate', 0)
-            },
-            "customers": {
-                "total_customers": customer_metrics.get('total_customers', 0),
-                "new_customers": customer_metrics.get('new_customers', 0),
-                "repeat_customers": customer_metrics.get('repeat_customers', 0),
-                "customer_lifetime_value": customer_metrics.get('customer_lifetime_value', 0)
-            }
-        }
-        
+        # For now, return JSON format
+        # In a real implementation, you would generate CSV/Excel files
         return jsonify({
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat()
-            },
-            "kpis": kpis
+            "success": True,
+            "data": data,
+            "export_info": {
+                "format": export_format,
+                "data_type": data_type,
+                "date_range": {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                },
+                "exported_at": datetime.utcnow().isoformat()
+            }
         }), 200
         
-    except ValueError as e:
-        raise TithiError(
-            message="Invalid date format",
-            code="TITHI_VALIDATION_ERROR",
-            status_code=400
-        )
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
     except Exception as e:
-        raise TithiError(
-            message="Failed to get key performance indicators",
-            code="TITHI_ANALYTICS_KPIS_ERROR"
-        )
+        logger.error(f"Failed to export analytics: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500

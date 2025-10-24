@@ -6,10 +6,19 @@ This module contains core business models for tenants, users, and memberships.
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, UniqueConstraint, JSON, Numeric
+from enum import Enum
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, UniqueConstraint, JSON, Numeric, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from ..extensions import db
+
+
+class MembershipRole(str, Enum):
+    """Membership role enumeration."""
+    OWNER = "owner"
+    ADMIN = "admin"
+    STAFF = "staff"
+    VIEWER = "viewer"
 
 
 class BaseModel(db.Model):
@@ -50,13 +59,25 @@ class Tenant(GlobalModel):
     default_no_show_fee_percent = Column(Numeric(5, 2), default=3.00)
     deleted_at = Column(DateTime)
     
-    # Additional fields for onboarding (commented out - not in DB schema)
-    # name = Column(String(255))  # Business name
-    # email = Column(String(255))  # Business email
-    # category = Column(String(100))  # Business category
-    # logo_url = Column(String(500))  # Logo URL
-    # locale = Column(String(10), default="en_US")  # Locale
-    # status = Column(String(50), default="active")  # Tenant status
+    # Essential business fields for onboarding
+    name = Column(String(255))  # Business name
+    email = Column(String(255))  # Business email
+    category = Column(String(100))  # Business category
+    logo_url = Column(String(500))  # Logo URL
+    locale = Column(String(10), default="en_US")  # Locale
+    status = Column(String(50), default="onboarding")  # Tenant status: onboarding, ready, active
+    
+    # Additional business information
+    legal_name = Column(String(255))  # Legal business name (DBA)
+    phone = Column(String(20))  # Business phone
+    subdomain = Column(String(100))  # Custom subdomain
+    business_timezone = Column(String(50), default="UTC")  # Business timezone
+    
+    # Business address and contact information
+    address_json = Column(JSON, default={})  # Business address
+    social_links_json = Column(JSON, default={})  # Social media links
+    branding_json = Column(JSON, default={})  # Branding information (colors, fonts)
+    policies_json = Column(JSON, default={})  # Custom policies (not overwritten by defaults)
     
     # Relationships
     users = relationship("User", secondary="memberships", back_populates="tenants", foreign_keys="[memberships.c.tenant_id, memberships.c.user_id]")
@@ -67,6 +88,42 @@ class Tenant(GlobalModel):
     themes = relationship("Theme", back_populates="tenant")
     branding = relationship("Branding", back_populates="tenant")
     automations = relationship("Automation", back_populates="tenant")
+    
+    # New comprehensive relationships
+    team_members = relationship("TeamMember", back_populates="tenant")
+    service_categories = relationship("ServiceCategory", back_populates="tenant")
+    business_policies = relationship("BusinessPolicy", back_populates="tenant")
+    gift_cards = relationship("GiftCard", back_populates="tenant")
+    coupons = relationship("Coupon", back_populates="tenant")
+    referrals = relationship("Referral", back_populates="tenant")
+    notification_templates = relationship("NotificationTemplate", back_populates="tenant")
+    business_metrics = relationship("BusinessMetric", back_populates="tenant")
+    customer_analytics = relationship("CustomerAnalytics", back_populates="tenant")
+    service_analytics = relationship("ServiceAnalytics", back_populates="tenant")
+    staff_analytics = relationship("StaffAnalytics", back_populates="tenant")
+    revenue_analytics = relationship("RevenueAnalytics", back_populates="tenant")
+    dashboard_widgets = relationship("DashboardWidget", back_populates="tenant")
+    events = relationship("Event", back_populates="tenant")
+    metrics = relationship("Metric", back_populates="tenant")
+    
+    # Onboarding and booking flow relationships
+    onboarding_progress = relationship("OnboardingProgress", back_populates="tenant")
+    onboarding_checklist = relationship("OnboardingChecklist", back_populates="tenant")
+    business_branding = relationship("BusinessBranding", back_populates="tenant")
+    gift_card_templates = relationship("GiftCardTemplate", back_populates="tenant")
+    booking_sessions = relationship("BookingSession", back_populates="tenant")
+    service_displays = relationship("ServiceDisplay", back_populates="tenant")
+    availability_slots = relationship("AvailabilitySlot", back_populates="tenant")
+    customer_booking_profiles = relationship("CustomerBookingProfile", back_populates="tenant")
+    booking_flow_analytics = relationship("BookingFlowAnalytics", back_populates="tenant")
+    booking_flow_configuration = relationship("BookingFlowConfiguration", back_populates="tenant")
+    
+    # Enhanced notification relationships
+    notification_templates_enhanced = relationship("NotificationTemplateEnhanced", back_populates="tenant")
+    notification_placeholders = relationship("NotificationPlaceholder", back_populates="tenant")
+    notification_queue_enhanced = relationship("NotificationQueueEnhanced", back_populates="tenant")
+    notification_automations = relationship("NotificationAutomation", back_populates="tenant")
+    notification_analytics = relationship("NotificationAnalytics", back_populates="tenant")
 
 
 class User(GlobalModel):
@@ -88,6 +145,11 @@ class User(GlobalModel):
     # Relationships
     tenants = relationship("Tenant", secondary="memberships", back_populates="users", foreign_keys="[memberships.c.tenant_id, memberships.c.user_id]")
     memberships = relationship("Membership", back_populates="user", overlaps="tenants,users")
+    
+    # New comprehensive relationships
+    team_members = relationship("TeamMember", back_populates="user")
+    dashboard_widgets = relationship("DashboardWidget", back_populates="user")
+    events = relationship("Event", back_populates="user")
 
 
 class Membership(TenantModel):
@@ -96,7 +158,7 @@ class Membership(TenantModel):
     __tablename__ = "memberships"
     
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    role = Column(String(50), nullable=False)  # Should be membership_role enum
+    role = Column(SQLEnum(MembershipRole), nullable=False)  # membership_role enum
     permissions_json = Column(JSON, default={})
     
     # Relationships

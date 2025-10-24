@@ -537,6 +537,7 @@ class PromotionService:
                 raise TithiError("TITHI_COUPON_INVALID", message)
             
             discount_amount = self.coupon_service.calculate_discount(coupon, amount_cents)
+            final_amount = amount_cents - discount_amount
             
             usage = self.coupon_service.apply_coupon(
                 tenant_id, coupon.id, customer_id, booking_id, payment_id,
@@ -545,14 +546,15 @@ class PromotionService:
             
             result.update({
                 "discount_amount_cents": discount_amount,
-                "final_amount_cents": amount_cents - discount_amount,
+                "final_amount_cents": final_amount,
                 "promotion_type": "coupon",
                 "promotion_id": coupon.id,
-                "usage_id": usage.id
+                "usage_id": usage.id,
+                "zero_total": final_amount == 0
             })
         
         elif gift_card_code:
-            # Apply gift card
+            # Apply gift card - V1 rule: must cover full amount or require full card payment
             is_valid, message, gift_card = self.gift_card_service.validate_gift_card(
                 gift_card_code, amount_cents
             )
@@ -560,8 +562,14 @@ class PromotionService:
             if not is_valid:
                 raise TithiError("TITHI_GIFT_CARD_INVALID", message)
             
-            # Use full gift card balance or amount, whichever is smaller
-            discount_amount = min(gift_card.balance_cents, amount_cents)
+            # V1 enforcement: gift card must cover full amount
+            if gift_card.balance_cents < amount_cents:
+                raise TithiError("TITHI_GIFT_CARD_INSUFFICIENT", 
+                               f"Gift card balance (${gift_card.balance_cents / 100:.2f}) is insufficient. "
+                               f"Full amount (${amount_cents / 100:.2f}) must be covered by gift card in V1.")
+            
+            # Use full amount (gift card covers everything)
+            discount_amount = amount_cents
             
             transaction, updated_gift_card = self.gift_card_service.redeem_gift_card(
                 tenant_id, gift_card.id, customer_id, booking_id, payment_id,
@@ -570,10 +578,11 @@ class PromotionService:
             
             result.update({
                 "discount_amount_cents": discount_amount,
-                "final_amount_cents": amount_cents - discount_amount,
+                "final_amount_cents": 0,  # Fully covered by gift card
                 "promotion_type": "gift_card",
                 "promotion_id": gift_card.id,
-                "usage_id": transaction.id
+                "usage_id": transaction.id,
+                "zero_total": True  # Always zero for gift cards in V1
             })
         
         return result

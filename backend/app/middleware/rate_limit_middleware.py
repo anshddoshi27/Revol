@@ -51,6 +51,11 @@ class RateLimitMiddleware:
             '/api/payments': {'limit': 30, 'window': 60},  # 30 req/min for payments
             '/api/availability': {'limit': 200, 'window': 60},  # 200 req/min for availability
             '/v1/tenants': {'limit': 20, 'window': 60},  # 20 req/min for tenant operations
+            '/v1/bookings': {'limit': 30, 'window': 60},  # 30 req/min for booking creation
+            '/v1/payments': {'limit': 20, 'window': 60},  # 20 req/min for payment operations
+            '/v1/payments/intent': {'limit': 15, 'window': 60},  # 15 req/min for payment intents
+            '/v1/payments/setup-intent': {'limit': 10, 'window': 60},  # 10 req/min for setup intents
+            '/v1/payments/refund': {'limit': 5, 'window': 60},  # 5 req/min for refunds
         }
         
         if app:

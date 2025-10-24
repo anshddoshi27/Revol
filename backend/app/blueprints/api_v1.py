@@ -1338,11 +1338,31 @@ def get_availability_slots(resource_id: str):
         start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
         end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         
-        availability_service = AvailabilityService()
-        slots = availability_service.get_available_slots(tenant_id, uuid.UUID(resource_id), start_dt, end_dt)
+        # Use unified availability service
+        from ..services.availability_unified import UnifiedAvailabilityService
+        unified_service = UnifiedAvailabilityService()
+        
+        # Get service_id from query params (required for unified service)
+        service_id = request.args.get('service_id')
+        if not service_id:
+            raise TithiError(
+                message="service_id parameter is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        # Get staff_id from query params (optional)
+        staff_id = request.args.get('staff_id')
+        staff_uuid = uuid.UUID(staff_id) if staff_id else None
+        
+        slots = unified_service.get_available_slots(
+            tenant_id, uuid.UUID(service_id), staff_uuid, start_dt, end_dt
+        )
         
         return jsonify({
             "resource_id": resource_id,
+            "service_id": service_id,
+            "staff_id": staff_id,
             "slots": slots,
             "total": len(slots)
         }), 200
@@ -1359,6 +1379,29 @@ def get_availability_slots(resource_id: str):
         raise TithiError(
             message="Failed to get availability slots",
             code="TITHI_AVAILABILITY_ERROR"
+        )
+
+
+# Booking Status (Module F)
+@api_v1_bp.route("/booking/status", methods=["GET"])
+@require_auth
+@require_tenant
+def get_booking_status():
+    """Get booking enabled status for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        
+        from ..services.availability_unified import UnifiedAvailabilityService
+        unified_service = UnifiedAvailabilityService()
+        
+        status = unified_service.get_booking_enabled_status(tenant_id)
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        raise TithiError(
+            message="Failed to get booking status",
+            code="TITHI_BOOKING_STATUS_ERROR"
         )
 
 

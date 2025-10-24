@@ -501,6 +501,79 @@ class NotificationScheduler:
             print(f"Failed to process scheduled notifications: {str(e)}")
         
         return results
+    
+    def process_due_notifications(self) -> List[NotificationResult]:
+        """Process all due notifications (cron entrypoint)."""
+        results = []
+        
+        try:
+            # Get due notifications from the notifications table
+            due_notifications = Notification.query.filter(
+                Notification.status == NotificationStatus.PENDING,
+                Notification.scheduled_at <= datetime.utcnow(),
+                Notification.expires_at.is_(None) | (Notification.expires_at > datetime.utcnow())
+            ).limit(100).all()
+            
+            delivery_service = NotificationDeliveryService()
+            
+            for notification in due_notifications:
+                try:
+                    # Create notification request
+                    request = NotificationRequest(
+                        tenant_id=notification.tenant_id,
+                        event_code=notification.event_code,
+                        channel=NotificationChannel(notification.channel),
+                        recipient=notification.to_email or notification.to_phone or '',
+                        subject=notification.subject,
+                        content=notification.body,
+                        priority=NotificationPriority(notification.priority.value),
+                        scheduled_at=notification.scheduled_at,
+                        expires_at=notification.expires_at,
+                        metadata=notification.metadata_json or {}
+                    )
+                    
+                    # Send notification
+                    result = delivery_service.send_notification(request)
+                    result.notification_id = notification.id
+                    
+                    # Update notification status
+                    if result.success:
+                        notification.status = NotificationStatus.SENT
+                        notification.sent_at = datetime.utcnow()
+                        notification.attempts += 1
+                    else:
+                        notification.attempts += 1
+                        notification.last_attempt_at = datetime.utcnow()
+                        notification.error_message = result.error_message
+                        
+                        # Mark as failed if max attempts reached
+                        if notification.attempts >= notification.max_attempts:
+                            notification.status = NotificationStatus.FAILED
+                            notification.failed_at = datetime.utcnow()
+                    
+                    results.append(result)
+                    
+                except Exception as e:
+                    # Update notification status
+                    notification.attempts += 1
+                    notification.last_attempt_at = datetime.utcnow()
+                    notification.error_message = str(e)
+                    
+                    if notification.attempts >= notification.max_attempts:
+                        notification.status = NotificationStatus.FAILED
+                        notification.failed_at = datetime.utcnow()
+                    
+                    results.append(NotificationResult(
+                        success=False,
+                        error_message=str(e)
+                    ))
+            
+            db.session.commit()
+            return results
+            
+        except Exception as e:
+            db.session.rollback()
+            raise Exception(f"Failed to process due notifications: {str(e)}")
 
 
 class NotificationAnalytics:
@@ -620,6 +693,10 @@ class NotificationService:
     def process_all_scheduled(self) -> List[NotificationResult]:
         """Process all scheduled notifications."""
         return self.scheduler.process_scheduled_notifications()
+    
+    def process_due_notifications(self) -> List[NotificationResult]:
+        """Process all due notifications (cron entrypoint)."""
+        return self.scheduler.process_due_notifications()
     
     def get_analytics(self, tenant_id: uuid.UUID, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
         """Get notification analytics."""

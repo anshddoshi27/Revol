@@ -14,14 +14,18 @@ from ..extensions import db
 from .core import TenantModel
 
 
-class Theme(TenantModel):
+class Theme(db.Model):
     """Theme model representing a tenant's theme configuration."""
     
     __tablename__ = "themes"
     
+    # Primary key is tenant_id (1:1 relationship with tenants)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), primary_key=True)
     brand_color = Column(String(7))  # Hex color
     logo_url = Column(String(500))
     theme_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relationships
     tenant = relationship("Tenant", back_populates="themes")

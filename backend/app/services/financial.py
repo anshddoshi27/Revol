@@ -50,11 +50,26 @@ class PaymentService:
         if existing_payment:
             return existing_payment
         
+        # Check if tenant has Stripe Connect setup
+        billing_service = BillingService()
+        billing = billing_service.get_tenant_billing(tenant_id)
+        
+        if not billing or not billing.stripe_connect_enabled:
+            raise TithiError("Tenant must complete Stripe Connect setup before accepting payments", 
+                           error_code="TITHI_STRIPE_CONNECT_REQUIRED")
+        
         try:
-            # Create Stripe PaymentIntent
+            # Calculate application fee (platform fee)
+            application_fee_cents = int(amount_cents * 0.03)  # 3% platform fee
+            
+            # Create Stripe PaymentIntent with Connect
             stripe_intent = stripe.PaymentIntent.create(
                 amount=amount_cents,
                 currency=currency,
+                application_fee_amount=application_fee_cents,
+                transfer_data={
+                    'destination': billing.stripe_account_id
+                },
                 metadata={
                     'tenant_id': tenant_id,
                     'booking_id': booking_id,
@@ -74,6 +89,7 @@ class PaymentService:
                 method='card',
                 provider='stripe',
                 provider_payment_id=stripe_intent.id,
+                application_fee_cents=application_fee_cents,
                 idempotency_key=idempotency_key,
                 provider_metadata=stripe_intent.metadata
             )
@@ -87,7 +103,8 @@ class PaymentService:
                 'payment_id': str(payment.id),
                 'booking_id': booking_id,
                 'amount_cents': amount_cents,
-                'stripe_payment_intent_id': stripe_intent.id
+                'stripe_payment_intent_id': stripe_intent.id,
+                'application_fee_cents': application_fee_cents
             })
             
             return payment
@@ -232,8 +249,19 @@ class PaymentService:
             raise TithiError("No payment method found for no-show fee", 
                            error_code="TITHI_PAYMENT_NO_METHOD")
         
+        # Check if tenant has Stripe Connect setup
+        billing_service = BillingService()
+        billing = billing_service.get_tenant_billing(tenant_id)
+        
+        if not billing or not billing.stripe_connect_enabled:
+            raise TithiError("Tenant must complete Stripe Connect setup before capturing fees", 
+                           error_code="TITHI_STRIPE_CONNECT_REQUIRED")
+        
         try:
-            # Create PaymentIntent using the stored payment method
+            # Calculate application fee for no-show fee
+            application_fee_cents = int(no_show_fee_cents * 0.03)  # 3% platform fee
+            
+            # Create PaymentIntent using the stored payment method with Connect
             stripe_intent = stripe.PaymentIntent.create(
                 amount=no_show_fee_cents,
                 currency='USD',
@@ -241,6 +269,10 @@ class PaymentService:
                 payment_method=payment_method.stripe_payment_method_id,
                 confirmation_method='automatic',
                 confirm=True,
+                application_fee_amount=application_fee_cents,
+                transfer_data={
+                    'destination': billing.stripe_account_id
+                },
                 metadata={
                     'tenant_id': tenant_id,
                     'booking_id': booking_id,
@@ -259,12 +291,19 @@ class PaymentService:
                 method='card',
                 provider='stripe',
                 provider_payment_id=stripe_intent.id,
+                application_fee_cents=application_fee_cents,
                 no_show_fee_cents=no_show_fee_cents,
                 fee_type='no_show',
                 provider_metadata=stripe_intent.metadata
             )
             
             db.session.add(payment)
+            
+            # Update booking status to no_show
+            booking.no_show_flag = True
+            booking.status = 'no_show'
+            booking.updated_at = datetime.utcnow()
+            
             db.session.commit()
             
             # Emit observability hook
@@ -272,7 +311,8 @@ class PaymentService:
                 'tenant_id': tenant_id,
                 'payment_id': str(payment.id),
                 'booking_id': booking_id,
-                'amount_cents': no_show_fee_cents
+                'amount_cents': no_show_fee_cents,
+                'application_fee_cents': application_fee_cents
             })
             
             return payment
@@ -284,6 +324,43 @@ class PaymentService:
             logger.error(f"Error capturing no-show fee: {e}")
             db.session.rollback()
             raise TithiError(f"No-show fee capture failed: {str(e)}", error_code="TITHI_PAYMENT_CAPTURE_ERROR")
+    
+    def create_zero_total_payment(self, tenant_id: str, booking_id: str, 
+                                 customer_id: str, promotion_type: str, 
+                                 promotion_id: str, discount_amount_cents: int) -> Payment:
+        """Create a zero-total payment for fully discounted bookings."""
+        
+        # Create payment record for zero-total booking
+        payment = Payment(
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            customer_id=customer_id,
+            amount_cents=0,
+            currency_code='USD',
+            status='succeeded',  # No payment required
+            method='promotion',
+            provider='internal',
+            fee_type='booking',
+            provider_metadata={
+                'promotion_type': promotion_type,
+                'promotion_id': promotion_id,
+                'discount_amount_cents': discount_amount_cents,
+                'zero_total': True
+            }
+        )
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        logger.info("ZERO_TOTAL_PAYMENT_CREATED", extra={
+            'tenant_id': tenant_id,
+            'payment_id': str(payment.id),
+            'booking_id': booking_id,
+            'promotion_type': promotion_type,
+            'discount_amount_cents': discount_amount_cents
+        })
+        
+        return payment
     
     def process_refund(self, payment_id: str, tenant_id: str, amount_cents: int,
                       reason: str, refund_type: str = "partial") -> Refund:
@@ -550,3 +627,75 @@ class BillingService:
     def get_tenant_billing(self, tenant_id: str) -> Optional[TenantBilling]:
         """Get tenant billing configuration."""
         return TenantBilling.query.filter_by(tenant_id=tenant_id).first()
+    
+    def create_stripe_connect_account(self, tenant_id: str, email: str, business_name: str) -> Dict[str, Any]:
+        """Create Stripe Connect Express account for tenant."""
+        import stripe
+        
+        try:
+            # Create Stripe Connect Express account
+            account = stripe.Account.create(
+                type='express',
+                country='US',  # Default to US, can be made configurable
+                email=email,
+                business_profile={
+                    'name': business_name,
+                    'url': f"https://{business_name.lower().replace(' ', '')}.tithi.app"  # Example subdomain
+                },
+                capabilities={
+                    'card_payments': {'requested': True},
+                    'transfers': {'requested': True}
+                }
+            )
+            
+            # Create account link for onboarding
+            account_link = stripe.AccountLink.create(
+                account=account.id,
+                refresh_url=f"https://app.tithi.com/onboarding/stripe/refresh?tenant_id={tenant_id}",
+                return_url=f"https://app.tithi.com/onboarding/stripe/return?tenant_id={tenant_id}",
+                type='account_onboarding'
+            )
+            
+            # Store account ID in database
+            billing = self.setup_stripe_connect(tenant_id, account.id)
+            
+            return {
+                'account_id': account.id,
+                'onboarding_url': account_link.url,
+                'billing_id': str(billing.id)
+            }
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe Connect account creation failed: {e}")
+            raise TithiError(f"Stripe Connect setup failed: {str(e)}", error_code="TITHI_STRIPE_CONNECT_ERROR")
+    
+    def check_stripe_connect_status(self, tenant_id: str) -> Dict[str, Any]:
+        """Check Stripe Connect account status and requirements."""
+        billing = self.get_tenant_billing(tenant_id)
+        if not billing or not billing.stripe_account_id:
+            return {
+                'connected': False,
+                'ready_for_payouts': False,
+                'requirements': []
+            }
+        
+        import stripe
+        
+        try:
+            account = stripe.Account.retrieve(billing.stripe_account_id)
+            
+            return {
+                'connected': True,
+                'ready_for_payouts': account.charges_enabled and account.payouts_enabled,
+                'requirements': account.requirements.currently_due or [],
+                'charges_enabled': account.charges_enabled,
+                'payouts_enabled': account.payouts_enabled
+            }
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Error checking Stripe Connect status: {e}")
+            return {
+                'connected': False,
+                'ready_for_payouts': False,
+                'requirements': []
+            }

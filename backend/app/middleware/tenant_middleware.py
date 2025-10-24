@@ -83,10 +83,18 @@ class TenantMiddleware:
     def _get_tenant_id_by_slug(self, slug: str) -> Optional[str]:
         """Get tenant ID by slug."""
         try:
-            # This would normally query the database
-            # For now, return a mock tenant ID
-            if slug in ["test-salon", "salonx", "demo"]:
-                return "550e8400-e29b-41d4-a716-446655440000"
+            from ..models.core import Tenant
+            from ..extensions import db
+            
+            # Query database for tenant by slug
+            tenant = db.session.query(Tenant).filter_by(
+                slug=slug, 
+                deleted_at=None,
+                status='active'
+            ).first()
+            
+            if tenant:
+                return str(tenant.id)
             
             return None
         except Exception as e:

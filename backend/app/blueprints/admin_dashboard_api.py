@@ -390,8 +390,25 @@ def delete_admin_service(service_id: str):
                 status_code=404
             )
         
-        # Log admin action
-        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=service_deleted")
+        # Log admin action with audit service
+        from ..services.audit_service import AuditService
+        audit_service = AuditService()
+        audit_service.create_audit_log(
+            tenant_id=str(tenant_id),
+            table_name="services",
+            operation="DELETE",
+            record_id=service_id,
+            user_id=str(current_user.id),
+            action="ADMIN_SERVICE_DELETED",
+            metadata={"admin_action": True, "service_id": service_id}
+        )
+        
+        logger.info("Admin service deleted", extra={
+            'tenant_id': str(tenant_id),
+            'user_id': str(current_user.id),
+            'service_id': service_id,
+            'event_type': 'ADMIN_SERVICE_DELETED'
+        })
         
         return jsonify({
             "message": "Service deleted successfully",
@@ -580,8 +597,26 @@ def delete_admin_booking(booking_id: str):
                 status_code=404
             )
         
-        # Log admin action
-        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=booking_cancel")
+        # Log admin action with audit service
+        from ..services.audit_service import AuditService
+        audit_service = AuditService()
+        audit_service.create_audit_log(
+            tenant_id=str(tenant_id),
+            table_name="bookings",
+            operation="UPDATE",
+            record_id=booking_id,
+            user_id=str(current_user.id),
+            action="ADMIN_BOOKING_CANCELLED",
+            metadata={"admin_action": True, "booking_id": booking_id, "reason": reason}
+        )
+        
+        logger.info("Admin booking cancelled", extra={
+            'tenant_id': str(tenant_id),
+            'user_id': str(current_user.id),
+            'booking_id': booking_id,
+            'reason': reason,
+            'event_type': 'ADMIN_BOOKING_CANCELLED'
+        })
         
         return jsonify({
             "message": "Booking canceled successfully",
@@ -1333,8 +1368,25 @@ def delete_admin_staff(staff_id: str):
                 status_code=404
             )
         
-        # Log admin action
-        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=staff_deleted")
+        # Log admin action with audit service
+        from ..services.audit_service import AuditService
+        audit_service = AuditService()
+        audit_service.create_audit_log(
+            tenant_id=str(tenant_id),
+            table_name="staff_profiles",
+            operation="DELETE",
+            record_id=staff_id,
+            user_id=str(current_user.id),
+            action="ADMIN_STAFF_DELETED",
+            metadata={"admin_action": True, "staff_id": staff_id}
+        )
+        
+        logger.info("Admin staff deleted", extra={
+            'tenant_id': str(tenant_id),
+            'user_id': str(current_user.id),
+            'staff_id': staff_id,
+            'event_type': 'ADMIN_STAFF_DELETED'
+        })
         
         return jsonify({
             "message": "Staff profile deleted successfully",

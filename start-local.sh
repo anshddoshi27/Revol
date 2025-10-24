@@ -28,15 +28,7 @@ if ! command_exists python3; then
     exit 1
 fi
 
-if ! command_exists node; then
-    echo -e "${RED}❌ Node.js is required but not installed${NC}"
-    exit 1
-fi
-
-if ! command_exists npm; then
-    echo -e "${RED}❌ npm is required but not installed${NC}"
-    exit 1
-fi
+# Node.js and npm checks removed - frontend not available
 
 echo -e "${GREEN}✅ Prerequisites check passed${NC}"
 
@@ -51,10 +43,7 @@ if [ ! -d "$BACKEND_DIR" ]; then
     exit 1
 fi
 
-if [ ! -d "$FRONTEND_DIR" ]; then
-    echo -e "${RED}❌ Frontend directory not found: $FRONTEND_DIR${NC}"
-    exit 1
-fi
+# Frontend directory check removed - frontend not available
 
 # Function to start backend
 start_backend() {
@@ -83,28 +72,7 @@ start_backend() {
     echo $BACKEND_PID > backend.pid
 }
 
-# Function to start frontend
-start_frontend() {
-    echo -e "${BLUE}🎨 Starting Frontend Development Server...${NC}"
-    cd "$FRONTEND_DIR"
-    
-    # Check if node_modules exists
-    if [ ! -d "node_modules" ]; then
-        echo -e "${YELLOW}⚠️  Installing frontend dependencies...${NC}"
-        npm install
-    fi
-    
-    # Check if .env file exists
-    if [ ! -f ".env" ]; then
-        echo -e "${YELLOW}⚠️  .env file not found, using default configuration${NC}"
-    fi
-    
-    # Start Vite development server
-    echo -e "${GREEN}🚀 Starting Vite server on http://localhost:5173${NC}"
-    npm run dev &
-    FRONTEND_PID=$!
-    echo $FRONTEND_PID > frontend.pid
-}
+# Frontend startup function removed - frontend not available
 
 # Function to cleanup on exit
 cleanup() {
@@ -120,15 +88,7 @@ cleanup() {
         rm -f "$BACKEND_DIR/backend.pid"
     fi
     
-    # Kill frontend if running
-    if [ -f "$FRONTEND_DIR/frontend.pid" ]; then
-        FRONTEND_PID=$(cat "$FRONTEND_DIR/frontend.pid")
-        if kill -0 $FRONTEND_PID 2>/dev/null; then
-            kill $FRONTEND_PID
-            echo -e "${GREEN}✅ Frontend server stopped${NC}"
-        fi
-        rm -f "$FRONTEND_DIR/frontend.pid"
-    fi
+    # Frontend cleanup removed - frontend not available
     
     echo -e "${GREEN}✅ Cleanup complete${NC}"
     exit 0
@@ -139,11 +99,8 @@ trap cleanup SIGINT SIGTERM
 
 # Start services
 start_backend
-sleep 2  # Give backend time to start
-start_frontend
 
-echo -e "\n${GREEN}🎉 Tithi is now running locally!${NC}"
-echo -e "${BLUE}📱 Frontend: http://localhost:5173${NC}"
+echo -e "\n${GREEN}🎉 Tithi Backend is now running locally!${NC}"
 echo -e "${BLUE}🔧 Backend API: http://localhost:5001${NC}"
 echo -e "${BLUE}📚 API Docs: http://localhost:5001/api/docs${NC}"
 echo -e "\n${YELLOW}Press Ctrl+C to stop all servers${NC}"

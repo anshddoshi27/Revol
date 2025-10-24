@@ -23,7 +23,14 @@ class TenantService:
             category=tenant_data.get("category", ""),
             logo_url=tenant_data.get("logo_url"),
             locale=tenant_data.get("locale", "en_US"),
-            status="active"
+            status="onboarding",
+            legal_name=tenant_data.get("legal_name"),
+            phone=tenant_data.get("phone"),
+            business_timezone=tenant_data.get("timezone", "UTC"),
+            address_json=tenant_data.get("address", {}),
+            social_links_json=tenant_data.get("socials", {}),
+            branding_json=tenant_data.get("branding", {}),
+            policies_json=tenant_data.get("policies", {})
         )
         
         db.session.add(tenant)

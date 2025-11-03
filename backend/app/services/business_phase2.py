@@ -22,6 +22,8 @@ from ..models.business import (
 )
 from ..models.core import Tenant, User, Membership
 from ..models.audit import AuditLog, EventOutbox
+from ..models.financial import PaymentMethod, Payment
+from ..models.onboarding import BusinessPolicy
 from .cache import AvailabilityCacheService, BookingHoldCacheService, WaitlistCacheService
 
 
@@ -1569,9 +1571,138 @@ class BookingService(BaseService):
         
         return result
     
+    def _get_customer_payment_method(self, tenant_id: uuid.UUID, customer_id: uuid.UUID) -> Optional[PaymentMethod]:
+        """Get customer's default payment method."""
+        return PaymentMethod.query.filter_by(
+            tenant_id=tenant_id,
+            customer_id=customer_id,
+            is_default=True
+        ).first()
+    
+    def _calculate_no_show_fee(self, tenant_id: uuid.UUID, booking: Booking) -> int:
+        """Calculate no-show fee from BusinessPolicy."""
+        policy = BusinessPolicy.query.filter_by(tenant_id=tenant_id).first()
+        
+        if not policy:
+            # Default to 0 if no policy
+            return 0
+        
+        # Check if fee type is flat or percentage
+        if policy.no_show_fee_type == 'flat':
+            return policy.no_show_fee_flat_cents or 0
+        else:
+            # Percentage - calculate from booking amount
+            booking_amount = booking.service_snapshot.get('price_cents', 0) if isinstance(booking.service_snapshot, dict) else 0
+            if not booking_amount:
+                # Try to get from service
+                from ..models.business import Service
+                if hasattr(booking, 'resource_id'):
+                    # Get service from booking - simplified for now
+                    booking_amount = 0
+            
+            fee_percent = float(policy.no_show_fee_percent) if policy.no_show_fee_percent else 0.0
+            return int(booking_amount * (fee_percent / 100))
+    
+    def _calculate_cancellation_fee(self, tenant_id: uuid.UUID, booking: Booking) -> int:
+        """Calculate cancellation fee from BusinessPolicy based on timing."""
+        policy = BusinessPolicy.query.filter_by(tenant_id=tenant_id).first()
+        
+        if not policy:
+            # Default to 0 if no policy
+            return 0
+        
+        # For now, return 0 - cancellation fees are typically based on timing
+        # which would need more complex logic. Frontend expects fee from policies.
+        # If cancellation_hours_required is not met, charge fee
+        if booking.canceled_at and booking.start_at:
+            hours_before = (booking.start_at - booking.canceled_at).total_seconds() / 3600
+            if hours_before < policy.cancellation_hours_required:
+                # Charge cancellation fee - using same logic as no-show for now
+                booking_amount = booking.service_snapshot.get('price_cents', 0) if isinstance(booking.service_snapshot, dict) else 0
+                # Default 10% cancellation fee if policy doesn't specify
+                return int(booking_amount * 0.10)
+        
+        return 0
+    
+    def _charge_booking_payment(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, 
+                                amount_cents: int, fee_type: str = "booking") -> Payment:
+        """Charge a booking using saved payment method (off-session)."""
+        from ..services.financial import PaymentService, BillingService
+        
+        booking = self.get_booking(tenant_id, booking_id)
+        if not booking:
+            raise ValueError("Booking not found")
+        
+        # Get customer's payment method
+        payment_method = self._get_customer_payment_method(tenant_id, booking.customer_id)
+        if not payment_method:
+            raise ValueError("No payment method found for customer")
+        
+        # Check Stripe Connect setup
+        billing_service = BillingService()
+        billing = billing_service.get_tenant_billing(str(tenant_id))
+        if not billing or not billing.stripe_connect_enabled:
+            raise ValueError("Tenant must complete Stripe Connect setup")
+        
+        # Create off-session payment intent
+        import stripe
+        stripe.api_key = PaymentService()._get_stripe_secret_key()
+        
+        # Calculate 1% platform fee
+        application_fee_cents = int(amount_cents * 0.01)
+        
+        # Retrieve Stripe customer ID from payment method
+        # The payment method is attached to a Stripe customer when SetupIntent is confirmed
+        stripe_pm = stripe.PaymentMethod.retrieve(payment_method.stripe_payment_method_id)
+        stripe_customer_id = stripe_pm.customer
+        
+        if not stripe_customer_id:
+            raise ValueError("Payment method is not attached to a Stripe customer")
+        
+        # Create PaymentIntent with saved payment method
+        stripe_intent = stripe.PaymentIntent.create(
+            amount=amount_cents,
+            currency='USD',
+            customer=stripe_customer_id,
+            payment_method=payment_method.stripe_payment_method_id,
+            confirmation_method='automatic',
+            confirm=True,
+            off_session=True,
+            application_fee_amount=application_fee_cents,
+            transfer_data={
+                'destination': billing.stripe_account_id
+            },
+            metadata={
+                'tenant_id': str(tenant_id),
+                'booking_id': str(booking_id),
+                'fee_type': fee_type
+            }
+        )
+        
+        # Create payment record
+        payment = Payment(
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            customer_id=booking.customer_id,
+            amount_cents=amount_cents,
+            currency_code='USD',
+            status='captured' if stripe_intent.status == 'succeeded' else 'failed',
+            method='card',
+            provider='stripe',
+            provider_payment_id=stripe_intent.id,
+            application_fee_cents=application_fee_cents,
+            fee_type=fee_type,
+            provider_metadata=stripe_intent.metadata
+        )
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        return payment
+
     def cancel_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, 
                       cancelled_by: uuid.UUID, reason: str = None) -> Optional[Booking]:
-        """Cancel a booking."""
+        """Cancel a booking and charge cancellation fee if applicable."""
         booking = self.get_booking(tenant_id, booking_id)
         if not booking:
             return None
@@ -1588,6 +1719,19 @@ class BookingService(BaseService):
             return booking
         
         result = self._safe_db_operation(_cancel_booking)
+        
+        # Calculate and charge cancellation fee if applicable
+        try:
+            cancellation_fee = self._calculate_cancellation_fee(tenant_id, booking)
+            if cancellation_fee > 0:
+                try:
+                    self._charge_booking_payment(tenant_id, booking_id, cancellation_fee, fee_type='cancellation')
+                    logger.info(f"Cancellation fee charged for booking {booking_id}: {cancellation_fee} cents")
+                except Exception as e:
+                    # Log error but don't fail cancellation
+                    logger.error(f"Failed to charge cancellation fee for booking {booking_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error calculating cancellation fee for booking {booking_id}: {str(e)}")
         
         # Log audit trail
         self._log_audit(tenant_id, "booking", booking.id, "UPDATE", cancelled_by, 
@@ -1633,13 +1777,13 @@ class BookingService(BaseService):
         return result
     
     def mark_no_show(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Booking]:
-        """Mark a booking as no-show."""
+        """Mark a booking as no-show and charge no-show fee if applicable."""
         booking = self.get_booking(tenant_id, booking_id)
         if not booking:
             return None
         
-        if booking.status not in ['confirmed', 'checked_in']:
-            raise ValueError("Only confirmed bookings can be marked as no-show")
+        if booking.status not in ['confirmed', 'checked_in', 'pending']:
+            raise ValueError("Only confirmed, checked-in, or pending bookings can be marked as no-show")
         
         def _mark_no_show():
             booking.status = 'no_show'
@@ -1649,16 +1793,35 @@ class BookingService(BaseService):
         
         result = self._safe_db_operation(_mark_no_show)
         
+        # Calculate and charge no-show fee if applicable
+        try:
+            no_show_fee = self._calculate_no_show_fee(tenant_id, booking)
+            if no_show_fee > 0:
+                try:
+                    from ..services.financial import PaymentService
+                    payment_service = PaymentService()
+                    payment_service.capture_no_show_fee(
+                        booking_id=str(booking_id),
+                        tenant_id=str(tenant_id),
+                        no_show_fee_cents=no_show_fee
+                    )
+                    logger.info(f"No-show fee charged for booking {booking_id}: {no_show_fee} cents")
+                except Exception as e:
+                    # Log error but don't fail no-show marking
+                    logger.error(f"Failed to charge no-show fee for booking {booking_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error calculating no-show fee for booking {booking_id}: {str(e)}")
+        
         return result
     
     def complete_booking(self, tenant_id: uuid.UUID, booking_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Booking]:
-        """Complete a booking and award loyalty points."""
+        """Complete a booking, charge full amount, and award loyalty points."""
         booking = self.get_booking(tenant_id, booking_id)
         if not booking:
             return None
         
-        if booking.status not in ['confirmed', 'checked_in']:
-            raise ValueError("Only confirmed or checked-in bookings can be completed")
+        if booking.status not in ['confirmed', 'checked_in', 'pending']:
+            raise ValueError("Only confirmed, checked-in, or pending bookings can be completed")
         
         def _complete_booking():
             booking.status = 'completed'
@@ -1666,6 +1829,30 @@ class BookingService(BaseService):
             return booking
         
         result = self._safe_db_operation(_complete_booking)
+        
+        # Charge full booking amount
+        try:
+            # Get booking amount from service snapshot
+            booking_amount = booking.service_snapshot.get('price_cents', 0) if isinstance(booking.service_snapshot, dict) else 0
+            if not booking_amount:
+                # Try to get from service directly
+                from ..models.business import Service
+                service = Service.query.filter_by(
+                    tenant_id=tenant_id,
+                    id=uuid.UUID(booking.service_snapshot.get('service_id')) if isinstance(booking.service_snapshot, dict) and booking.service_snapshot.get('service_id') else None
+                ).first()
+                if service:
+                    booking_amount = service.price_cents
+            
+            if booking_amount > 0:
+                try:
+                    self._charge_booking_payment(tenant_id, booking_id, booking_amount, fee_type='booking')
+                    logger.info(f"Full booking amount charged for booking {booking_id}: {booking_amount} cents")
+                except Exception as e:
+                    # Log error but don't fail completion
+                    logger.error(f"Failed to charge full amount for booking {booking_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error charging booking amount for booking {booking_id}: {str(e)}")
         
         # Award loyalty points for completed booking
         try:
@@ -1685,7 +1872,7 @@ class BookingService(BaseService):
         self._emit_event(tenant_id, "BOOKING_COMPLETED", {
             "booking_id": str(booking.id),
             "customer_id": str(booking.customer_id),
-            "service_id": booking.service_snapshot.get('service_id'),
+            "service_id": booking.service_snapshot.get('service_id') if isinstance(booking.service_snapshot, dict) else None,
             "resource_id": str(booking.resource_id),
             "start_at": booking.start_at.isoformat(),
             "end_at": booking.end_at.isoformat(),

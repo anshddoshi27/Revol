@@ -446,3 +446,5 @@ COMMENT ON TABLE public.operational_analytics IS 'Operational analytics and effi
 COMMENT ON TABLE public.marketing_analytics IS 'Marketing analytics and campaign tracking';
 
 COMMIT;
+
+

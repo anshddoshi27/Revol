@@ -293,3 +293,5 @@ COMMENT ON TABLE public.notification_automations IS 'Automation rules for notifi
 COMMENT ON TABLE public.notification_analytics IS 'Analytics for notification performance';
 
 COMMIT;
+
+

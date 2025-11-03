@@ -108,3 +108,5 @@ class NotificationQueue(TenantModel):
     template = relationship("NotificationTemplate")
     customer = relationship("Customer")
     booking = relationship("Booking")
+
+

@@ -278,3 +278,5 @@ COMMENT ON TABLE public.booking_flow_analytics IS 'Analytics for booking flow pe
 COMMENT ON TABLE public.booking_flow_configurations IS 'Configuration for booking flow behavior';
 
 COMMIT;
+
+

@@ -49,7 +49,7 @@ from ..services.business_phase2 import (
     StaffService, StaffAvailabilityService
 )
 from ..services.analytics_service import AnalyticsService
-from ..services.financial import PaymentService
+from ..services.financial import PaymentService, BillingService
 from ..services.promotion import PromotionService
 from ..services.notification_service import NotificationService
 from ..services.system import ThemeService, BrandingService
@@ -2268,4 +2268,166 @@ def manage_go_live(tenant_id: str):
         raise TithiError(
             message="Failed to manage go-live",
             code="TITHI_GO_LIVE_ERROR"
+        )
+
+
+# SUBSCRIPTION MANAGEMENT ENDPOINTS
+@admin_bp.route("/subscription/status", methods=["GET"])
+@require_auth
+@require_tenant
+def get_subscription_status():
+    """Get subscription status for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        billing_service = BillingService()
+        
+        subscription_status = billing_service.get_subscription_status(tenant_id)
+        
+        return jsonify({
+            "subscription": subscription_status
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get subscription status: {str(e)}")
+        raise TithiError(
+            message="Failed to get subscription status",
+            code="TITHI_SUBSCRIPTION_STATUS_ERROR"
+        )
+
+
+@admin_bp.route("/subscription/start-trial", methods=["POST"])
+@require_auth
+@require_tenant
+@require_role(["owner", "admin"])
+def start_subscription_trial():
+    """Start a 7-day trial for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        current_user = get_current_user()
+        billing_service = BillingService()
+        
+        result = billing_service.start_trial(tenant_id)
+        
+        # Log admin action
+        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=subscription_trial_started")
+        
+        return jsonify({
+            "message": "Trial started successfully",
+            "subscription": result
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start trial: {str(e)}")
+        raise TithiError(
+            message="Failed to start trial",
+            code="TITHI_SUBSCRIPTION_TRIAL_ERROR"
+        )
+
+
+@admin_bp.route("/subscription/activate", methods=["POST"])
+@require_auth
+@require_tenant
+@require_role(["owner", "admin"])
+def activate_subscription():
+    """Activate subscription for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        current_user = get_current_user()
+        data = request.get_json()
+        
+        if not data or not data.get('payment_method_id'):
+            raise TithiError(
+                message="payment_method_id is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        billing_service = BillingService()
+        
+        result = billing_service.create_business_subscription(
+            tenant_id, 
+            data['payment_method_id']
+        )
+        
+        # Log admin action
+        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=subscription_activated")
+        
+        return jsonify({
+            "message": "Subscription activated successfully",
+            "subscription": result
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to activate subscription: {str(e)}")
+        raise TithiError(
+            message="Failed to activate subscription",
+            code="TITHI_SUBSCRIPTION_ACTIVATE_ERROR"
+        )
+
+
+@admin_bp.route("/subscription/pause", methods=["POST"])
+@require_auth
+@require_tenant
+@require_role(["owner", "admin"])
+def pause_subscription():
+    """Pause subscription for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        current_user = get_current_user()
+        billing_service = BillingService()
+        
+        result = billing_service.pause_subscription(tenant_id)
+        
+        # Log admin action
+        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=subscription_paused")
+        
+        return jsonify({
+            "message": "Subscription paused successfully",
+            "subscription": result
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pause subscription: {str(e)}")
+        raise TithiError(
+            message="Failed to pause subscription",
+            code="TITHI_SUBSCRIPTION_PAUSE_ERROR"
+        )
+
+
+@admin_bp.route("/subscription/cancel", methods=["POST"])
+@require_auth
+@require_tenant
+@require_role(["owner", "admin"])
+def cancel_subscription():
+    """Cancel subscription for the tenant."""
+    try:
+        tenant_id = g.tenant_id
+        current_user = get_current_user()
+        billing_service = BillingService()
+        
+        result = billing_service.cancel_subscription(tenant_id)
+        
+        # Log admin action
+        logger.info(f"ADMIN_ACTION_PERFORMED: tenant_id={tenant_id}, user_id={current_user.id}, action_type=subscription_canceled")
+        
+        return jsonify({
+            "message": "Subscription canceled successfully",
+            "subscription": result
+        }), 200
+        
+    except TithiError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel subscription: {str(e)}")
+        raise TithiError(
+            message="Failed to cancel subscription",
+            code="TITHI_SUBSCRIPTION_CANCEL_ERROR"
         )

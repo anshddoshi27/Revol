@@ -1,7 +1,7 @@
 """
 Comprehensive Onboarding Service
 
-This service handles the complete 8-step onboarding process for Tithi businesses.
+This service handles the complete 9-step onboarding process for Tithi businesses.
 It manages data collection, validation, and organization for all business setup steps.
 """
 
@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from ..models.core import Tenant, User, Membership
 from ..models.team import TeamMember, TeamMemberAvailability, ServiceCategory, BusinessPolicy
+from ..models.onboarding import BusinessBranding
 from ..models.promotions import GiftCard, Coupon
 from ..models.notifications import NotificationTemplate
 from ..models.business import Service, Customer
@@ -230,9 +231,83 @@ class OnboardingService:
                 code="TITHI_TEAM_SETUP_ERROR"
             )
     
+    def setup_branding(self, tenant_id: str, branding_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Step 4: Setup branding (logo and brand colors)
+        
+        Args:
+            tenant_id: Tenant ID
+            branding_data: Branding information
+                - logo_url: Logo URL (optional)
+                - primary_color: Primary brand color hex code
+                - secondary_color: Secondary brand color hex code
+                - accent_color: Accent color hex code (optional)
+                - font_family: Font family (optional)
+                - layout_style: Layout style (optional)
+        
+        Returns:
+            Created branding settings
+        """
+        try:
+            tenant = Tenant.query.get(tenant_id)
+            if not tenant:
+                raise TithiError(
+                    message="Tenant not found",
+                    code="TITHI_TENANT_NOT_FOUND",
+                    status_code=404
+                )
+            
+            # Get or create branding record
+            branding = BusinessBranding.query.filter_by(tenant_id=tenant_id).first()
+            if not branding:
+                branding = BusinessBranding(tenant_id=tenant_id)
+                self.db.session.add(branding)
+            
+            # Update branding fields
+            if 'logo_url' in branding_data:
+                branding.logo_url = branding_data['logo_url']
+            if 'primary_color' in branding_data:
+                branding.primary_color = branding_data['primary_color']
+            if 'secondary_color' in branding_data:
+                branding.secondary_color = branding_data['secondary_color']
+            if 'accent_color' in branding_data:
+                branding.accent_color = branding_data['accent_color']
+            if 'font_family' in branding_data:
+                branding.font_family = branding_data['font_family']
+            if 'layout_style' in branding_data:
+                branding.layout_style = branding_data['layout_style']
+            
+            # Update tenant status
+            tenant.status = 'branding_setup'
+            
+            self.db.session.commit()
+            
+            logger.info(f"Branding setup completed for tenant {tenant_id}")
+            
+            return {
+                'tenant_id': str(tenant.id),
+                'branding': {
+                    'logo_url': branding.logo_url,
+                    'primary_color': branding.primary_color,
+                    'secondary_color': branding.secondary_color,
+                    'accent_color': branding.accent_color,
+                    'font_family': branding.font_family,
+                    'layout_style': branding.layout_style
+                },
+                'status': tenant.status
+            }
+            
+        except Exception as e:
+            self.db.session.rollback()
+            logger.error(f"Failed to setup branding: {str(e)}")
+            raise TithiError(
+                message="Failed to setup branding",
+                code="TITHI_BRANDING_SETUP_ERROR"
+            )
+    
     def setup_services_and_categories(self, tenant_id: str, services_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Step 4: Setup services and categories
+        Step 5: Setup services and categories
         
         Args:
             tenant_id: Tenant ID
@@ -327,7 +402,7 @@ class OnboardingService:
     
     def setup_availability(self, tenant_id: str, availability_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Step 5: Setup team member availability for services
+        Step 6: Setup team member availability for services
         
         Args:
             tenant_id: Tenant ID
@@ -396,7 +471,7 @@ class OnboardingService:
     
     def setup_notification_templates(self, tenant_id: str, notification_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Step 6: Setup notification templates and placeholders
+        Step 7: Setup notification templates and placeholders
         
         Args:
             tenant_id: Tenant ID
@@ -470,7 +545,7 @@ class OnboardingService:
     
     def setup_policies_and_gift_cards(self, tenant_id: str, policies_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Step 7: Setup business policies and gift cards
+        Step 8: Setup business policies and gift cards
         
         Args:
             tenant_id: Tenant ID
@@ -538,7 +613,7 @@ class OnboardingService:
     
     def go_live(self, tenant_id: str) -> Dict[str, Any]:
         """
-        Step 8: Go live - activate the business
+        Step 9: Go live - activate the business
         
         Args:
             tenant_id: Tenant ID
@@ -629,3 +704,5 @@ class OnboardingService:
         ]
         
         return all(required_checks)
+
+

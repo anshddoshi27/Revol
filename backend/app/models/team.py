@@ -110,3 +110,5 @@ class BusinessPolicy(TenantModel):
     __table_args__ = (
         UniqueConstraint('tenant_id', 'policy_type', name='unique_tenant_policy_type'),
     )
+
+

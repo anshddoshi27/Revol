@@ -381,3 +381,26 @@ class BrandingService:
             
         except Exception as e:
             raise TithiError("TITHI_BRANDING_EMAIL_ERROR", f"Failed to get branding for email: {str(e)}")
+    
+    def deprovision_subdomain(self, tenant_id: str) -> None:
+        """Deprovision subdomain when subscription is canceled."""
+        try:
+            # Get tenant
+            tenant = Tenant.query.get(tenant_id)
+            if not tenant:
+                logger.warning(f"Tenant {tenant_id} not found for subdomain deprovisioning")
+                return
+            
+            # Note: Actual subdomain deprovisioning would require DNS/infrastructure changes
+            # For now, we just log the action
+            logger.info(f"DEPROVISIONING_SUBDOMAIN: tenant_id={tenant_id}, subdomain={tenant.slug}")
+            
+            # In production, this would:
+            # 1. Remove DNS records
+            # 2. Deallocate infrastructure resources
+            # 3. Update load balancer configuration
+            
+        except Exception as e:
+            logger.error(f"Failed to deprovision subdomain: {e}")
+            # Don't raise - we don't want to fail subscription cancellation if deprovisioning fails
+            pass

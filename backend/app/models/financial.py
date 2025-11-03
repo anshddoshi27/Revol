@@ -163,10 +163,22 @@ class TenantBilling(TenantModel):
     billing_json = Column(JSON, default={})
     default_no_show_fee_percent = Column(Numeric(5, 2), default=3.00)
     
+    # Subscription management fields
+    subscription_id = Column(String(255))
+    subscription_status = Column(String(50), default='inactive')
+    subscription_price_cents = Column(Integer, default=1199)
+    next_billing_date = Column(DateTime)
+    stripe_customer_id = Column(String(255))
+    trial_ends_at = Column(DateTime)
+    
     # Constraints
     __table_args__ = (
         CheckConstraint("default_no_show_fee_percent >= 0 AND default_no_show_fee_percent <= 100", 
                        name="ck_no_show_fee_percent"),
+        CheckConstraint("subscription_price_cents >= 0", 
+                       name="ck_subscription_price_positive"),
+        CheckConstraint("subscription_status IN ('inactive', 'trial', 'active', 'paused', 'canceled')", 
+                       name="ck_subscription_status"),
     )
 
 

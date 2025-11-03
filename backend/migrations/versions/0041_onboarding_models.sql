@@ -347,3 +347,5 @@ COMMENT ON TABLE public.gift_card_templates IS 'Gift card templates for creating
 COMMENT ON TABLE public.onboarding_checklist IS 'Onboarding checklist items for tracking completion';
 
 COMMIT;
+
+

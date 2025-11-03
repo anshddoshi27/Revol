@@ -5,6 +5,7 @@ This module contains financial-related business logic services for payments, ref
 Implements Stripe integration with idempotency and replay protection.
 """
 
+import os
 import uuid
 import stripe
 from typing import Dict, Any, Optional, List
@@ -60,7 +61,7 @@ class PaymentService:
         
         try:
             # Calculate application fee (platform fee)
-            application_fee_cents = int(amount_cents * 0.03)  # 3% platform fee
+            application_fee_cents = int(amount_cents * 0.01)  # 1% platform fee
             
             # Create Stripe PaymentIntent with Connect
             stripe_intent = stripe.PaymentIntent.create(
@@ -169,12 +170,66 @@ class PaymentService:
             db.session.rollback()
             raise TithiError(f"Payment confirmation failed: {str(e)}", error_code="TITHI_PAYMENT_CONFIRMATION_ERROR")
     
-    def create_setup_intent(self, tenant_id: str, customer_id: str, 
+    def get_or_create_stripe_customer(self, customer: Customer, tenant_id: str) -> str:
+        """Get or create Stripe Customer for a database Customer."""
+        from ..models.business import Customer
+        
+        # Check if customer already has Stripe ID stored in notification_preferences
+        if customer.notification_preferences and isinstance(customer.notification_preferences, dict):
+            if 'stripe_customer_id' in customer.notification_preferences:
+                return customer.notification_preferences['stripe_customer_id']
+        
+        try:
+            # Get tenant billing to find Stripe Connect account
+            billing = BillingService().get_tenant_billing(tenant_id)
+            if not billing or not billing.stripe_account_id:
+                raise TithiError("Tenant must complete Stripe Connect setup before accepting payments", 
+                               error_code="TITHI_STRIPE_CONNECT_REQUIRED")
+            
+            # Create Stripe Customer
+            stripe_customer = stripe.Customer.create(
+                email=customer.email,
+                name=customer.display_name,
+                phone=customer.phone,
+                metadata={
+                    'tenant_id': tenant_id,
+                    'customer_id': str(customer.id)
+                }
+            )
+            
+            # Store Stripe customer ID in notification_preferences (existing JSON field)
+            if customer.notification_preferences is None:
+                customer.notification_preferences = {}
+            customer.notification_preferences['stripe_customer_id'] = stripe_customer.id
+            
+            # Don't commit here - let caller handle transaction
+            # db.session.commit() - REMOVED to avoid double commit
+            
+            logger.info("Stripe customer created", extra={
+                'customer_id': str(customer.id),
+                'stripe_customer_id': stripe_customer.id,
+                'tenant_id': tenant_id
+            })
+            
+            return stripe_customer.id
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error creating customer: {e}")
+            raise TithiError(f"Customer creation failed: {str(e)}", error_code="TITHI_STRIPE_ERROR")
+        except Exception as e:
+            logger.error(f"Error creating Stripe customer: {e}")
+            db.session.rollback()
+            raise TithiError(f"Customer creation failed: {str(e)}", error_code="TITHI_CUSTOMER_CREATION_ERROR")
+    
+    def create_setup_intent(self, tenant_id: str, db_customer: Any, 
                           idempotency_key: Optional[str] = None) -> Payment:
         """Create a Stripe SetupIntent for card-on-file authorization."""
         
+        # Get or create Stripe Customer
+        stripe_customer_id = self.get_or_create_stripe_customer(db_customer, tenant_id)
+        
         if not idempotency_key:
-            idempotency_key = f"si_{tenant_id}_{customer_id}_{uuid.uuid4()}"
+            idempotency_key = f"si_{tenant_id}_{db_customer.id}_{uuid.uuid4()}"
         
         # Check for existing setup intent
         existing_payment = Payment.query.filter_by(
@@ -188,11 +243,11 @@ class PaymentService:
         try:
             # Create Stripe SetupIntent
             stripe_setup_intent = stripe.SetupIntent.create(
-                customer=customer_id,
+                customer=stripe_customer_id,
                 payment_method_types=['card'],
                 metadata={
                     'tenant_id': tenant_id,
-                    'customer_id': customer_id,
+                    'customer_id': str(db_customer.id),
                     'idempotency_key': idempotency_key
                 },
                 idempotency_key=idempotency_key
@@ -201,7 +256,7 @@ class PaymentService:
             # Create payment record for setup intent
             payment = Payment(
                 tenant_id=tenant_id,
-                customer_id=customer_id,
+                customer_id=db_customer.id,
                 amount_cents=0,  # Setup intents have no amount
                 currency_code='USD',
                 status='requires_action',
@@ -214,7 +269,8 @@ class PaymentService:
             )
             
             db.session.add(payment)
-            db.session.commit()
+            # Don't commit here - let caller handle transaction
+            # db.session.commit() - REMOVED to avoid double commit
             
             return payment
             
@@ -223,7 +279,8 @@ class PaymentService:
             raise TithiError(f"Setup intent creation failed: {str(e)}", error_code="TITHI_PAYMENT_STRIPE_ERROR")
         except Exception as e:
             logger.error(f"Error creating setup intent: {e}")
-            db.session.rollback()
+            # Don't rollback here - let caller handle transaction
+            # db.session.rollback() - REMOVED
             raise TithiError(f"Setup intent creation failed: {str(e)}", error_code="TITHI_PAYMENT_CREATION_ERROR")
     
     def capture_no_show_fee(self, booking_id: str, tenant_id: str, 
@@ -259,16 +316,25 @@ class PaymentService:
         
         try:
             # Calculate application fee for no-show fee
-            application_fee_cents = int(no_show_fee_cents * 0.03)  # 3% platform fee
+            application_fee_cents = int(no_show_fee_cents * 0.01)  # 1% platform fee
+            
+            # Retrieve Stripe customer ID from payment method
+            stripe_pm = stripe.PaymentMethod.retrieve(payment_method.stripe_payment_method_id)
+            stripe_customer_id = stripe_pm.customer
+            
+            if not stripe_customer_id:
+                raise TithiError("Payment method is not attached to a Stripe customer", 
+                               error_code="TITHI_PAYMENT_NO_CUSTOMER")
             
             # Create PaymentIntent using the stored payment method with Connect
             stripe_intent = stripe.PaymentIntent.create(
                 amount=no_show_fee_cents,
                 currency='USD',
-                customer=booking.customer_id,
+                customer=stripe_customer_id,
                 payment_method=payment_method.stripe_payment_method_id,
                 confirmation_method='automatic',
                 confirm=True,
+                off_session=True,
                 application_fee_amount=application_fee_cents,
                 transfer_data={
                     'destination': billing.stripe_account_id
@@ -699,3 +765,257 @@ class BillingService:
                 'ready_for_payouts': False,
                 'requirements': []
             }
+    
+    def _get_stripe_secret_key(self) -> str:
+        """Get Stripe secret key from configuration."""
+        from ..config import Config
+        return Config.STRIPE_SECRET_KEY
+    
+    def _init_stripe(self):
+        """Initialize Stripe with API key."""
+        import stripe
+        stripe.api_key = self._get_stripe_secret_key()
+        return stripe
+    
+    def get_subscription_status(self, tenant_id: str) -> Dict[str, Any]:
+        """Get subscription status for a tenant."""
+        billing = self.get_tenant_billing(tenant_id)
+        
+        if not billing:
+            return {
+                'status': 'inactive',
+                'next_billing_date': None,
+                'price_cents': 1199,
+                'subscription_id': None,
+                'trial_ends_at': None
+            }
+        
+        return {
+            'status': billing.subscription_status or 'inactive',
+            'next_billing_date': billing.next_billing_date.isoformat() + 'Z' if billing.next_billing_date else None,
+            'price_cents': billing.subscription_price_cents or 1199,
+            'subscription_id': billing.subscription_id,
+            'trial_ends_at': billing.trial_ends_at.isoformat() + 'Z' if billing.trial_ends_at else None
+        }
+    
+    def start_trial(self, tenant_id: str) -> Dict[str, Any]:
+        """Start a 7-day trial for a tenant."""
+        stripe = self._init_stripe()
+        billing = self.get_tenant_billing(tenant_id)
+        
+        if not billing:
+            raise TithiError("Tenant billing not found", error_code="TITHI_BILLING_NOT_FOUND")
+        
+        if billing.subscription_status in ['trial', 'active', 'paused']:
+            raise TithiError("Trial already started or subscription active", error_code="TITHI_SUBSCRIPTION_EXISTS")
+        
+        try:
+            # Calculate trial end date
+            trial_end_date = datetime.utcnow() + timedelta(days=7)
+            
+            # Update billing record
+            billing.subscription_status = 'trial'
+            billing.trial_ends_at = trial_end_date
+            billing.subscription_price_cents = 1199
+            db.session.commit()
+            
+            logger.info("TRIAL_STARTED", extra={
+                'tenant_id': tenant_id,
+                'trial_ends_at': trial_end_date.isoformat()
+            })
+            
+            return {
+                'status': 'trial',
+                'trial_ends_at': trial_end_date.isoformat() + 'Z',
+                'price_cents': 1199
+            }
+            
+        except Exception as e:
+            logger.error(f"Error starting trial: {e}")
+            db.session.rollback()
+            raise TithiError(f"Failed to start trial: {str(e)}", error_code="TITHI_TRIAL_START_ERROR")
+    
+    def create_business_subscription(self, tenant_id: str, payment_method_id: str) -> Dict[str, Any]:
+        """Create a Stripe subscription for a business."""
+        stripe = self._init_stripe()
+        billing = self.get_tenant_billing(tenant_id)
+        
+        if not billing:
+            raise TithiError("Tenant billing not found", error_code="TITHI_BILLING_NOT_FOUND")
+        
+        if billing.subscription_status in ['active', 'paused']:
+            raise TithiError("Subscription already exists", error_code="TITHI_SUBSCRIPTION_EXISTS")
+        
+        try:
+            # Create or retrieve Stripe Customer
+            if not billing.stripe_customer_id:
+                customer = stripe.Customer.create(
+                    metadata={
+                        'tenant_id': tenant_id
+                    }
+                )
+                billing.stripe_customer_id = customer.id
+            else:
+                customer = stripe.Customer.retrieve(billing.stripe_customer_id)
+            
+            # Attach payment method to customer
+            stripe.PaymentMethod.attach(
+                payment_method_id,
+                customer=customer.id
+            )
+            
+            # Set as default payment method
+            stripe.Customer.modify(
+                customer.id,
+                invoice_settings={'default_payment_method': payment_method_id}
+            )
+            
+            # Create or retrieve price
+            from ..config import Config
+            STRIPE_PRICE_ID = os.environ.get('STRIPE_SUBSCRIPTION_PRICE_ID')
+            
+            if not STRIPE_PRICE_ID:
+                # Create price on the fly if not configured
+                price = stripe.Price.create(
+                    unit_amount=1199,
+                    currency='usd',
+                    recurring={'interval': 'month'},
+                    metadata={'tenant_id': tenant_id}
+                )
+                STRIPE_PRICE_ID = price.id
+            
+            # Create subscription
+            subscription = stripe.Subscription.create(
+                customer=customer.id,
+                items=[{'price': STRIPE_PRICE_ID}],
+                metadata={'tenant_id': tenant_id}
+            )
+            
+            # Check if coming from trial
+            was_trial = billing.subscription_status == 'trial'
+            
+            # Update billing record
+            billing.subscription_id = subscription.id
+            billing.subscription_status = 'active'
+            billing.next_billing_date = datetime.fromtimestamp(subscription.current_period_end, tz=datetime.timezone.utc)
+            billing.subscription_price_cents = 1199
+            
+            # Clear trial end date if coming from trial
+            if was_trial:
+                billing.trial_ends_at = None
+            
+            db.session.commit()
+            
+            logger.info("SUBSCRIPTION_CREATED", extra={
+                'tenant_id': tenant_id,
+                'subscription_id': subscription.id,
+                'next_billing_date': billing.next_billing_date.isoformat()
+            })
+            
+            return {
+                'subscription_id': subscription.id,
+                'status': 'active',
+                'next_billing_date': billing.next_billing_date.isoformat() + 'Z',
+                'price_cents': 1199
+            }
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error creating subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription creation failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_STRIPE_ERROR")
+        except Exception as e:
+            logger.error(f"Error creating subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription creation failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_CREATION_ERROR")
+    
+    def pause_subscription(self, tenant_id: str) -> Dict[str, Any]:
+        """Pause a Stripe subscription."""
+        stripe = self._init_stripe()
+        billing = self.get_tenant_billing(tenant_id)
+        
+        if not billing or not billing.subscription_id:
+            raise TithiError("Subscription not found", error_code="TITHI_SUBSCRIPTION_NOT_FOUND")
+        
+        if billing.subscription_status != 'active':
+            raise TithiError(f"Cannot pause subscription in status: {billing.subscription_status}", 
+                           error_code="TITHI_SUBSCRIPTION_INVALID_STATUS")
+        
+        try:
+            # Pause subscription in Stripe
+            subscription = stripe.Subscription.modify(
+                billing.subscription_id,
+                pause_collection={
+                    'behavior': 'mark_uncollectible'
+                },
+                metadata={'tenant_id': tenant_id, 'paused_at': datetime.utcnow().isoformat()}
+            )
+            
+            # Update billing record
+            billing.subscription_status = 'paused'
+            db.session.commit()
+            
+            logger.info("SUBSCRIPTION_PAUSED", extra={
+                'tenant_id': tenant_id,
+                'subscription_id': billing.subscription_id
+            })
+            
+            return {
+                'subscription_id': billing.subscription_id,
+                'status': 'paused',
+                'next_billing_date': billing.next_billing_date.isoformat() + 'Z' if billing.next_billing_date else None
+            }
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error pausing subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription pause failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_STRIPE_ERROR")
+        except Exception as e:
+            logger.error(f"Error pausing subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription pause failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_PAUSE_ERROR")
+    
+    def cancel_subscription(self, tenant_id: str) -> Dict[str, Any]:
+        """Cancel a Stripe subscription and deprovision subdomain."""
+        stripe = self._init_stripe()
+        billing = self.get_tenant_billing(tenant_id)
+        
+        if not billing or not billing.subscription_id:
+            raise TithiError("Subscription not found", error_code="TITHI_SUBSCRIPTION_NOT_FOUND")
+        
+        if billing.subscription_status == 'canceled':
+            raise TithiError("Subscription already canceled", error_code="TITHI_SUBSCRIPTION_ALREADY_CANCELED")
+        
+        try:
+            # Cancel subscription in Stripe
+            subscription = stripe.Subscription.cancel(billing.subscription_id)
+            
+            # Update billing record
+            billing.subscription_status = 'canceled'
+            billing.next_billing_date = None
+            db.session.commit()
+            
+            # Deprovision subdomain
+            from ..services.system import BrandingService
+            branding_service = BrandingService()
+            tenant = Tenant.query.filter_by(id=tenant_id).first()
+            if tenant:
+                branding_service.deprovision_subdomain(tenant_id)
+            
+            logger.info("SUBSCRIPTION_CANCELED", extra={
+                'tenant_id': tenant_id,
+                'subscription_id': billing.subscription_id
+            })
+            
+            return {
+                'subscription_id': billing.subscription_id,
+                'status': 'canceled'
+            }
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error canceling subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription cancellation failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_STRIPE_ERROR")
+        except Exception as e:
+            logger.error(f"Error canceling subscription: {e}")
+            db.session.rollback()
+            raise TithiError(f"Subscription cancellation failed: {str(e)}", error_code="TITHI_SUBSCRIPTION_CANCEL_ERROR")

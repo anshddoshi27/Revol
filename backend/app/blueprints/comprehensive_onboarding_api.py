@@ -1,8 +1,8 @@
 """
 Comprehensive Onboarding API Blueprint
 
-This blueprint provides complete API endpoints for the 8-step onboarding process,
-including business setup, team management, services, availability, notifications,
+This blueprint provides complete API endpoints for the 9-step onboarding process,
+including business setup, team management, branding, services, availability, notifications,
 policies, and go-live functionality.
 """
 
@@ -204,12 +204,71 @@ def setup_team_members():
         }), 500
 
 
-@comprehensive_onboarding_bp.route("/onboarding/step4/services-categories", methods=["POST"])
+@comprehensive_onboarding_bp.route("/onboarding/step4/branding", methods=["POST"])
+@require_auth
+@require_tenant
+def setup_branding():
+    """
+    Step 4: Setup branding (logo and brand colors)
+    
+    Request Body:
+        - logo_url: Logo URL (optional)
+        - primary_color: Primary brand color hex code
+        - secondary_color: Secondary brand color hex code
+        - accent_color: Accent color hex code (optional)
+        - font_family: Font family (optional)
+        - layout_style: Layout style - modern, classic, minimal (optional)
+    
+    Returns:
+        - tenant_id: Tenant ID
+        - branding: Created branding settings
+        - status: Updated status
+    """
+    try:
+        tenant_id = g.tenant_id
+        data = request.get_json()
+        
+        if not data:
+            raise TithiError(
+                message="Branding data is required",
+                code="TITHI_VALIDATION_ERROR",
+                status_code=400
+            )
+        
+        onboarding_service = OnboardingService()
+        result = onboarding_service.setup_branding(tenant_id, data)
+        
+        return jsonify({
+            "success": True,
+            "data": result,
+            "message": "Branding setup successfully"
+        }), 200
+        
+    except TithiError as e:
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": e.message,
+                "code": e.code
+            }
+        }), e.status_code
+    except Exception as e:
+        logger.error(f"Failed to setup branding: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "code": "TITHI_INTERNAL_ERROR"
+            }
+        }), 500
+
+
+@comprehensive_onboarding_bp.route("/onboarding/step5/services-categories", methods=["POST"])
 @require_auth
 @require_tenant
 def setup_services_categories():
     """
-    Step 4: Setup services and categories
+    Step 5: Setup services and categories
     
     Request Body:
         - categories: Array of category objects
@@ -268,12 +327,12 @@ def setup_services_categories():
         }), 500
 
 
-@comprehensive_onboarding_bp.route("/onboarding/step5/availability", methods=["POST"])
+@comprehensive_onboarding_bp.route("/onboarding/step6/availability", methods=["POST"])
 @require_auth
 @require_tenant
 def setup_availability():
     """
-    Step 5: Setup team member availability for services
+    Step 6: Setup team member availability for services
     
     Request Body:
         - team_member_availability: Object mapping team_member_id to availability
@@ -326,12 +385,12 @@ def setup_availability():
         }), 500
 
 
-@comprehensive_onboarding_bp.route("/onboarding/step6/notifications", methods=["POST"])
+@comprehensive_onboarding_bp.route("/onboarding/step7/notifications", methods=["POST"])
 @require_auth
 @require_tenant
 def setup_notification_templates():
     """
-    Step 6: Setup notification templates and placeholders
+    Step 7: Setup notification templates and placeholders
     
     Request Body:
         - templates: Array of notification template objects
@@ -386,12 +445,12 @@ def setup_notification_templates():
         }), 500
 
 
-@comprehensive_onboarding_bp.route("/onboarding/step7/policies-gift-cards", methods=["POST"])
+@comprehensive_onboarding_bp.route("/onboarding/step8/policies-gift-cards", methods=["POST"])
 @require_auth
 @require_tenant
 def setup_policies_gift_cards():
     """
-    Step 7: Setup business policies and gift cards
+    Step 8: Setup business policies and gift cards
     
     Request Body:
         - policies: Array of business policy objects
@@ -446,12 +505,12 @@ def setup_policies_gift_cards():
         }), 500
 
 
-@comprehensive_onboarding_bp.route("/onboarding/step8/go-live", methods=["POST"])
+@comprehensive_onboarding_bp.route("/onboarding/step9/go-live", methods=["POST"])
 @require_auth
 @require_tenant
 def go_live():
     """
-    Step 8: Go live - activate the business
+    Step 9: Go live - activate the business
     
     Returns:
         - tenant_id: Tenant ID
@@ -523,6 +582,7 @@ def get_onboarding_status():
             "business_account",
             "business_information", 
             "team_members",
+            "branding",
             "services_categories",
             "availability",
             "notifications",
@@ -535,10 +595,11 @@ def get_onboarding_status():
             "onboarding": [],
             "information_collected": ["business_account", "business_information"],
             "team_setup": ["business_account", "business_information", "team_members"],
-            "services_setup": ["business_account", "business_information", "team_members", "services_categories"],
-            "availability_setup": ["business_account", "business_information", "team_members", "services_categories", "availability"],
-            "notifications_setup": ["business_account", "business_information", "team_members", "services_categories", "availability", "notifications"],
-            "policies_setup": ["business_account", "business_information", "team_members", "services_categories", "availability", "notifications", "policies_gift_cards"],
+            "branding_setup": ["business_account", "business_information", "team_members", "branding"],
+            "services_setup": ["business_account", "business_information", "team_members", "branding", "services_categories"],
+            "availability_setup": ["business_account", "business_information", "team_members", "branding", "services_categories", "availability"],
+            "notifications_setup": ["business_account", "business_information", "team_members", "branding", "services_categories", "availability", "notifications"],
+            "policies_setup": ["business_account", "business_information", "team_members", "branding", "services_categories", "availability", "notifications", "policies_gift_cards"],
             "active": steps
         }
         
@@ -576,3 +637,5 @@ def get_onboarding_status():
                 "code": "TITHI_INTERNAL_ERROR"
             }
         }), 500
+
+

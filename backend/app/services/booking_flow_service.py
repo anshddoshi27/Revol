@@ -16,9 +16,10 @@ from sqlalchemy import and_, or_
 from ..extensions import db
 from ..models.core import Tenant
 from ..models.business import Service, Customer, Booking
-from ..models.team import TeamMember, TeamMemberAvailability, ServiceCategory
+from ..models.team import TeamMember, TeamMemberAvailability, ServiceCategory, TeamMemberService
 from ..models.promotions import GiftCard, Coupon, CouponUsage
 from ..models.financial import Payment
+from ..services.financial import PaymentService
 from ..middleware.error_handler import TithiError
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,7 @@ class BookingFlowService:
             
             # Create or find customer
             customer = self._create_or_find_customer(tenant_id, booking_data['customer_info'])
+            self.db.session.flush()  # Ensure customer has an ID
             
             # Calculate pricing
             pricing = self._calculate_booking_pricing(
@@ -325,15 +327,13 @@ class BookingFlowService:
             self.db.session.add(booking)
             self.db.session.flush()  # Get booking ID
             
-            # Process payment
+            # Process payment - creates SetupIntent to save card for off-session charging
             payment_result = self._process_payment(booking, booking_data.get('payment_method'))
             
-            if payment_result['success']:
-                booking.status = 'confirmed'
-                booking.payment_status = 'paid'
-            else:
-                booking.status = 'pending_payment'
-                booking.payment_status = 'pending'
+            # Booking starts as 'pending' - no charge has occurred yet
+            # Status changes when admin presses Completed/No-Show/Cancelled button
+            booking.status = 'pending'
+            booking.payment_status = 'pending'
             
             self.db.session.commit()
             
@@ -343,13 +343,14 @@ class BookingFlowService:
             logger.info(f"Booking created successfully", extra={
                 'booking_id': str(booking.id),
                 'tenant_id': tenant_id,
-                'customer_id': str(customer.id)
+                'customer_id': str(customer.id),
+                'status': 'pending'
             })
             
             return {
                 'booking_id': str(booking.id),
-                'status': booking.status,
-                'payment_status': booking.payment_status,
+                'status': 'pending',  # Always pending until admin action
+                'payment_status': 'pending',
                 'total_amount_cents': booking.total_amount_cents,
                 'currency': booking.currency,
                 'start_time': booking.start_at.isoformat(),
@@ -357,7 +358,10 @@ class BookingFlowService:
                 'service_name': service.name,
                 'team_member_name': team_member.name,
                 'customer_name': customer.display_name,
-                'confirmation_number': booking.client_generated_id
+                'confirmation_number': booking.client_generated_id,
+                # Return SetupIntent info for frontend Stripe Elements
+                'setup_intent_client_secret': payment_result.get('setup_intent_client_secret'),
+                'payment_id': payment_result.get('payment_id')
             }
             
         except Exception as e:
@@ -444,15 +448,60 @@ class BookingFlowService:
         }
     
     def _process_payment(self, booking: Booking, payment_method: Dict[str, Any]) -> Dict[str, Any]:
-        """Process payment for booking."""
-        # This would integrate with Stripe or other payment processor
-        # For now, return success for demo purposes
+        """
+        Process payment for booking by creating SetupIntent.
+        Per frontend logistics: we save card at checkout, no charge yet.
+        Actual charge happens when admin presses Completed/No-Show/Cancelled button.
+        """
+        try:
+            payment_service = PaymentService()
+            
+            # Create SetupIntent to save card for off-session use
+            # This allows us to charge later when admin marks booking complete/no-show/cancelled
+            # Get customer object for SetupIntent creation
+            customer = Customer.query.get(booking.customer_id)
+            if not customer:
+                raise TithiError("Customer not found", code="TITHI_CUSTOMER_NOT_FOUND")
+            
+            setup_intent = payment_service.create_setup_intent(
+                tenant_id=booking.tenant_id,
+                db_customer=customer,
+                idempotency_key=f"si_{booking.tenant_id}_{booking.id}_{uuid.uuid4()}"
+            )
+            
+            # Return setup intent client secret for frontend Stripe Elements
+            return {
+                'success': True,
+                'payment_id': str(setup_intent.id),
+                'setup_intent_client_secret': self._get_stripe_setup_intent_client_secret(setup_intent),
+                'amount_cents': booking.total_amount_cents,
+                'payment_status': 'pending',  # No charge yet
+                'capture_method': 'off_session'  # Will charge later via admin buttons
+            }
+        except Exception as e:
+            logger.error(f"Failed to create setup intent: {str(e)}")
+            raise TithiError(
+                message=f"Payment setup failed: {str(e)}",
+                code="TITHI_PAYMENT_SETUP_ERROR"
+            )
+    
+    def _get_stripe_setup_intent_client_secret(self, payment: Payment) -> str:
+        """Get Stripe SetupIntent client secret from payment record."""
+        if not payment.provider_setup_intent_id:
+            raise TithiError("No setup intent ID found", code="TITHI_PAYMENT_NO_SETUP_INTENT")
         
-        return {
-            'success': True,
-            'payment_id': str(uuid.uuid4()),
-            'amount_cents': booking.total_amount_cents
-        }
+        try:
+            import stripe
+            payment_service = PaymentService()
+            stripe.api_key = payment_service._get_stripe_secret_key()
+            setup_intent = stripe.SetupIntent.retrieve(payment.provider_setup_intent_id)
+            return setup_intent.client_secret
+        except Exception as e:
+            logger.error(f"Failed to retrieve setup intent client secret: {str(e)}")
+            raise TithiError(
+                message="Failed to get payment setup secret",
+                code="TITHI_PAYMENT_SECRET_ERROR"
+            )
     
     def _send_booking_confirmation(self, booking: Booking):
         """Send booking confirmation notifications."""
@@ -474,3 +523,5 @@ class BookingFlowService:
             current_time += timedelta(minutes=30)  # 30-minute intervals
         
         return slots
+
+

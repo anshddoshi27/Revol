@@ -233,3 +233,4 @@ const { setupIntent, error } = await stripe.confirmSetup({
 - Issue detection: `docs/frontend/FRONTEND_BUILD_PHASES.md:246-324`
 - Backend models: `backend/app/models/financial.py`, `backend/app/models/business.py`
 - Service implementations: `backend/app/services/financial.py`, `backend/app/services/booking_flow_service.py`
+

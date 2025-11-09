@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222 47% 7%;
+  --foreground: 0 0% 100%;
+  --muted: 217 15% 20%;
+  --muted-foreground: 218 12% 65%;
+  --accent: 222 88% 61%;
+  --accent-foreground: 0 0% 100%;
+  --primary: 226 85% 64%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 215 22% 17%;
+  --secondary-foreground: 0 0% 100%;
+  --border: 223 16% 20%;
+  --input: 223 16% 20%;
+  --ring: 222 88% 61%;
+  --card: 224 28% 12%;
+  --card-foreground: 0 0% 100%;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+}
+
+::selection {
+  background-color: hsla(226, 85%, 64%, 0.35);
+}
+

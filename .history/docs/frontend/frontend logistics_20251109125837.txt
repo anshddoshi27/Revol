@@ -2,6 +2,171 @@ Tithi Description (frontend logistcs)
 
  tithi.com is the landing page, which shows a Join tithi now and a login button. just that for now. either a user will create an account or login to the existing one. logging in now drops you straight into the admin for your selected business—there is no dashboard anymore. if the owner has multiple businesses, they switch between them from inside the admin (business picker in the header). (remember, each business has to be paid for speerately, one boarding flow for one buisness and gets its own 11.99 a month subscription, if you want multiple businesses you have to pay that many times more a month). once you’re inside a business admin, you land on the overview that mirrors the onboarding tabs. this has essentiall all the pages form the onbaording, allowing you to adjust all those parameters and settings that were set in onbaording so you can change them in real time even after the buisness went live. but it also has a past bookings page that shows all past bookings with all the data involved with it, along with the customer name email and phone number (gets entered when the customer is on the payment page). each booking is a block, and it has a "completed" button, "no show" button", and "refund" button. this is what contorls the actual money to go through, depending on if it was a successful transaction or a refund. untill one of thiese buttons are hit by the client, no payment has actually gone through. (this isn't reflected in the figma design so be sure to add it). make sure this is known when building the stripe pipeline and infrastructure that connects stripe to power the payments that occur. So if a user creates an account in Tithi, there needs to be an instance of a new user being created. And this instance umbrellas all of the data surrounding the business and all the services in it, all the availability data that are under each service, and also all the business names, name data, address, everything about that. That is already in the onboarding process, but basically everything needs to be organized. So I'm going to read out all the data that needs to be collected, and you need to figure out how to store it, organize it, and make it process and transfer with the front and back end database and to the different, to the booking flow and the admin view. I hope this makes sense. So in the beginning, step one is right after the user creates the account. So user creates the account with an email, a password, and a name and last name. And then it goes to set up your business, which is step one of eight, and it will start collecting business information like the business name, a brief description, and then what is the DBA, the legal business name, and then what is the industry. Then it goes, there's a section called your booking website, where it asks for the subdomain of your website, and this will be the exact URL for your booking flow for this website. Then it asks for location and contacts, a time zone, phone number, website support, email, business address, street address, city, state, province, postal code, and country, and then team members. This is where you add different team members, so you can, which will basically subdivide all the availability data. So when a user goes on the booking flow, they can not just see all the availabilities, but what staff members are exactly available for what certain time blocks. So anyways, user adds a team member and their role and their name, and then there's social media, which you can add the website to the actual company's website, Instagram, Facebook, TikTok, YouTube, but this is all optional. And then it goes to the next step, which is going to be the logo and brand colors, and this is where you upload your logo and then the brand color, and then this will basically design the look of the booking flow. Then it goes to step three, which is services and categories. So so far, we had all of that data about the business and the staff members and the URL, and all of that needs to be organized. Staff members need to be especially organized because they get used for the availability set, which is later on step four. But now we're in step three, and this is services and categories, and this is where a user adds a category, and under that category, they will be able to add the services that they want. And these services require, so when you add a category, you add the category name, optional description, category color, and then you add services within that category, and this will ask for the service name, description, duration, price, and pre-appointment instructions, which will be listed in the booking flow under the service. And then you add the service, service gets added successfully, and then you add another service if you want. And then once you add all those services within that category, you create the category and then that category is born and all the services under it will be attached. So the category is the parent and the services are the child instances within the parent. And they have the duration, price, instructions, description, all those data fields within each child or service. And once this is all the categories are added and with it with all their respective services, then you continue to availability. And this is where you select a service and then fill out the availability for it. And you don't just fill out the availability in general, but you pick a staff member and then fill out its availability. And then you pick the next staff member and select and put it, fill in their availability. And then you finish filling in the availability for that service and you go to the next service. And you have to do it for all of the services that are listed. And once you do that, then you go to the next step, which is notification templates. And this is where you create notifications. You create a template, you do the template name, a channel, which will be email, SMS or push. And then email subject, if it is an email, and then category, which will either be confirmation, reminder, follow up, cancellation or reschedule. And then. And then.And then the category, which is I Just Said That, and then trigger event, which will either be Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Booking Rescheduled, and Booking Completed. And then there are available placeholders. So now this is important. These available placeholders will be filled out in this step, in the Notification step. And this will be not filled out, but this will be the Customer Name, the Service Name, the Service Duration, Price, Booking Date. So these are all variables that can be added to the content of the notification because every notification is going to be different for every customer according to their Customer Name and the service that they booked, so they will be dynamic. To make this possible, make sure thesevariables properly access it's respective data so this works. YOU ARE A DEVELOPER, FIGUER OUT HOW TO DO THIS. This is a template, but the data will be different for each actual notification when it's practically rujnning, when the app is practically running and people are actually booking stuff. The Customer Name will be different, the Service Name will be different, the Service Duration will be different because it depends on what service they add, Price, Booking Date, Booking Time, Business Name. So instead of saying, your booking is at August, it's going to say, your booking is at Booking Date, which is the variable. So people will be able to add these placeholders and these need to be properly managed so they always become the right data when the notification is actually sent. So we need to make sure this happens as well. So you need to figure out how to organize this and get this created with the onboarding and then routed properly so it always shows the right data when a user wants to add one of these placeholders in their notification template content. Then the next step will be the Gift Cards. Now this is optional. Sorry, it is not the Gift Cards, it is Policies and Confirmation. So this is where the user fills out their booking policies, which is the Cancellation Policy, the No-Show Policy, the No-Show Flat Fee, and the Refund Policy and the Cash Payment Policy. These will all be shown in the Payment section of the Booking Flow as little pop-ups. It will be one pop-up and all the policies will be listed and it's a scrollable component where the user will be able to scroll through everything and understand these policies. These are set over here and it's just adding the content, the text content of the policy and the No-Show Flat Fee or Percentage Fee, whatever the user wants to have. These percentages will be applied to the payments accordingly for the final price, the booking was marked a No Show. And then user saves the policies and then the next step is Gift Cards. This is optional but a user can create a Gift Card. They can set the expiration date and also the amount that the Gift Card holds, either an actual amount or a percentage discount off whatever the price of the booking is. And then the user can generate the actual code, which is a randomized generator creating a Gift Code. But basically, again, remember the whole entire goal of all of this. It's just being able to store all of this data under each user, which is under each business name. Also just to confirm with you, the percentage discounts that are set are to be appleid if this code is added from a customer in the payment section, to then show the final price. make sure the payment page will do this. organize the data storage accordingly. remember ( understand how to store this data, process it and transfer it around to the Booking Flow and within the steps of the onboarding.) Going back to how the onboarding works for the app, that is the Gift Card section and then it goes to Payment Setup. This is where the user fills out their credit card and then all the payment methods that they want to allow. Then that will create the Stripe account under My Account, which is the Stripe Express and that allows different accounts to be made under My (me the person who build the app) Account so they can create payment processing for their booking flow. Credit Card and Payment Methods need to be configured over here. Once that is done, you need to build the code that will trigger an account to be made under my stripe account then it goes to the final step. full stripe setupt: [I'll analyze your existing backend and database structure to modify the Stripe integration plan for compatibility. Let me first examine the current backend architecture and database models. [3 tools called] Now let me examine the existing payment API and financial models more closely: [3 tools called] Now let me examine the existing services and onboarding structure: [3 tools called] Now I have a comprehensive understanding of the existing backend and database structure. Let me create a modified Stripe integration plan that's compatible with the existing system: [1 tool called] Based on my analysis of your existing backend and database structure, here's a modified Stripe integration plan that's fully compatible with your current system: # ⚡️ MODIFIED STRIPE INTEGRATION PLAN ## 🧩 COMPATIBLE WITH EXISTING BACKEND & DATABASE ### 🔧 PHASE 1 — EXTEND EXISTING MODELS (Database Compatibility) **Goal**: Extend existing TenantBilling and Payment models to support subscriptions and Stripe Connect. **Database Changes** (Add to existing TenantBilling model):
 sql
+-- Add subscription fields to existing tenant_billing table
+ALTER TABLE tenant_billing ADD COLUMN subscription_id VARCHAR(255);
+ALTER TABLE tenant_billing ADD COLUMN subscription_status VARCHAR(50) DEFAULT 'inactive';
+ALTER TABLE tenant_billing ADD COLUMN subscription_price_cents INTEGER DEFAULT 1199;
+ALTER TABLE tenant_billing ADD COLUMN next_billing_date TIMESTAMP;
+ALTER TABLE tenant_billing ADD COLUMN stripe_customer_id VARCHAR(255);
+**New Model Extensions**:
+python
+# Extend existing TenantBilling model in financial.py
+class TenantBilling(TenantModel):
+    # ... existing fields ...
+    
+    # NEW: Subscription fields
+    subscription_id = Column(String(255))
+    subscription_status = Column(String(50), default='inactive')
+    subscription_price_cents = Column(Integer, default=1199)  # $11.99
+    next_billing_date = Column(DateTime)
+    stripe_customer_id = Column(String(255))
+    
+    # NEW: Enhanced Connect fields
+    connect_account_status = Column(String(50), default='pending')
+    onboarding_completed = Column(Boolean, default=False)
+### 🔧 PHASE 2 — EXTEND EXISTING PAYMENT API (API Compatibility) **Goal**: Add new endpoints to existing payment_api.py blueprint without breaking existing functionality. **New Endpoints** (Add to existing backend/app/blueprints/payment_api.py):
+python
+# STRIPE CONNECT & SUBSCRIPTION ENDPOINTS
+
+@payment_bp.route('/stripe/connect/setup', methods=['POST'])
+@require_auth
+@require_tenant
+def setup_stripe_connect():
+    """Setup Stripe Connect account for tenant (Onboarding Step 7)"""
+    # Uses existing BillingService.create_stripe_connect_account()
+    # Integrates with existing onboarding flow
+
+@payment_bp.route('/stripe/subscription/create', methods=['POST'])
+@require_auth
+@require_tenant
+def create_business_subscription():
+    """Create $11.99/month subscription for business"""
+    # Creates subscription using existing TenantBilling model
+    # Integrates with existing payment infrastructure
+
+@payment_bp.route('/stripe/checkout/session', methods=['POST'])
+@require_auth
+def create_booking_checkout():
+    """Create checkout session for customer booking (Booking Flow)"""
+    # Extends existing create_checkout() endpoint
+    # Uses existing Payment model and PaymentService
+
+@payment_bp.route('/stripe/payment/capture', methods=['POST'])
+@require_auth
+@require_tenant
+def capture_booking_payment():
+    """Capture held payment (Admin View - Completed button)"""
+    # Extends existing payment capture logic
+    # Uses existing Payment model
+
+@payment_bp.route('/stripe/payment/refund', methods=['POST'])
+@require_auth
+@require_tenant
+def refund_booking_payment():
+    """Refund booking payment (Admin View - Refund button)"""
+    # Uses existing Refund model and PaymentService.process_refund()
+### 🔧 PHASE 3 — EXTEND EXISTING SERVICES (Service Compatibility) **Goal**: Extend existing PaymentService and BillingService without duplicating functionality. **Service Extensions** (Add to existing backend/app/services/financial.py):
+python
+class BillingService:
+    # ... existing methods ...
+    
+    def create_business_subscription(self, tenant_id: str) -> Dict[str, Any]:
+        """Create $11.99/month subscription for business"""
+        # Uses existing TenantBilling model
+        # Creates Stripe subscription
+        # Updates existing billing record
+    
+    def get_subscription_status(self, tenant_id: str) -> Dict[str, Any]:
+        """Get subscription status for tenant"""
+        # Uses existing TenantBilling model
+        # Returns subscription information
+
+class PaymentService:
+    # ... existing methods ...
+    
+    def create_booking_payment_intent(self, tenant_id: str, booking_id: str, 
+                                     amount_cents: int, gift_code: Optional[str] = None) -> Payment:
+        """Create payment intent for customer booking with gift card support"""
+        # Extends existing create_payment_intent()
+        # Integrates with existing GiftCard model
+        # Uses existing Payment model
+    
+    def capture_booking_payment(self, payment_id: str, tenant_id: str) -> Payment:
+        """Capture held payment (Admin action)"""
+        # Extends existing payment capture logic
+        # Uses existing Payment model
+    
+    def refund_booking_payment(self, payment_id: str, tenant_id: str, 
+                              refund_type: str = "full") -> Refund:
+        """Refund booking payment (Admin action)"""
+        # Uses existing Refund model
+        # Extends existing process_refund() method
+### 🔧 PHASE 4 — INTEGRATE WITH EXISTING ONBOARDING (Onboarding Compatibility) **Goal**: Integrate Stripe Connect setup into existing onboarding Step 7 (Payment Setup). **Onboarding Integration** (Modify existing backend/app/blueprints/comprehensive_onboarding_api.py):
+python
+@comprehensive_onboarding_bp.route("/onboarding/step7/payment-setup", methods=["POST"])
+@require_auth
+@require_tenant
+def payment_setup():
+    """Step 7: Payment Setup with Stripe Connect integration"""
+    # Uses existing onboarding flow
+    # Integrates with existing OnboardingProgress model
+    # Calls new BillingService.create_stripe_connect_account()
+    # Updates existing step_data in onboarding progress
+### 🔧 PHASE 5 — ENHANCE EXISTING WEBHOOKS (Webhook Compatibility) **Goal**: Extend existing webhook handling for subscription and Connect events. **Webhook Extensions** (Modify existing backend/app/jobs/webhook_inbox_worker.py):
+python
+def process_webhook_event(provider: str, event_id: str) -> bool:
+    # ... existing webhook handling ...
+    
+    # NEW: Subscription webhooks
+    if event_type == "customer.subscription.created":
+        _handle_subscription_created(event_data)
+    elif event_type == "customer.subscription.updated":
+        _handle_subscription_updated(event_data)
+    elif event_type == "invoice.payment_succeeded":
+        _handle_subscription_payment_succeeded(event_data)
+    elif event_type == "invoice.payment_failed":
+        _handle_subscription_payment_failed(event_data)
+    
+    # NEW: Connect webhooks
+    elif event_type == "account.updated":
+        _handle_connect_account_updated(event_data)
+### 🔧 PHASE 6 — BOOKING FLOW INTEGRATION (Booking Flow Compatibility) **Goal**: Integrate payment processing into existing booking flow. **Booking Flow Integration** (Extend existing backend/app/services/booking_flow_service.py):
+python
+class BookingFlowService:
+    # ... existing methods ...
+    
+    def _process_booking_payment(self, booking: Booking, payment_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process payment for booking with Stripe integration"""
+        # Uses existing PaymentService
+        # Integrates with existing Booking model
+        # Supports gift card validation
+        # Creates PaymentIntent with manual capture
+### 🔧 PHASE 7 — ADMIN VIEW INTEGRATION (Admin Compatibility) **Goal**: Integrate payment controls into existing admin dashboard. **Admin Integration** (Extend existing admin endpoints):
+python
+# Add to existing admin dashboard API
+@admin_bp.route("/bookings/<booking_id>/payment/capture", methods=["POST"])
+@require_auth
+@require_tenant
+def capture_booking_payment(booking_id):
+    """Admin: Capture held payment (Completed button)"""
+    # Uses existing PaymentService
+    # Updates existing Booking model
+    # Integrates with existing admin dashboard
+
+@admin_bp.route("/bookings/<booking_id>/payment/refund", methods=["POST"])
+@require_auth
+@require_tenant
+def refund_booking_payment(booking_id):
+    """Admin: Refund booking payment (Refund button)"""
+    # Uses existing Refund model
+    # Integrates with existing admin dashboard
+### 🔧 PHASE 8 — GIFT CARD INTEGRATION (Gift Card Compatibility) **Goal**: Integrate gift card validation with existing GiftCard model. **Gift Card Integration** (Extend existing backend/app/models/promotions.py):
+python
+# Uses existing GiftCard model
+# Extends existing gift card validation
+# Integrates with existing PaymentService
+# Supports percentage and flat amount discounts
+### 🔧 PHASE 9 — TESTING & VALIDATION (Testing Compatibility) **Goal**: Ensure all new functionality works with existing system. **Testing Strategy**: 1. **Existing API Tests**: Ensure no existing endpoints are broken 2. **New Integration Tests**: Test Stripe Connect and subscription flows 3. **Onboarding Tests**: Verify Step 7 integration works 4. **Booking Flow Tests**: Ensure payment processing works end-to-end 5. **Admin Tests**: Verify payment controls work in admin dashboard ### 🔧 PHASE 10 — DEPLOYMENT & MONITORING (Deployment Compatibility) **Goal**: Deploy without disrupting existing functionality. **Deployment Strategy**: 1. **Database Migration**: Add new columns to existing tables 2. **API Deployment**: Deploy new endpoints alongside existing ones 3. **Service Updates**: Update existing services with new methods 4. **Webhook Enhancement**: Update existing webhook handling 5. **Monitoring**: Ensure existing monitoring continues to work --- ## 🎯 KEY COMPATIBILITY FEATURES ✅ **Database Compatibility**: Extends existing models, doesn't replace them ✅ **API Compatibility**: Adds new endpoints to existing blueprints ✅ **Service Compatibility**: Extends existing services with new methods ✅ **Onboarding Compatibility**: Integrates with existing 8-step onboarding flow ✅ **Booking Flow Compatibility**: Works with existing booking flow service ✅ **Admin Compatibility**: Integrates with existing admin dashboard ✅ **Webhook Compatibility**: Extends existing webhook handling ✅ **Gift Card Compatibility**: Uses existing GiftCard model ✅ **Testing Compatibility**: Maintains existing test coverage ✅ **Deployment Compatibility**: Non-breaking changes to existing system This modified plan ensures complete compatibility with your existing backend and database while adding the Stripe integration functionality you need. All new features build on top of your existing infrastructure without duplicating or replacing any existing functionality. [1 tool called] The modified Stripe integration plan is now complete and fully compatible with your existing backend and database structure. The plan: 1. **Extends existing models** rather than replacing them 2. **Adds new endpoints** to existing API blueprints 3. **Enhances existing services** with new subscription and Connect functionality 4. **Integrates seamlessly** with your current 8-step onboarding flow 5. **Works with existing** booking flow and admin dashboard 6. **Maintains compatibility** with all existing functionality This approach ensures that your Stripe integration will work perfectly with your existing backend and database while adding the subscription and payment processing capabilities you need for your Tithi platform.] which is the Go Live step. This is where you basically generate the Booking Page URL. Again, it gives it to you so you can copy it and then it says Go Live. Once you hit Go Live, the URL is accessible now and you can see the Booking Flow under that URL. So that is important. You should be able to see the Booking Flow should exist in that URL that is generated. That is the onboarding and now I'm going to show you how the Booking Flow works and you need to make sure that the data is stored and organized in a properly way so it can be transferred to the Booking Flow page and show the business respective services and all the data under that and all the availability data under that and all the payment data under that, all the policy data under that, everything, the gift card data under that, the notifications that are going to be sent out. Everything needs to feed into the Booking Flow and display properly whatever is supposed to be displayed, obviously not the notifications, but everything else and all the data needs to be routed correctly. also make sure the payment info are taken care of (credit card info and name and email phone number), so they can be routed to stripe and be safely stored. think o fwhat needs to be done for the app. The Booking Flow starts off with the title of the business name, description of what it is, business information like address, type of business, all of that stuff, whatever was collected and then it shows the different services and under every category. So all the categories and the services under them and the services need to show the price, configuration, description, and instructions for each service and once that is done, a user will select a service under whatever category that they pick and then it will go to the availability page and this is where it shows the availability for each staff member for that service that they picked and remember there's availability data for each service. You need to each service unless the user literally coded the same data, but whatever it is, there's availability data for each service and the availability is divided by the staff member's individual availability and that is shown through different colors and user will select a time block and that time block is only as long as the duration of the service. So that needs to be done properly, that needs to be set up as well. But yeah, once they select the time block, then they continue to the payments and they put in their credit card info and select the payment method and they view the policies and then they click check out and then it goes to and then the user creates their own account and this is just forThis is just for the user's database, data portfolio. Remember, the user created an instance when they created a business in the onboarding, and all of this data is going under this. Anyways, the user's customer's name, email, and phone number will be collected, so that can be attached to the booking data that they will view in the admin view. But that's besides the point. But just figure a way to store this under this whole data portfolio that is under the business name or user's instance that was created. remember, all this data was stored somewhere under the user's account, so it needs to import from that file or however it is storeed Yes, but collect this, and then we go to the booking confirmation page, which just displays all the booking data, so the time, place, duration, service selected, service description, service instructions, and the policies again are listed again. And then that is the end of the booking flow.
 
 tithi.com is the landing page, super simple, it just shows a Join Tithi Now and a Login button. that’s it for now. user either creates an account or logs in. logging in now takes you right into the admin for the active business—no dashboard interstitial. if the owner has multiple businesses, the admin header exposes a business switcher to jump between them. remember: each business is its own thing and is billed separately at $11.99/month. one onboarding flow per business. if you want multiple businesses you pay that many subscriptions, one per business.
 the admin basically mirrors all the pages from onboarding so you can tweak everything live even after go-live. plus there’s a Past Bookings page that lists all bookings with the data tied to it, including the customer’s name, email, and phone (collected at booking). each booking is a block with four buttons: Completed, No-Show, Cancelled, Refund. these four buttons are the only way money moves. nothing is charged at booking time. nothing moves until one of these buttons is pressed. this is the central rule—make sure this is visible in the UI and also the Stripe pipeline is built around it.

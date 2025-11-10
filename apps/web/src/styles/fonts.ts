@@ -14,3 +14,4 @@ export const fontDisplay = Space_Grotesk({
   weight: ["300", "400", "500", "600", "700"]
 });
 
+

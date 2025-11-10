@@ -36,3 +36,4 @@ The UI uses an in-memory `FakeSessionProvider` (`src/lib/fake-session.tsx`) expo
 - Expand the design system to cover tables, calendars, notification editor, and booking cards.
 
 
+

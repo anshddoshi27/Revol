@@ -1,3 +1,25 @@
+# 0. New Files Added in Phase 1
+
+| File | Purpose |
+| --- | --- |
+| `apps/web/src/components/auth/login-form.tsx` | Owner login form with email/phone toggle, password validation, and Dev Login shortcut. |
+| `apps/web/src/components/auth/signup-form.tsx` | Owner sign-up form capturing full name, email, phone, password confirmation, and helper copy. |
+| `apps/web/src/components/providers/app-providers.tsx` | Composes `FakeSessionProvider` and `ToastProvider` so all pages share fake auth state and toasts. |
+| `apps/web/src/components/ui/input.tsx` | Shared input element with consistent styling, error states, and accessibility attributes. |
+| `apps/web/src/components/ui/label.tsx` | Label component that supports inline helper text beneath field captions. |
+| `apps/web/src/components/ui/helper-text.tsx` | Helper/error/success text renderer used across forms. |
+| `apps/web/src/components/ui/toast.tsx` | Lightweight toast system for inline notifications during fake flows. |
+| `apps/web/src/components/ui/badge.tsx` | Reusable badge chip for status indicators on placeholders and hero copy. |
+| `apps/web/src/lib/fake-session.tsx` | In-memory fake session store with login/logout/devLogin actions for Phase 1. |
+| `apps/web/src/lib/validators.ts` | Zod validators and TypeScript types for login/sign-up forms (email, phone, password rules). |
+| `apps/web/src/app/login/page.tsx` | Next.js page shell that renders the login form with branded nav/footer. |
+| `apps/web/src/app/signup/page.tsx` | Owner account creation page using the shared UI primitives. |
+| `apps/web/src/app/app/page.tsx` | Admin placeholder (“Admin coming soon”) with navigation and fake logout. |
+| `apps/web/src/app/onboarding/page.tsx` | Onboarding placeholder page linking to admin preview; clarifies Phase 1 scope. |
+| `apps/web/src/app/not-found.tsx` | Custom 404 experience directing users back to landing. |
+| `apps/web/references/README.md` | Notes for design references and screenshot parity tracking. |
+| `docs/frontend/phase-1-spec.txt` | Phase 1 product + systems specification (this document). |
+
 # 1. Vision & Value Proposition
 
 Tithi is a multi-tenant, white-label booking and payments platform designed for service businesses that require granular control over scheduling, policies, and revenue capture. Phase 1 extends the Phase 0 marketing scaffold into working entry and authentication flows so downstream teams can align backend contracts to the real UX.

@@ -1,3 +1,30 @@
+# 0. New Files Overview
+
+| File | Purpose |
+| --- | --- |
+| `package.json` | Root workspace config enabling npm workspaces and delegating scripts to `apps/web`. |
+| `apps/web/package.json` | Next.js app manifest with scripts (`dev`, `build`, `lint`, `typecheck`) and runtime/dev dependencies (Next 14 App Router, React, Tailwind, Framer Motion, lucide-react). |
+| `apps/web/.eslintrc.json` | ESLint configuration extending Next.js core-web-vitals rules for the app. |
+| `apps/web/jsconfig.json` | Configures absolute imports via `@/*` path alias. |
+| `apps/web/tsconfig.json` | TypeScript compiler options (strict mode, React Compiler plugin, path aliases). |
+| `apps/web/next-env.d.ts` | Next.js-managed TypeScript environment declarations. |
+| `apps/web/next.config.mjs` | Next.js configuration enabling React Compiler and lint directory scoping. |
+| `apps/web/postcss.config.mjs` | PostCSS pipeline referencing Tailwind and Autoprefixer. |
+| `apps/web/tailwind.config.ts` | Tailwind theme customization (color tokens, fonts, container sizing, animate plugin). |
+| `apps/web/public/icons/favicon.svg` | Base favicon matching Tithi branding for marketing surface. |
+| `apps/web/src/app/globals.css` | Global styles: Tailwind layers, background gradients, glass effects, typography defaults. |
+| `apps/web/src/styles/fonts.ts` | Loads Plus Jakarta Sans and Space Grotesk with CSS variables. |
+| `apps/web/src/lib/utils.ts` | Utility helper (`cn`) merging className variants. |
+| `apps/web/src/hooks/use-session.ts` | Placeholder hook returning mock unauthenticated session to unblock UI wiring. |
+| `apps/web/src/config/stripe.ts` | Stripe placeholder config to prep for future integration and mock API usage. |
+| `apps/web/src/app/api/stripe/config/route.ts` | Stub API route exposing placeholder Stripe config for frontend consumption. |
+| `apps/web/src/data/landing.ts` | Static content for landing hero CTA text/links. |
+| `apps/web/src/components/ui/button.tsx` | Reusable button component using Radix Slot + CVA for primary/outline variants. |
+| `apps/web/src/components/landing/hero.tsx` | Landing page hero section with animated headline, CTA buttons, and background glow. |
+| `apps/web/src/app/layout.tsx` | Root layout applying fonts, metadata, and global structure. |
+| `apps/web/src/app/page.tsx` | Landing page entry rendering `LandingHero`. |
+| `docs/frontend/phase-0-spec.txt` | This system/product spec describing Phase 0 deliverables and architecture intent. |
+
 # 1. Vision & Value Proposition
 
 Tithi is a multi-tenant, white-label booking and payments SaaS for service businesses (salons, clinics, studios). Each tenant (business) is isolated, branded, and billed separately. The current build (Phase 0) delivers the frontend scaffold and production-quality landing page that mirrors the Figma direction in `frontend logistics.txt`. Success for tenant owners means:

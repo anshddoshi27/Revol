@@ -17,17 +17,15 @@ export function LandingHero() {
   const { hero } = landingContent;
 
   return (
-    <section className="relative isolate flex min-h-screen items-center justify-center px-6 py-24 sm:px-12">
-      <div className="absolute inset-x-0 top-12 flex items-center justify-center">
-        <motion.div
-          className="h-40 w-40 rounded-full bg-primary/30 blur-3xl"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.7 }}
-          transition={{ delay: 0.3, duration: 1.6 }}
-        />
-      </div>
+    <section className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-black px-6 py-24 sm:px-12">
+      <motion.div
+        className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(91,100,255,0.08),transparent_55%)]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.6 }}
+      />
 
-      <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
+      <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center text-white">
         <motion.span
           className="text-sm uppercase tracking-[0.4em] text-white/50"
           variants={fadeUp}
@@ -68,7 +66,7 @@ export function LandingHero() {
           animate="visible"
           transition={{ delay: 0.45, duration: 0.7 }}
         >
-          <Button asChild className="button-glow text-base sm:text-lg">
+          <Button asChild className="button-glow bg-primary text-base sm:text-lg">
             <Link href={hero.primaryAction.href}>
               <span>{hero.primaryAction.label}</span>
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -78,7 +76,7 @@ export function LandingHero() {
           <Button
             asChild
             variant="outline"
-            className="border-white/10 bg-transparent text-base text-white/70 backdrop-blur-sm transition hover:border-white/30 hover:text-white sm:text-lg"
+            className="border-white/15 bg-black/60 text-base text-white/70 transition hover:border-white/40 hover:text-white sm:text-lg"
           >
             <Link href={hero.secondaryAction.href}>
               {hero.secondaryAction.label}

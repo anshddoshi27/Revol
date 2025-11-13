@@ -4,9 +4,9 @@ import { LandingHero } from "@/components/landing/hero";
 
 export default function LandingPage() {
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden">
+    <main className="relative flex min-h-screen flex-col overflow-hidden bg-black text-white">
       <header className="absolute left-1/2 top-6 z-20 w-full max-w-6xl -translate-x-1/2 px-6 lg:px-12">
-        <nav className="flex items-center justify-between rounded-full border border-white/10 bg-white/5/60 px-6 py-4 backdrop-blur-xl">
+        <nav className="flex items-center justify-between rounded-full border border-white/15 bg-black/70 px-6 py-4 backdrop-blur">
           <Link
             href="/"
             className="font-display text-2xl text-white transition hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
@@ -32,7 +32,7 @@ export default function LandingPage() {
 
       <LandingHero />
 
-      <footer className="relative z-10 mx-auto mb-12 mt-auto flex w-full max-w-5xl flex-col items-center justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 px-6 py-6 text-xs text-white/50 backdrop-blur-lg sm:flex-row">
+      <footer className="relative z-10 mx-auto mb-12 mt-auto flex w-full max-w-5xl flex-col items-center justify-between gap-4 rounded-3xl border border-white/10 bg-black/70 px-6 py-6 text-xs text-white/60 backdrop-blur sm:flex-row">
         <span>© {new Date().getFullYear()} Tithi Corporation. All rights reserved.</span>
         <div className="flex items-center gap-4">
           <Link

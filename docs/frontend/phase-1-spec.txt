@@ -20,6 +20,40 @@
 | `apps/web/references/README.md` | Notes for design references and screenshot parity tracking. |
 | `docs/frontend/phase-1-spec.txt` | Phase 1 product + systems specification (this document). |
 
+# 0.1 Phase 1 Implementation Summary
+
+1. **Landing experience**
+   - Added a marketing header with quick access to `/login` and `/signup`, plus a branded footer with Terms/Privacy placeholders.
+   - Updated hero copy in `landingContent` and surfaced a “Manual capture by design” badge + explanatory blurb to make the no-charge rule explicit.
+   - Applied Framer Motion animations, gradient background, and CTA styling consistent with `frontend logistics.txt`.
+
+2. **Authentication flows**
+   - Implemented `/login` page with email/phone toggle, helper text, inline error summary, password visibility toggle, disabled Google SSO CTA, and Dev Login that seeds a fake owner session before routing to `/app`.
+   - Built `/signup` page capturing full name, email, phone, password, confirm password, with inline helper copy, success badge text, and redirect to `/onboarding` after fake authentication.
+   - Enforced validation via `react-hook-form` + `zod` (`validators.ts`) covering email, phone, password policy (≥8 chars + special char), and password confirmation.
+   - Added accessible `aria-describedby` wiring, error helpers, and password hint text per spec.
+
+3. **Fake session + notifications**
+   - Created `FakeSessionProvider` with login/logout/devLogin actions and wrapped the app inside `AppProviders` so every page can read/write fake auth state.
+   - Introduced a lightweight toast system (`ToastProvider`, `useToast`) to surface success/info messages on login, sign-up, Dev Login, and sign-out.
+
+4. **UI primitives & layout**
+   - Extended shared Button to support loading spinners while guarding Radix Slot usage; created new `Input`, `Label`, `HelperText`, and `Badge` primitives with consistent glassmorphism styling.
+   - Wrapped RootLayout body with providers and preserved global fonts/background from Phase 0.
+
+5. **Routing placeholders**
+   - Added `/app` admin placeholder describing upcoming dashboards, linking to onboarding/home, and exposing a fake sign-out.
+   - Added `/onboarding` placeholder that confirms wizard is forthcoming and routes to admin preview.
+   - Added custom `not-found` page returning users to landing with helper text for QA.
+
+6. **Docs & references**
+   - Documented UI references and parity expectations in `apps/web/references/README.md`.
+   - Authored this Phase 1 systems spec and noted new files at the top.
+
+7. **Developer ergonomics**
+   - Updated dependencies (`react-hook-form`, `@hookform/resolvers`, `zod`) in `package.json` and ensured lint/typecheck scripts pass.
+   - Refreshed landing README with instructions for running the fake session flows.
+
 # 1. Vision & Value Proposition
 
 Tithi is a multi-tenant, white-label booking and payments platform designed for service businesses that require granular control over scheduling, policies, and revenue capture. Phase 1 extends the Phase 0 marketing scaffold into working entry and authentication flows so downstream teams can align backend contracts to the real UX.

@@ -25,6 +25,26 @@
 | `apps/web/src/app/page.tsx` | Landing page entry rendering `LandingHero`. |
 | `docs/frontend/phase-0-spec.txt` | This system/product spec describing Phase 0 deliverables and architecture intent. |
 
+# 0.1 Phase 0 Implementation Summary
+
+1. **Frontend Project Scaffold**
+   - Initialized `apps/web` as Next.js 14 App Router project with TypeScript, TailwindCSS, ESLint, React Compiler, Turbopack, and absolute import aliasing.
+   - Added workspace-level tooling (`package.json`, `tsconfig.json`, `jsconfig.json`, Tailwind/PostCSS configs) to support shared linting, builds, and future packages.
+2. **Styling & Theming Foundations**
+   - Defined global styling in `globals.css`, including the gradient background, glass panels, typography defaults, and utility classes required by the landing design.
+   - Imported Plus Jakarta Sans and Space Grotesk fonts via `src/styles/fonts.ts` and wired CSS variables to Tailwind theme extensions (`tailwind.config.ts`).
+3. **UI Building Blocks**
+   - Created reusable `Button` component leveraging shadcn-style CVA variants and Radix Slot for composability.
+   - Added `cn` helper (`src/lib/utils.ts`) for class merging and `use-session` mock hook to unblock future components needing session context.
+4. **Landing Page Implementation**
+   - Authored `LandingHero` component with Framer Motion animations, CTA buttons, gradient glow, and copy sourced from `src/data/landing.ts`.
+   - Wired `app/layout.tsx` and `app/page.tsx` to provide metadata, font variables, and render the hero section as the full landing experience.
+   - Added favicon asset to match brand direction.
+5. **Placeholder Config & API**
+   - Stubbed Stripe configuration module and corresponding API route (`/api/stripe/config`) returning static values until backend integration exists.
+6. **Documentation**
+   - Produced this Phase 0 spec capturing system vision, routing, data model, flows, and backend roadmap to align future engineering work with the defined UX.
+
 # 1. Vision & Value Proposition
 
 Tithi is a multi-tenant, white-label booking and payments SaaS for service businesses (salons, clinics, studios). Each tenant (business) is isolated, branded, and billed separately. The current build (Phase 0) delivers the frontend scaffold and production-quality landing page that mirrors the Figma direction in `frontend logistics.txt`. Success for tenant owners means:

@@ -1,7 +1,9 @@
 {
-  "/page": "app/page.js",
-  "/app/page": "app/app/page.js",
-  "/login/page": "app/login/page.js",
+  "/public/[slug]/page": "app/public/[slug]/page.js",
   "/_not-found/page": "app/_not-found/page.js",
-  "/signup/page": "app/signup/page.js"
+  "/signup/page": "app/signup/page.js",
+  "/app/page": "app/app/page.js",
+  "/page": "app/page.js",
+  "/login/page": "app/login/page.js",
+  "/app/b/[businessId]/page": "app/app/b/[businessId]/page.js"
 }

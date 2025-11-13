@@ -44,7 +44,7 @@ const config: Config = {
         }
       },
       boxShadow: {
-        "glow-blue": "0 30px 80px rgba(45, 115, 255, 0.35)"
+        "glow-blue": "0 30px 80px rgba(0, 0, 0, 0.55)"
       }
     }
   },

@@ -12,14 +12,18 @@ import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { useFakeSession } from "@/lib/fake-session";
+import { useFakeBusiness } from "@/lib/fake-business";
 import { loginSchema, type LoginFormValues } from "@/lib/validators";
 
 const passwordHint = "Use 8+ characters and include at least one special character.";
+const DEV_EMAIL = "owner@tithi.dev";
+const DEV_PASSWORD = "Ready4Tithi!";
 
 export function LoginForm() {
   const router = useRouter();
   const toast = useToast();
   const session = useFakeSession();
+  const businessStore = useFakeBusiness();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const form = useForm<LoginFormValues>({
@@ -56,6 +60,16 @@ export function LoginForm() {
 
   const onSubmit = async (values: LoginFormValues) => {
     await new Promise((resolve) => setTimeout(resolve, 900));
+    const isDevAccount =
+      values.mode === "email" &&
+      values.email?.toLowerCase() === DEV_EMAIL &&
+      values.password === DEV_PASSWORD;
+
+    businessStore.clearBusiness();
+    if (isDevAccount) {
+      businessStore.loadSeedBusiness();
+    }
+
     session.login({
       id: "owner-001",
       name: "Avery Quinn",
@@ -64,14 +78,17 @@ export function LoginForm() {
     });
     toast.pushToast({
       title: "Login successful",
-      description:
-        "You’re now in the Tithi admin. Configure your business and finish onboarding.",
-      intent: "success"
+      description: isDevAccount
+        ? "Dev account detected. Loading Studio Nova with seeded money board data."
+        : "You’re now in the Tithi admin. Configure your business and finish onboarding.",
+      intent: isDevAccount ? "info" : "success"
     });
     router.push("/app");
   };
 
   const handleDevLogin = () => {
+    businessStore.clearBusiness();
+    businessStore.loadSeedBusiness();
     session.devLogin();
     toast.pushToast({
       title: "Dev session ready",

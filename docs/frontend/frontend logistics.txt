@@ -5,6 +5,12 @@ just that for now.
 either a user will create an account or login to the existing one.
 when a brand new owner signs up, they immediately drop into step one of onboarding.
 we only create the owner user record at signup; the business/account record is provisioned after onboarding is fully completed.
+Each business onboards into a fully white-labeled environment: the public booking surface defaults to `{subdomain}.tithi.com`, and owners can optionally map a custom domain to keep the customer-facing experience entirely on-brand.
+The product replaces the typical patchwork of booking, payments, policies, notifications, CRM, and analytics tools by offering all of those functions inside the single Tithi admin.
+Every front-end surface must respect strict tenant isolation—admin pages only show data for the active business, and public booking views are limited to that tenant’s catalog.
+Branding primitives (logo, colors, typography choices, welcome copy) follow the tenant everywhere so customers only see the business identity, never “Tithi,” unless the owner explicitly enables it.
+Availability is a hard requirement for go-live: onboarding and admin flows prevent publishing a business until every service has at least one staffed availability window so the booking UI always renders actionable slots.
+Front-end flows should communicate that card details are validated and stored securely at checkout, even though charges only occur when money action buttons are triggered later.
 until then, there is no admin to show—onboarding is the only path.
 logging in (for owners who already finished an onboarding for at least one business) drops you straight into the admin for your selected business—there is no dashboard anymore.
 if the owner has multiple businesses, they switch between them from inside the admin (business picker in the header).

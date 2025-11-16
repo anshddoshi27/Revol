@@ -1,0 +1,462 @@
+Auth and tenancy
+
+Ground rules (your clarified model)
+
+One user = one business.
+
+Only one login per business (the “owner” account).
+
+No staff authentication; in real life, a receptionist would just use the owner’s credentials.
+
+No dashboard/tenant picker – after login, the owner goes straight to their admin view.
+
+Customers never sign in. They just fill name / phone / email when booking; that data is stored on the booking and visible in the owner’s “past bookings” view.
+
+With that in mind, here’s the updated breakdown of what I’d do for auth & tenancy.
+
+1. Auth style: Sessions vs JWTs
+What the app actually needs
+
+A simple, secure way for the owner to log in.
+
+Authenticated API calls from the frontend to:
+
+fetch bookings,
+
+manage services/availability,
+
+see past bookings, etc.
+
+Public booking flow that does not require login (just form submissions).
+
+Options
+
+Option A – Traditional server sessions
+
+Browser stores a session cookie.
+
+Backend keeps a session row (user_id, expiry, etc.).
+
+Pros:
+
+Very easy mental model.
+
+Easy to kill all sessions.
+
+Cons:
+
+More awkward if you ever want:
+
+mobile apps,
+
+fully decoupled API,
+
+serverless / edge compute.
+
+Not aligned with Supabase’s “JWT + RLS” sweet spot.
+
+Option B – JWT-based auth (Supabase style)
+
+On login, Supabase issues:
+
+a short-lived access token (JWT),
+
+a refresh token.
+
+Frontend attaches access token to requests.
+
+DB uses JWT + RLS to only return the current user’s data.
+
+Pros:
+
+Built-in with Supabase.
+
+Works great for SPAs and APIs.
+
+Plays perfectly with Postgres RLS for isolation.
+
+Cons:
+
+Token/refresh flow is conceptually more complex than just “session cookie.”
+
+What I’d choose for Tithi
+
+👉 JWT-based auth using Supabase Auth.
+
+Why:
+
+You’re already committing to Supabase and Postgres.
+
+You still want a clean API surface & good security story.
+
+Even though you only have one owner per business, you still have many businesses/users, so per-user isolation matters.
+
+We can keep the mental model simple:
+
+owner logs in → frontend gets Supabase session → calls APIs as that user.
+
+2. Refresh strategy
+Options
+
+Option A – Long-lived single token, no refresh
+
+Access token lives for days/weeks.
+
+Easier, but if it leaks, attacker has a lot of time.
+
+Option B – Short-lived access token + long-lived refresh token
+
+Access token: 5–15 minutes.
+
+Refresh token: 30–90 days.
+
+Frontend silently refreshes in the background.
+
+If you revoke the refresh token, attacker can’t keep renewing.
+
+What I’d choose for Tithi
+
+👉 Short-lived access tokens + longer-lived refresh tokens (Supabase default).
+
+Why:
+
+You get good security with almost no extra work, because Supabase already handles this pattern.
+
+The owner’s experience is still smooth:
+
+They stay logged in for a long time (thanks to refresh token).
+
+If something looks wrong, we can invalidate refresh tokens (e.g., on password reset).
+
+3. MFA (Multi-Factor Authentication)
+Why MFA slows v1
+
+Even a basic MFA setup comes with a lot of extra surface area:
+
+Extra flows:
+
+Enable MFA.
+
+Verify a 6-digit code on login.
+
+Disable MFA.
+
+Reset/recover if user loses their device.
+
+Data to manage:
+
+TOTP secrets or phone numbers.
+
+Backup codes for recovery.
+
+Logs of failed attempts.
+
+Edge cases:
+
+What happens after too many failed codes?
+
+What if user changes their phone number?
+
+How does support help them recover?
+
+That’s all on top of normal login/password flows you already have to get right.
+
+What I’d choose for Tithi
+
+👉 Skip MFA for v1.
+
+Tithi v1 is small-surface: one owner per business, no staff accounts, no client logins.
+
+You can get very decent security from:
+
+strong passwords,
+
+short-lived access tokens,
+
+secure Stripe integration (Stripe stores card data, not you).
+
+In a later phase, when you want “serious security hardening,” we can:
+
+add an mfa_methods table,
+
+implement TOTP/email OTP,
+
+expose it in the admin UI.
+
+For now, it is more important to ship a working product than to build full enterprise-style auth.
+
+4. Tenant isolation: how to separate businesses
+
+Your reality:
+
+Each user owns exactly one business.
+
+No user ever needs to switch businesses.
+
+But there are many users, each with their own data.
+
+So “multi-tenant” for you basically means “each user must only ever see their own rows.”
+
+Options
+
+Option A – App-level filtering
+
+Every query manually filters by user_id:
+
+SELECT * FROM bookings WHERE user_id = current_user_id.
+
+Pros:
+
+Simple to understand.
+
+Cons:
+
+If you forget WHERE user_id = ... even once, you can leak data.
+
+As features grow, this risk increases.
+
+Option B – Postgres RLS (Row-Level Security)
+
+Every table that belongs to an owner has user_id.
+
+You define policies like:
+
+USING (user_id = auth.uid())
+
+Postgres itself refuses to return rows for other users, even if you write a bad query.
+
+Pros:
+
+Very strong safety net.
+
+Designed to work with Supabase (this is their main pattern).
+
+Cons:
+
+Initial policy setup is an extra step.
+
+What I’d choose for Tithi
+
+👉 Use Postgres RLS with user_id as the isolation key.
+
+Concrete shape:
+
+users table (Supabase auth users).
+
+businesses table with a user_id column (1–1).
+
+services, availability_rules, bookings, etc. all have user_id.
+
+RLS policy: user_id = auth.uid() on each of these tables.
+
+This keeps your model extremely simple:
+
+No tenant picker.
+
+No “active tenant” concept.
+
+Just “rows belong to user X, and Postgres will only show user X their own rows.”
+
+5. Enforcing tenant context in code
+
+Given the above, the “tenant context” is basically just:
+
+“Which user is making this request?”
+
+Since one user = one business, we do not need any extra tension around tenant IDs.
+
+How it works
+
+The frontend uses Supabase Auth → requests include a JWT with sub = user_id.
+
+RLS policies use auth.uid() to get that user_id.
+
+Each table that stores private admin data includes user_id.
+
+Examples:
+
+businesses: one row per user.
+
+bookings: each booking has user_id referencing the owner.
+
+Everything you do in code is now:
+
+“Just query the table; RLS ensures the rows belong to the logged-in user.”
+
+No need for:
+
+explicit tenant headers,
+
+active tenant switching,
+
+complicated scoping logic.
+
+6. Roles & staff accounts
+
+Your clarified stance:
+
+No staff logins, full stop.
+
+If a receptionist needs access, they’ll just use the owner’s credentials.
+
+Staff exist only for defining availability / performing services, not as authenticated users.
+
+Options
+
+Option A – Overengineering roles
+
+Create roles, user_tenant_roles, etc. now.
+
+Model owners and staff as separate users in auth, etc.
+
+Pros:
+
+Very flexible later for permissioning.
+
+Cons:
+
+Completely unnecessary for your current, real-world usage model.
+
+Adds conceptual complexity without immediate payoff.
+
+Option B – Single owner + “staff as data only”
+
+users table: only owner accounts.
+
+businesses table: one per user.
+
+staff table: contains staff members for that business:
+
+name, color, calendar, etc.
+
+linked via user_id or business_id.
+
+Staff never authenticate; they are just entities for availability and bookings.
+
+What I’d choose for Tithi
+
+👉 Option B – owner-only auth; staff are just rows, not users.
+
+Why:
+
+Matches exactly how you expect real users to behave.
+
+Avoids a bunch of role/permission complexity.
+
+Still lets you:
+
+assign bookings to a specific staff member,
+
+define availability by staff,
+
+show “Staff A’s calendar” in the admin view.
+
+So the only “role” we really care about is implicit: authenticated user = owner.
+
+7. Session & device management
+
+Your model:
+
+One owner per business.
+
+A receptionist might share the same login.
+
+We don’t need enterprise “session dashboards” on day one.
+
+Options
+
+Option A – Minimal v1
+
+Use Supabase Auth sessions as-is.
+
+Provide:
+
+login,
+
+logout,
+
+password reset.
+
+No visible UI for “active devices.”
+
+Option B – Fully-fledged device/session management
+
+Table of active refresh tokens/sessions.
+
+UI listing devices, IP, last seen.
+
+“Log out of all other devices” button.
+
+What I’d choose for Tithi
+
+👉 Minimal v1, but store enough data for future improvements.
+
+Let Supabase handle session + refresh token storage internally.
+
+You don’t need a “devices” screen now.
+
+If you later want to:
+
+tighten security,
+
+show sessions,
+
+or support “log out everywhere,”
+you can layer that on when it becomes a real need.
+
+Final shape for auth & tenancy in Tithi v1
+
+Putting it all together, here’s the clean, updated plan that matches your clarified app:
+
+Auth style
+
+Use Supabase Auth with JWTs.
+
+One users row per owner.
+
+Login → directly to admin view.
+
+Refresh strategy
+
+Short-lived access tokens + long-lived refresh tokens (Supabase default).
+
+Owner enjoys “stay logged in” behavior without giving up too much security.
+
+MFA
+
+Not in v1.
+
+Can be added later as a dedicated “security upgrade” phase.
+
+Tenant isolation
+
+Each important table (businesses, services, availability, bookings, etc.) gets a user_id column.
+
+Use Postgres RLS so auth.uid() can only see its own rows.
+
+Tenant context in code
+
+No tenant picker; no multiple businesses per user.
+
+Backend just trusts auth.uid() and RLS guarantees isolation.
+
+Roles & staff
+
+Only owners authenticate.
+
+staff exist only as data tied to the owner’s business, for availability and bookings.
+
+No extra role tables required.
+
+Sessions/devices
+
+Use Supabase’s session + refresh system.
+
+Provide basic login/logout/password reset in UI; skip session device listing for v1.
+
+If you want, next we can turn this into:
+
+a short “Auth & Tenancy Spec” doc you can paste into your repo (like docs/backend/auth_and_tenancy.md), written in super clear non-coder language so you + Cursor + any engineer are all aligned.
+
+
+------------

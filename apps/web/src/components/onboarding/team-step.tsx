@@ -6,6 +6,8 @@ import { Palette, Plus, UserCircle2, Trash2, Edit3 } from "lucide-react";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateTeamData } from "@/lib/test-data-generator";
 import type { StaffMember } from "@/lib/onboarding-context";
 
 interface TeamStepProps {
@@ -35,6 +37,12 @@ export function TeamStep({ defaultValues, onNext, onBack }: TeamStepProps) {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  const handleFillTestData = () => {
+    const testData = generateTeamData(3); // Generate 3 staff members
+    setStaff(testData);
+    resetDraft();
+  };
 
   const resetDraft = () => {
     setDraft({ name: "", role: "", color: generateColor() });
@@ -257,6 +265,10 @@ export function TeamStep({ defaultValues, onNext, onBack }: TeamStepProps) {
 
       <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
         <p className="text-sm text-white/70">{availabilityNote}</p>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
       </div>
 
       <StepActions

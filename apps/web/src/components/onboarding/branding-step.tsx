@@ -6,6 +6,8 @@ import { Camera, Palette, Sparkle, Trash2 } from "lucide-react";
 
 import { HelperText } from "@/components/ui/helper-text";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateBrandingData } from "@/lib/test-data-generator";
 import type { BrandingConfig, ServiceCategory } from "@/lib/onboarding-context";
 import type { BusinessBasics } from "@/lib/onboarding-context";
 
@@ -72,6 +74,12 @@ export function BrandingStep({
     setLogoPreview(undefined);
     setLogoName(undefined);
     setRatioWarning(null);
+  };
+  
+  const handleFillTestData = () => {
+    const testData = generateBrandingData();
+    setPrimaryColor(testData.primaryColor);
+    // Note: Logo would need to be uploaded separately
   };
 
   const handleContinue = () => {
@@ -290,6 +298,10 @@ export function BrandingStep({
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
       </div>
 
       <StepActions onBack={onBack} onNext={handleContinue} />

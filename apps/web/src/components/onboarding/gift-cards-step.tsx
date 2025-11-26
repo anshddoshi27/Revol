@@ -6,6 +6,8 @@ import { Gift, Sparkles, Calendar, Hash } from "lucide-react";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateGiftCardsData } from "@/lib/test-data-generator";
 import type { GiftCardConfig } from "@/lib/onboarding-context";
 
 interface GiftCardsStepProps {
@@ -16,6 +18,11 @@ interface GiftCardsStepProps {
 
 export function GiftCardsStep({ defaultValues, onNext, onBack }: GiftCardsStepProps) {
   const [config, setConfig] = useState<GiftCardConfig>(defaultValues);
+  
+  const handleFillTestData = () => {
+    const testData = generateGiftCardsData();
+    setConfig(testData);
+  };
 
   const handleToggle = () => {
     setConfig((prev) => ({ ...prev, enabled: !prev.enabled }));
@@ -213,6 +220,10 @@ export function GiftCardsStep({ defaultValues, onNext, onBack }: GiftCardsStepPr
           </div>
         </div>
       ) : null}
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
+      </div>
 
       <StepActions onBack={onBack} onNext={handleContinue} />
     </div>

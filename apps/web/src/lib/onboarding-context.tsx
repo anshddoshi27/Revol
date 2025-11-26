@@ -57,6 +57,7 @@ export interface OnboardingState {
   services: ServiceCategory[];
   availability: ServiceAvailability[];
   notifications: NotificationTemplate[];
+  notificationsEnabled: boolean;
   policies: PoliciesConfig;
   giftCards: GiftCardConfig;
   paymentSetup: PaymentSetupConfig;
@@ -73,7 +74,7 @@ type OnboardingAction =
   | { type: "SAVE_BRANDING"; payload: BrandingConfig }
   | { type: "SAVE_SERVICES"; payload: ServiceCategory[] }
   | { type: "SAVE_AVAILABILITY"; payload: ServiceAvailability[] }
-  | { type: "SAVE_NOTIFICATIONS"; payload: NotificationTemplate[] }
+  | { type: "SAVE_NOTIFICATIONS"; payload: { templates: NotificationTemplate[]; enabled: boolean } }
   | { type: "SAVE_POLICIES"; payload: PoliciesConfig }
   | { type: "SAVE_GIFT_CARDS"; payload: GiftCardConfig }
   | { type: "SAVE_PAYMENT_SETUP"; payload: PaymentSetupConfig }
@@ -159,6 +160,7 @@ const initialState: OnboardingState = {
   services: [],
   availability: [],
   notifications: DEFAULT_NOTIFICATIONS,
+  notificationsEnabled: true,
   policies: {
     cancellationPolicy: "",
     cancellationFeeType: "percent",
@@ -207,7 +209,7 @@ function reducer(state: OnboardingState, action: OnboardingAction): OnboardingSt
     case "SAVE_AVAILABILITY":
       return { ...state, availability: action.payload };
     case "SAVE_NOTIFICATIONS":
-      return { ...state, notifications: action.payload };
+      return { ...state, notifications: action.payload.templates, notificationsEnabled: action.payload.enabled };
     case "SAVE_POLICIES":
       return { ...state, policies: action.payload };
     case "SAVE_GIFT_CARDS":
@@ -235,7 +237,7 @@ interface OnboardingContextValue extends OnboardingState {
   saveBranding: (payload: BrandingConfig) => void;
   saveServices: (payload: ServiceCategory[]) => void;
   saveAvailability: (payload: ServiceAvailability[]) => void;
-  saveNotifications: (payload: NotificationTemplate[]) => void;
+  saveNotifications: (payload: { templates: NotificationTemplate[]; enabled: boolean }) => void;
   savePolicies: (payload: PoliciesConfig) => void;
   saveGiftCards: (payload: GiftCardConfig) => void;
   savePaymentSetup: (payload: PaymentSetupConfig) => void;
@@ -288,7 +290,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "SAVE_AVAILABILITY", payload });
   }, []);
 
-  const saveNotifications = React.useCallback((payload: NotificationTemplate[]) => {
+  const saveNotifications = React.useCallback((payload: { templates: NotificationTemplate[]; enabled: boolean }) => {
     dispatch({ type: "SAVE_NOTIFICATIONS", payload });
   }, []);
 

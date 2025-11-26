@@ -17,7 +17,7 @@ import { GiftCardsStep } from "@/components/onboarding/gift-cards-step";
 import { PaymentSetupStep } from "@/components/onboarding/payment-setup-step";
 import { GoLiveStep } from "@/components/onboarding/go-live-step";
 import { useToast } from "@/components/ui/toast";
-import { useOnboarding, type OnboardingStepId } from "@/lib/onboarding-context";
+import { useOnboarding, type OnboardingStepId, type NotificationTemplate } from "@/lib/onboarding-context";
 import { useFakeBusiness } from "@/lib/fake-business";
 import { useFakeSession } from "@/lib/fake-session";
 
@@ -142,8 +142,8 @@ export default function OnboardingPage() {
     goForward();
   };
 
-  const handleNotificationsNext = (values: Parameters<typeof onboarding.saveNotifications>[0]) => {
-    onboarding.saveNotifications(values);
+  const handleNotificationsNext = (templates: NotificationTemplate[], enabled: boolean) => {
+    onboarding.saveNotifications({ templates, enabled });
     onboarding.completeStep("notifications");
     goForward();
   };
@@ -182,31 +182,60 @@ export default function OnboardingPage() {
     });
   };
 
-  const handleLaunch = () => {
-    onboarding.completeStep("goLive");
-    onboarding.setOnboardingCompleted(true);
-    const business = onboarding.generateBusinessFromState();
-    businessStore.clearBusiness();
-    businessStore.createBusiness(business);
-    businessStore.bootstrapWorkspace({
-      business: onboarding.business,
-      website: onboarding.website,
-      location: onboarding.location,
-      branding: onboarding.branding,
-      team: onboarding.team,
-      categories: onboarding.services,
-      availability: onboarding.availability,
-      notifications: onboarding.notifications,
-      policies: onboarding.policies,
-      giftCards: onboarding.giftCards,
-      payment: onboarding.paymentSetup
-    });
-    toast.pushToast({
-      title: "Business launched",
-      description: `${business.name} is live with manual capture enabled.`,
-      intent: "success"
-    });
-    router.push(`/app/b/${business.slug}`);
+  const handleLaunch = async () => {
+    try {
+      // Call the backend API to finalize onboarding
+      const response = await fetch('/api/business/onboarding/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        toast.pushToast({
+          title: "Failed to launch business",
+          description: errorData.error || 'An error occurred while finalizing onboarding.',
+          intent: "error"
+        });
+        return;
+      }
+
+      const data = await response.json();
+      
+      onboarding.completeStep("goLive");
+      onboarding.setOnboardingCompleted(true);
+      const business = onboarding.generateBusinessFromState();
+      businessStore.clearBusiness();
+      businessStore.createBusiness(business);
+      businessStore.bootstrapWorkspace({
+        business: onboarding.business,
+        website: onboarding.website,
+        location: onboarding.location,
+        branding: onboarding.branding,
+        team: onboarding.team,
+        categories: onboarding.services,
+        availability: onboarding.availability,
+        notifications: onboarding.notifications,
+        policies: onboarding.policies,
+        giftCards: onboarding.giftCards,
+        payment: onboarding.paymentSetup
+      });
+      toast.pushToast({
+        title: "Business launched",
+        description: `${business.name} is live with manual capture enabled.`,
+        intent: "success"
+      });
+      router.push(`/app/b/${business.slug}`);
+    } catch (error) {
+      console.error('Error launching business:', error);
+      toast.pushToast({
+        title: "Failed to launch business",
+        description: 'An error occurred while finalizing onboarding.',
+        intent: "error"
+      });
+    }
   };
 
   const stepsMeta = useMemo(
@@ -300,6 +329,7 @@ export default function OnboardingPage() {
       content = (
         <NotificationsStep
           defaultValues={onboarding.notifications}
+          notificationsEnabled={onboarding.notificationsEnabled}
           onNext={handleNotificationsNext}
           onBack={goBack}
         />

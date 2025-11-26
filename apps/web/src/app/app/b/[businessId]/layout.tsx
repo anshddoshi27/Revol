@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useParams } from "next/navigation";
 import {
@@ -20,7 +20,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useFakeBusiness } from "@/lib/fake-business";
-import { useFakeSession } from "@/lib/fake-session";
+import { createClientClient } from "@/lib/supabase-client";
+import type { User } from "@supabase/supabase-js";
 
 const NAV_ITEMS = [
   {
@@ -93,24 +94,165 @@ export default function AdminBusinessLayout({
   const router = useRouter();
   const params = useParams<{ businessId: string }>();
   const pathname = usePathname();
-  const session = useFakeSession();
-  const { business, workspace } = useFakeBusiness();
+  const { business: fakeBusiness, workspace, loadSeedBusiness } = useFakeBusiness();
+  
+  const [user, setUser] = useState<User | null>(null);
+  const [realBusiness, setRealBusiness] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const supabase = createClientClient();
 
+  // Check authentication and fetch business
   useEffect(() => {
-    if (!session.isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [session.isAuthenticated, router]);
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!business) {
-      router.replace("/onboarding");
+    // Don't run if we're already redirecting
+    if (isRedirecting) {
       return;
     }
-    if (business.slug !== params.businessId) {
-      router.replace(`/app/b/${business.slug}`);
+
+    async function checkAuth() {
+      try {
+        console.log('Checking authentication...');
+        const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+        
+        if (cancelled) return;
+
+        if (authError) {
+          console.error('Auth error:', authError);
+          setError(`Authentication error: ${authError.message}`);
+          router.replace("/login");
+          return;
+        }
+
+        if (!currentUser) {
+          console.log('No authenticated user, redirecting to login');
+          router.replace("/login");
+          return;
+        }
+
+        console.log('User authenticated:', currentUser.email);
+        setUser(currentUser);
+
+        // Check if businessId is a UUID or subdomain
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(params.businessId);
+        
+        // Fetch business from database
+        console.log('Fetching business:', params.businessId, isUUID ? '(UUID)' : '(subdomain)');
+        
+        let businessQuery = supabase
+          .from('businesses')
+          .select('id, name, subdomain, user_id')
+          .eq('user_id', currentUser.id)
+          .is('deleted_at', null);
+        
+        // Query by ID if UUID, otherwise by subdomain
+        if (isUUID) {
+          businessQuery = businessQuery.eq('id', params.businessId);
+        } else {
+          businessQuery = businessQuery.eq('subdomain', params.businessId);
+        }
+        
+        const { data: businessData, error: businessError } = await businessQuery.maybeSingle();
+
+        if (cancelled) return;
+
+        if (businessError) {
+          console.error('Error fetching business:', businessError);
+          setError(`Business query error: ${businessError.message}`);
+          // Don't redirect immediately - let user see the error
+          setLoading(false);
+          return;
+        }
+
+        if (!businessData) {
+          console.log('Business not found for user:', currentUser.id, 'businessId:', params.businessId);
+          // Try to find any business for this user
+          const { data: anyBusiness } = await supabase
+            .from('businesses')
+            .select('id, name, subdomain, user_id')
+            .eq('user_id', currentUser.id)
+            .is('deleted_at', null)
+            .maybeSingle();
+          
+          if (anyBusiness) {
+            console.log('Found different business, redirecting:', anyBusiness.id);
+            router.replace(`/app/b/${anyBusiness.id}`);
+            return;
+          }
+          
+          console.log('No business found, redirecting to onboarding');
+          router.replace("/onboarding");
+          return;
+        }
+
+        console.log('Business found:', businessData.name);
+        setRealBusiness(businessData);
+        
+        // If URL uses subdomain but we have UUID, redirect to UUID
+        // Only redirect if we're actually using a subdomain (not UUID)
+        if (!isUUID && businessData.id !== params.businessId) {
+          // Prevent redirect loops - check if we're already on the correct path
+          const currentPath = pathname || '';
+          const expectedPath = currentPath.replace(`/app/b/${params.businessId}`, `/app/b/${businessData.id}`);
+          
+          // Only redirect if we're not already on the correct path
+          if (currentPath !== expectedPath && !isRedirecting) {
+            setIsRedirecting(true);
+            // Split path: /app/b/novastudio/calendar -> ['', 'app', 'b', 'novastudio', 'calendar']
+            const pathParts = currentPath.split('/');
+            // Get everything after /app/b/{businessId} (skip first 4 parts: '', 'app', 'b', 'novastudio')
+            const pathAfterBusiness = pathParts.slice(4).filter(Boolean).join('/');
+            const redirectPath = pathAfterBusiness 
+              ? `/app/b/${businessData.id}/${pathAfterBusiness}` 
+              : `/app/b/${businessData.id}`;
+            console.log('Redirecting from subdomain to UUID:', {
+              from: currentPath,
+              to: redirectPath,
+              pathAfterBusiness,
+              pathParts
+            });
+            // Use window.location for a hard redirect to avoid React Router issues
+            window.location.href = redirectPath;
+            return;
+          }
+        }
+        
+        // Load fake workspace data if not already loaded
+        // This is temporary until we migrate all pages to use real data
+        if (!fakeBusiness || !workspace) {
+          console.log('Loading seed business data...');
+          try {
+            // Load default seed data - this matches what the seed script creates
+            const seedResult = loadSeedBusiness();
+            if (seedResult) {
+              console.log('Seed business loaded:', seedResult.business.name);
+            }
+          } catch (seedError) {
+            console.warn('Failed to load seed business:', seedError);
+            // Continue anyway - pages might work without it
+          }
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Auth check error:', error);
+        setError(error instanceof Error ? error.message : 'Unknown error');
+        setLoading(false);
+      }
     }
-  }, [business, params.businessId, router]);
+
+    checkAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [params.businessId, router, supabase, isRedirecting]);
+
+  // Use fake business for now (until we migrate all pages to use real data)
+  const business = fakeBusiness;
 
   const activeSegment = useMemo(() => {
     if (!pathname) return "";
@@ -118,12 +260,62 @@ export default function AdminBusinessLayout({
     return segments[segments.length - 1] === params.businessId ? "" : segments.at(-1) ?? "";
   }, [pathname, params.businessId]);
 
-  if (!business || !workspace) {
+  // Filter nav items based on business settings
+  // Hide notifications page if notifications are not enabled
+  // Note: In production, this should come from the database businesses table
+  const visibleNavItems = useMemo(() => {
+    // For now, we'll assume notifications are enabled if workspace exists
+    // In production, check business.notifications_enabled from database
+    const notificationsEnabled = true; // TODO: Get from business data
+    return NAV_ITEMS.filter(item => {
+      if (item.segment === "notifications" && !notificationsEnabled) {
+        return false;
+      }
+      return true;
+    });
+  }, []);
+
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="space-y-4 text-center text-white/60">
           <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
           <p className="font-display text-2xl text-white">Preparing your workspace…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <div className="space-y-4 text-center text-white/60">
+          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
+          <p className="font-display text-2xl text-white">Error loading business</p>
+          <p className="text-sm text-rose-400">{error}</p>
+          <Button onClick={() => router.push("/login")} variant="outline" className="mt-4">
+            Go to Login
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !realBusiness) {
+    return null; // Will redirect via useEffect
+  }
+
+  // For now, use fake business/workspace until we migrate all pages
+  // But don't block rendering if fake data isn't available
+  if (!business || !workspace) {
+    // Still render the layout with real business data
+    // The pages will need to be updated to use real data
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <div className="space-y-4 text-center text-white/60">
+          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
+          <p className="font-display text-2xl text-white">Loading workspace data…</p>
+          <p className="text-sm text-white/40">Business: {realBusiness.name}</p>
         </div>
       </div>
     );
@@ -135,8 +327,8 @@ export default function AdminBusinessLayout({
       : business.bookingUrl;
   const previewUrl = business.previewUrl ?? `/public/${business.slug}`;
 
-  const handleSignOut = () => {
-    session.logout();
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
     router.replace("/");
   };
 
@@ -152,12 +344,14 @@ export default function AdminBusinessLayout({
         </header>
         <nav className="flex-1 overflow-y-auto px-4 py-6">
           <ul className="space-y-2">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = activeSegment === item.segment;
+              // Use realBusiness.id (UUID) for navigation, not business.slug (subdomain)
+              const businessIdForNav = realBusiness?.id || business?.slug || params.businessId;
               const href =
                 item.segment.length > 0
-                  ? `/app/b/${business.slug}/${item.segment}`
-                  : `/app/b/${business.slug}`;
+                  ? `/app/b/${businessIdForNav}/${item.segment}`
+                  : `/app/b/${businessIdForNav}`;
               return (
                 <li key={item.segment}>
                   <Link

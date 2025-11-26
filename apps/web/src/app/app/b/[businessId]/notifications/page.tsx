@@ -15,6 +15,7 @@ const PLACEHOLDERS = [
   "${service.name}",
   "${service.duration}",
   "${service.price}",
+  "${staff.name}",
   "${booking.date}",
   "${booking.time}",
   "${business.name}",
@@ -27,6 +28,29 @@ export default function NotificationsPage() {
 
   if (!workspace) {
     return null;
+  }
+
+  // Check if notifications are enabled
+  // In production, this should come from the database businesses table
+  // For now, we'll show a message if somehow accessed when disabled
+  // The layout should prevent access, but this is a safety check
+  const notificationsEnabled = true; // TODO: Get from business data from database
+
+  if (!notificationsEnabled) {
+    return (
+      <div className="space-y-10">
+        <header className="space-y-4">
+          <p className="text-xs uppercase tracking-[0.35em] text-white/40">Messaging</p>
+          <h1 className="font-display text-4xl text-white">Notifications</h1>
+        </header>
+        <div className="rounded-3xl border border-white/15 bg-black/80 p-8 text-center">
+          <p className="text-lg font-semibold text-white">Notifications are not enabled</p>
+          <p className="mt-2 text-sm text-white/60">
+            SMS and email notifications are disabled for this business. Only booking confirmation messages are shown to clients.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const updateTemplate = (templateId: string, updater: (template: NotificationTemplate) => NotificationTemplate) => {
@@ -147,6 +171,7 @@ function NotificationPreview({
     .replaceAll("${service.name}", "Signature Cut")
     .replaceAll("${service.duration}", "60 minutes")
     .replaceAll("${service.price}", "$120.00")
+    .replaceAll("${staff.name}", "Ava Thompson")
     .replaceAll("${booking.date}", "Mar 18, 2025")
     .replaceAll("${booking.time}", "2:00 PM")
     .replaceAll("${business.name}", "Studio Nova")

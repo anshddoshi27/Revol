@@ -11,8 +11,7 @@ import { Button } from "@/components/ui/button";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { useFakeSession } from "@/lib/fake-session";
-import { useFakeBusiness } from "@/lib/fake-business";
+import { createClientClient } from "@/lib/supabase-client";
 import { loginSchema, type LoginFormValues } from "@/lib/validators";
 
 const passwordHint = "Use 8+ characters and include at least one special character.";
@@ -22,9 +21,8 @@ const DEV_PASSWORD = "Ready4Tithi!";
 export function LoginForm() {
   const router = useRouter();
   const toast = useToast();
-  const session = useFakeSession();
-  const businessStore = useFakeBusiness();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -59,43 +57,196 @@ export function LoginForm() {
   };
 
   const onSubmit = async (values: LoginFormValues) => {
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    const isDevAccount =
-      values.mode === "email" &&
-      values.email?.toLowerCase() === DEV_EMAIL &&
-      values.password === DEV_PASSWORD;
+    setIsLoading(true);
+    try {
+      const supabase = createClientClient();
+      
+      // Validate email is provided for email mode
+      if (values.mode === "email" && !values.email) {
+        toast.pushToast({
+          title: "Login failed",
+          description: "Email is required",
+          intent: "error"
+        });
+        setIsLoading(false);
+        return;
+      }
 
-    businessStore.clearBusiness();
-    if (isDevAccount) {
-      businessStore.loadSeedBusiness();
+      // Authenticate with Supabase
+      const email = values.mode === "email" ? values.email! : "";
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: values.password,
+      });
+
+      if (authError) {
+        console.error('Supabase auth error:', authError);
+        console.error('Error details:', {
+          message: authError.message,
+          status: authError.status,
+          name: authError.name
+        });
+        
+        // Provide more helpful error messages
+        let errorMessage = authError.message || "Invalid email or password";
+        if (authError.message?.includes('Invalid login credentials')) {
+          errorMessage = "Invalid email or password. If you just ran the seed script, the password might need to be reset manually in Supabase Dashboard.";
     }
 
-    session.login({
-      id: "owner-001",
-      name: "Avery Quinn",
-      email: values.mode === "email" ? values.email ?? "" : "owner@business.tithi",
-      phone: values.mode === "phone" ? values.phone ?? "" : undefined
+        toast.pushToast({
+          title: "Login failed",
+          description: errorMessage,
+          intent: "error"
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!authData.user) {
+        toast.pushToast({
+          title: "Login failed",
+          description: "Authentication failed. Please try again.",
+          intent: "error"
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch user's business from database - check if it's already launched
+      const { data: business, error: businessError } = await supabase
+        .from('businesses')
+        .select('id, subdomain, name, subscription_status, stripe_connect_account_id, timezone, support_email')
+        .eq('user_id', authData.user.id)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      console.log('Business query result:', { business, businessError, userId: authData.user.id });
+
+      if (businessError) {
+        console.error('Error fetching business:', businessError);
+        // Don't fail login if business query fails - user might not have completed onboarding
+        // Just redirect to onboarding
+        toast.pushToast({
+          title: "Login successful",
+          description: "Welcome! Let's set up your business.",
+          intent: "success"
+        });
+        router.push("/onboarding?new=true");
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if business is already launched
+      // A business is considered "launched" if it has:
+      // - subscription_status set (trial, active, paused, canceled)
+      // - All required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+      const isLaunched = business && 
+        business.subscription_status && 
+        business.subscription_status !== null &&
+        business.name && 
+        business.name.trim().length > 0 &&
+        business.subdomain && 
+        !business.subdomain.startsWith('temp-') &&
+        business.timezone &&
+        business.support_email &&
+        business.stripe_connect_account_id;
+
+      toast.pushToast({
+        title: "Login successful",
+        description: business 
+          ? (isLaunched 
+              ? `Welcome back to ${business.name}!`
+              : `Welcome back! Let's finish setting up ${business.name}.`)
+          : "Welcome! Let's set up your business.",
+        intent: "success"
+      });
+
+      // Redirect based on whether business exists and is launched
+      if (business && isLaunched) {
+        // Business is already launched - go directly to admin (onboarding is locked)
+        const redirectPath = `/app/b/${business.id}`;
+        console.log('[login] Business is already launched - redirecting to admin:', redirectPath);
+        router.push(redirectPath);
+        // Force navigation if router.push doesn't work
+        setTimeout(() => {
+          if (window.location.pathname === '/login') {
+            console.warn('Router.push failed, using window.location');
+            window.location.href = redirectPath;
+          }
+        }, 500);
+      } else if (business) {
+        // Business exists but not launched - continue onboarding
+        console.log('[login] Business exists but not launched - redirecting to onboarding');
+        router.push("/onboarding");
+      } else {
+        // No business - start fresh onboarding
+        console.log('[login] No business found - starting fresh onboarding');
+        router.push("/onboarding?new=true");
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      toast.pushToast({
+        title: "Login failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        intent: "error"
     });
-    toast.pushToast({
-      title: "Login successful",
-      description: isDevAccount
-        ? "Dev account detected. Loading Studio Nova with seeded money board data."
-        : "You’re now in the Tithi admin. Configure your business and finish onboarding.",
-      intent: isDevAccount ? "info" : "success"
-    });
-    router.push("/app");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDevLogin = () => {
-    businessStore.clearBusiness();
-    businessStore.loadSeedBusiness();
-    session.devLogin();
+  const handleDevLogin = async () => {
+    setIsLoading(true);
+    try {
+      const supabase = createClientClient();
+      
+      // Try to login with dev account
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: DEV_EMAIL,
+        password: DEV_PASSWORD,
+      });
+
+      if (authError || !authData.user) {
+        toast.pushToast({
+          title: "Dev login failed",
+          description: "Dev account not found. Use the seed script to create it.",
+          intent: "error"
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch business
+      const { data: business } = await supabase
+        .from('businesses')
+        .select('id, subdomain, name')
+        .eq('user_id', authData.user.id)
+        .is('deleted_at', null)
+        .maybeSingle();
+
     toast.pushToast({
       title: "Dev session ready",
-      description: "You’re viewing the admin shell with seed data applied.",
+        description: business 
+          ? `Loaded ${business.name} with seed data.`
+          : "Dev account loaded. Complete onboarding to create business.",
       intent: "info"
     });
-    router.push("/app");
+
+      if (business) {
+        router.push(`/app/b/${business.id}`);
+      } else {
+        router.push("/onboarding");
+      }
+    } catch (error) {
+      console.error('Dev login error:', error);
+      toast.pushToast({
+        title: "Dev login failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        intent: "error"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -339,8 +490,8 @@ export function LoginForm() {
           <Button
             type="submit"
             size="lg"
-            isLoading={isSubmitting}
-            disabled={!isValid || isSubmitting}
+            isLoading={isSubmitting || isLoading}
+            disabled={!isValid || isSubmitting || isLoading}
             className="w-full text-base"
           >
             <span className="flex items-center justify-center">

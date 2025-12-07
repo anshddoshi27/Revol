@@ -188,15 +188,28 @@ export interface WorkspaceSeedInput {
 }
 
 export function createWorkspaceFromOnboarding(seed: WorkspaceSeedInput): FakeBusinessWorkspace {
+  // Use ONLY the user's actual data from database - NO SEED DATA
   const { categories, team, payment, giftCards } = seed;
   const catalog = cloneCategories(categories);
   const staff = cloneStaff(team);
   const availability = cloneAvailability(seed.availability);
   const availabilityTemplates = buildAvailabilityTemplates(catalog, staff, availability);
 
-  const bookings = seedBookings(catalog, staff, payment);
-  const customers = deriveCustomers(bookings);
+  // NO SEED DATA - Start with completely empty arrays for new businesses
+  // Real bookings will be loaded from database later when they exist
+  const bookings: FakeBooking[] = [];
+  const customers: FakeCustomer[] = [];
+  
+  // Initialize analytics with proper structure using deriveAnalytics (works with empty bookings)
   const analytics = deriveAnalytics(bookings);
+  
+  console.log('[createWorkspaceFromOnboarding] Creating workspace with ONLY user data:', {
+    businessName: seed.business.businessName,
+    servicesCount: catalog.reduce((sum, cat) => sum + cat.services.length, 0),
+    staffCount: staff.length,
+    availabilityCount: availability.length,
+    hasSeedBookings: false, // Confirming no seed bookings
+  });
 
   return {
     identity: {
@@ -215,7 +228,7 @@ export function createWorkspaceFromOnboarding(seed: WorkspaceSeedInput): FakeBus
     giftCards: {
       config: clone(giftCards),
       restoreBalanceOnRefund: true,
-      ledger: seedGiftCardLedger(giftCards)
+      ledger: [] // NO SEED DATA - Start with empty ledger for new businesses
     },
     payment: {
       ...clone(payment),

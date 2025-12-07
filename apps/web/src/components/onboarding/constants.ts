@@ -17,6 +17,7 @@ export const PLACEHOLDER_TOKENS = [
   "${service.name}",
   "${service.duration}",
   "${service.price}",
+  "${staff.name}",
   "${booking.date}",
   "${booking.time}",
   "${business.name}",

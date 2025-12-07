@@ -1,18 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlignLeft, Mail, MessageSquare, Smartphone } from "lucide-react";
+import { AlignLeft, Mail, MessageSquare, Smartphone, CheckCircle2, XCircle } from "lucide-react";
 
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateNotificationsData } from "@/lib/test-data-generator";
 import { PLACEHOLDER_TOKENS } from "@/components/onboarding/constants";
 import type { NotificationTemplate } from "@/lib/onboarding-context";
 
 interface NotificationsStepProps {
   defaultValues: NotificationTemplate[];
-  onNext: (values: NotificationTemplate[]) => Promise<void> | void;
+  notificationsEnabled?: boolean;
+  onNext: (values: NotificationTemplate[], notificationsEnabled: boolean) => Promise<void> | void;
   onBack: () => void;
 }
 
@@ -59,11 +62,26 @@ const SAMPLE_DATA = {
   "${booking.url}": "https://novastudio.tithi.com/manage/NOV-2025-1042"
 };
 
-export function NotificationsStep({ defaultValues, onNext, onBack }: NotificationsStepProps) {
+export function NotificationsStep({ defaultValues, notificationsEnabled: defaultNotificationsEnabled, onNext, onBack }: NotificationsStepProps) {
+  // Always start with null to show subscription selection UI, unless explicitly set to false
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(
+    defaultNotificationsEnabled === false ? false : null
+  );
   const [templates, setTemplates] = useState<NotificationTemplate[]>(defaultValues);
   const [expandedId, setExpandedId] = useState<string | null>(defaultValues[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; content: string } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const handleFillTestData = () => {
+    const testData = generateNotificationsData();
+    setTemplates(testData);
+    setNotificationsEnabled(true);
+    if (testData.length > 0) {
+      setExpandedId(testData[0].id);
+    }
+    setError(null);
+  };
 
   const handleTemplateChange = <K extends keyof NotificationTemplate>(
     templateId: string,
@@ -116,14 +134,38 @@ export function NotificationsStep({ defaultValues, onNext, onBack }: Notificatio
     }, {});
   }, [templates]);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    // If notifications enabled but not yet confirmed, require selection
+    if (notificationsEnabled === null) {
+      setError("Please select a subscription plan (Basic or Pro) to continue.");
+      return;
+    }
+
+    // If notifications are disabled, skip validation and proceed
+    if (notificationsEnabled === false) {
+      setError(null);
+      setIsSubmitting(true);
+      try {
+        await onNext([], false);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // If notifications enabled, validate templates
     const issues = Object.values(lintResults).filter(Boolean);
     if (issues.length) {
       setError("Fix placeholder errors before continuing.");
       return;
     }
     setError(null);
-    onNext(templates);
+    setIsSubmitting(true);
+    try {
+      await onNext(templates, true);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -134,15 +176,84 @@ export function NotificationsStep({ defaultValues, onNext, onBack }: Notificatio
           Step 8 · Notifications
         </span>
         <h2 id="notifications-step-heading" className="font-display text-3xl text-white">
-          Make every message feel personal
+          {notificationsEnabled === null
+            ? "Enable notifications and emails?"
+            : "Make every message feel personal"}
         </h2>
         <p className="max-w-3xl text-base text-white/70">
-          Templates support email, SMS, and push. Use placeholders to merge live booking data.
-          We’ll block unknown tokens so every send stays accurate.
+          {notificationsEnabled === null
+            ? "Would you like to enable SMS and email notifications for your booking flow? If enabled, you'll be able to send automated reminders, confirmations, and follow-ups to your clients."
+            : "Templates support email, SMS, and push. Use placeholders to merge live booking data. We'll block unknown tokens so every send stays accurate."}
         </p>
       </header>
 
-      <div className="space-y-4">
+      {notificationsEnabled === null ? (
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => setNotificationsEnabled(true)}
+                className="flex w-full items-center gap-4 rounded-2xl border-2 border-primary/50 bg-primary/10 p-6 text-left transition hover:border-primary/70 hover:bg-primary/15"
+              >
+                <CheckCircle2 className="h-6 w-6 text-primary" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">Pro Plan</h3>
+                    <span className="text-xl font-bold text-primary">$21.99/month</span>
+                  </div>
+                  <p className="mt-1 text-sm text-white/70">
+                    Send automated SMS and email notifications to clients for bookings, reminders, and updates.
+                  </p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNotificationsEnabled(false)}
+                className="flex w-full items-center gap-4 rounded-2xl border-2 border-white/15 bg-white/5 p-6 text-left transition hover:border-white/25 hover:bg-white/10"
+              >
+                <XCircle className="h-6 w-6 text-white/60" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">Basic Plan</h3>
+                    <span className="text-xl font-bold text-white/90">$11.99/month</span>
+                  </div>
+                  <p className="mt-1 text-sm text-white/70">
+                    Clients will only see booking confirmation messages. No emails or SMS will be sent.
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Show selected plan and allow changing */}
+          <div className="rounded-3xl border border-primary/30 bg-primary/10 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary/70">Selected Plan</p>
+                <h3 className="mt-1 text-lg font-semibold text-white">
+                  {notificationsEnabled ? "Pro Plan" : "Basic Plan"} - ${notificationsEnabled ? "21.99" : "11.99"}/month
+                </h3>
+                <p className="mt-1 text-sm text-white/70">
+                  {notificationsEnabled 
+                    ? "SMS and email notifications enabled"
+                    : "Notifications disabled - booking confirmations only"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotificationsEnabled(null)}
+                className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-white/70 transition hover:border-white/25 hover:text-white"
+              >
+                Change Plan
+              </button>
+            </div>
+          </div>
+          
+          {notificationsEnabled && (
+            <>
         {templates.map((template) => (
           <div
             key={template.id}
@@ -301,7 +412,10 @@ export function NotificationsStep({ defaultValues, onNext, onBack }: Notificatio
             ) : null}
           </div>
         ))}
-      </div>
+            </>
+          )}
+        </div>
+      )}
 
       {preview ? (
         <div className="rounded-3xl border border-primary/30 bg-primary/10 p-6 text-sm text-white/80">
@@ -316,7 +430,11 @@ export function NotificationsStep({ defaultValues, onNext, onBack }: Notificatio
         </HelperText>
       ) : null}
 
-      <StepActions onBack={onBack} onNext={handleContinue} />
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
+      </div>
+
+      <StepActions onBack={onBack} onNext={handleContinue} isSubmitting={isSubmitting} />
     </div>
   );
 }

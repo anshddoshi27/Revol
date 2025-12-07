@@ -6,6 +6,8 @@ import { Plus, Folder, ScissorsSquare, Trash2, Edit3, Users } from "lucide-react
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateServicesData } from "@/lib/test-data-generator";
 import type { ServiceCategory, ServiceDefinition, StaffMember } from "@/lib/onboarding-context";
 
 interface ServicesStepProps {
@@ -54,6 +56,16 @@ export function ServicesStep({ defaultValues, staff, onNext, onBack }: ServicesS
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  const handleFillTestData = () => {
+    const testData = generateServicesData(staff);
+    setCategories(testData);
+    setCategoryDraft(defaultCategoryDraft);
+    setServiceDraft({});
+    setEditingCategoryId(null);
+    setEditingServiceId(null);
+    setError(null);
+  };
 
   useEffect(() => {
     setServiceDraft((prev) => {
@@ -680,6 +692,10 @@ export function ServicesStep({ defaultValues, staff, onNext, onBack }: ServicesS
 
       <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-white/70">
         <p>{summaryCopy}</p>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
       </div>
 
       <StepActions onBack={onBack} onNext={handleContinue} isNextDisabled={!categories.length} />

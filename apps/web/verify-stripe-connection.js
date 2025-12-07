@@ -1,7 +1,13 @@
 const Stripe = require('stripe');
 require('dotenv').config({ path: '.env' });
 
-const stripeKey = process.env.STRIPE_SECRET_KEY || 'sk_test_51SLrw1RtjyTFPgioGGVLGRUFkK58BWp5uIByjzbD9um8JhYrf4APqDSLSQ7lQmVG3oiFT9muyRMBaU4BIuhdBP1Z004j4Ke6v4';
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+
+if (!stripeKey) {
+  console.error('❌ STRIPE_SECRET_KEY not set in environment variables');
+  console.error('   Please set STRIPE_SECRET_KEY in your .env file');
+  process.exit(1);
+}
 
 const stripe = new Stripe(stripeKey, {
   apiVersion: '2024-11-20.acacia',

@@ -16,15 +16,8 @@ interface PublicBookingPageProps {
 
 export default function PublicBookingPage({ params }: PublicBookingPageProps) {
   const slug = (params.slug || "").toLowerCase();
-  const { business, workspace, loadSeedBusiness, recordPublicBooking } = useFakeBusiness();
-  const [attemptedSeed, setAttemptedSeed] = useState(false);
-
-  useEffect(() => {
-    if (!business && slug === "novastudio" && !attemptedSeed) {
-      loadSeedBusiness();
-      setAttemptedSeed(true);
-    }
-  }, [business, slug, attemptedSeed, loadSeedBusiness]);
+  const { business, workspace, recordPublicBooking } = useFakeBusiness();
+  // NO SEED DATA - Public page loads business from database via API only
 
   if (!business || !workspace || business.slug !== slug) {
     if (business && business.slug !== slug) {

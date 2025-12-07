@@ -6,6 +6,8 @@ import { CalendarCheck2, Clock, Layers, Trash2 } from "lucide-react";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateAvailabilityData } from "@/lib/test-data-generator";
 import { DAY_OPTIONS } from "@/components/onboarding/constants";
 import type {
   AvailabilitySlot,
@@ -55,6 +57,16 @@ export function AvailabilityStep({
     createInitialMap(services, staff, defaultValues)
   );
   const [error, setError] = useState<string | null>(null);
+  
+  const handleFillTestData = () => {
+    const testData = generateAvailabilityData(
+      services,
+      staff
+    );
+    const mappedData = createInitialMap(services, staff, testData);
+    setAvailability(mappedData);
+    setError(null);
+  };
 
   useEffect(() => {
     setAvailability((prev) => syncServices(prev, services, staff));
@@ -361,6 +373,10 @@ export function AvailabilityStep({
           {error}
         </HelperText>
       ) : null}
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
+      </div>
 
       <StepActions onBack={onBack} onNext={handleContinue} />
     </div>

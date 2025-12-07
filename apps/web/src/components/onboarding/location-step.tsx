@@ -8,6 +8,8 @@ import { z } from "zod";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateLocationData } from "@/lib/test-data-generator";
 import type { LocationContacts } from "@/lib/onboarding-context";
 
 const timezoneRegex =
@@ -61,12 +63,18 @@ export function LocationStep({ defaultValues, onNext, onBack }: LocationStepProp
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid, isSubmitting }
+    formState: { errors, isValid, isSubmitting },
+    reset
   } = useForm<LocationFormValues>({
     resolver: zodResolver(locationSchema),
     defaultValues,
     mode: "onChange"
   });
+  
+  const handleFillTestData = () => {
+    const testData = generateLocationData();
+    reset(testData);
+  };
 
   const handleContinue = (values: LocationFormValues) => {
     onNext({
@@ -312,6 +320,10 @@ export function LocationStep({ defaultValues, onNext, onBack }: LocationStepProp
           <Globe className="h-4 w-4 text-primary" aria-hidden="true" />
           This info feeds your booking site header, policies modal, and upcoming notifications.
         </p>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} disabled={isSubmitting} />
       </div>
 
       <StepActions

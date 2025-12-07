@@ -9,6 +9,8 @@ import { z } from "zod";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateBusinessData } from "@/lib/test-data-generator";
 import type { BusinessBasics } from "@/lib/onboarding-context";
 
 const businessSchema = z.object({
@@ -49,12 +51,19 @@ export function BusinessStep({ defaultValues, onNext, onBack }: BusinessStepProp
     register,
     handleSubmit,
     formState: { errors, isValid, isSubmitting },
-    watch
+    watch,
+    setValue,
+    reset
   } = useForm<BusinessFormValues>({
     resolver: zodResolver(businessSchema),
     mode: "onChange",
     defaultValues
   });
+  
+  const handleFillTestData = () => {
+    const testData = generateBusinessData();
+    reset(testData);
+  };
 
   const remainingCharacters = useMemo(() => {
     const description = watch("description") ?? "";
@@ -222,6 +231,10 @@ export function BusinessStep({ defaultValues, onNext, onBack }: BusinessStepProp
             can sign in.
           </p>
         </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} disabled={isSubmitting} />
       </div>
 
       <StepActions

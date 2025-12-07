@@ -1,22 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CreditCard, Shield, RefreshCcw, PauseCircle, PlayCircle, XCircle } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { CreditCard, Shield, RefreshCcw, PauseCircle, PlayCircle, XCircle, Loader2 } from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 import { HelperText } from "@/components/ui/helper-text";
 import { StepActions } from "@/components/onboarding/step-actions";
 import { PAYMENT_METHODS } from "@/components/onboarding/constants";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { createClientClient } from "@/lib/supabase-client";
 import type { PaymentSetupConfig } from "@/lib/onboarding-context";
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ""
+);
 
 interface PaymentSetupStepProps {
   defaultValues: PaymentSetupConfig;
+  business?: { businessName?: string; industry?: string };
   onNext: (values: PaymentSetupConfig) => Promise<void> | void;
   onBack: () => void;
 }
 
-export function PaymentSetupStep({ defaultValues, onNext, onBack }: PaymentSetupStepProps) {
+export function PaymentSetupStep({ defaultValues, business, onNext, onBack }: PaymentSetupStepProps) {
   const [config, setConfig] = useState<PaymentSetupConfig>(defaultValues);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [isLoadingSetupIntent, setIsLoadingSetupIntent] = useState(false);
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
+  const toast = useToast();
 
   const handleConnectStep = (status: PaymentSetupConfig["connectStatus"]) => {
     setConfig((prev) => {
@@ -73,24 +87,226 @@ export function PaymentSetupStep({ defaultValues, onNext, onBack }: PaymentSetup
     setConfig(next);
   };
 
-  const handleSimulateConnect = async () => {
-    setIsSimulating(true);
-    setConfig((prev) => ({ ...prev, connectStatus: "in_progress" }));
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    const trialEndsAt = addDaysISO(7);
-    const nextBillDate = addDaysISO(7);
-    setConfig((prev) => ({
-      ...prev,
-      connectStatus: "completed",
-      subscriptionStatus: "trial",
-      trialEndsAt,
-      nextBillDate
-    }));
-    setIsSimulating(false);
+  // Check for Stripe Connect return (when user comes back from onboarding)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const accountId = urlParams.get("account_id");
+    if (accountId && config.connectStatus !== "completed") {
+      // User returned from Stripe Connect onboarding
+      console.log('[PaymentSetupStep] Detected Stripe return with account_id:', accountId);
+      handleConnectReturn(accountId);
+    }
+  }, [config.connectStatus]);
+
+  // Load SetupIntent when Stripe Connect is completed
+  useEffect(() => {
+    if (config.connectStatus === "completed" && !clientSecret && !isLoadingSetupIntent) {
+      loadSetupIntent();
+    }
+  }, [config.connectStatus, clientSecret, isLoadingSetupIntent]);
+
+  const handleConnectReturn = async (accountId: string) => {
+    try {
+      // Get session token for authentication
+      const supabase = createClientClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+      
+      const response = await fetch("/api/business/onboarding/step-11-payment-setup", {
+        method: "PUT",
+        headers,
+        credentials: "include", // Include cookies for authentication
+        body: JSON.stringify({
+          connectAccountId: accountId,
+          connectStatus: "in_progress",
+          acceptedMethods: config.acceptedMethods,
+          subscriptionStatus: config.subscriptionStatus,
+          businessName: business?.businessName,
+          industry: business?.industry,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to verify Stripe Connect account");
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setConfig((prev) => ({
+          ...prev,
+          connectStatus: "completed",
+          subscriptionStatus: "trial",
+          trialEndsAt: addDaysISO(7),
+          nextBillDate: addDaysISO(7),
+        }));
+        // Clean up URL
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch (error) {
+      console.error("Error handling Connect return:", error);
+      toast.pushToast({
+        title: "Error",
+        description: "Failed to verify Stripe Connect account. Please try again.",
+        intent: "error",
+      });
+    }
   };
 
-  const handleContinue = () => {
-    onNext(config);
+  const loadSetupIntent = async () => {
+    setIsLoadingSetupIntent(true);
+    try {
+      const response = await fetch("/api/business/onboarding/setup-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error("Failed to create setup intent");
+      }
+      const data = await response.json();
+      setClientSecret(data.clientSecret);
+    } catch (error) {
+      console.error("Error loading setup intent:", error);
+      toast.pushToast({
+        title: "Error",
+        description: "Failed to load payment form. Please refresh and try again.",
+        intent: "error",
+      });
+    } finally {
+      setIsLoadingSetupIntent(false);
+    }
+  };
+
+  const handleStartConnect = async () => {
+    setIsSimulating(true);
+    try {
+      // Get session token for authentication
+      const supabase = createClientClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+      
+      // Call backend to create Connect account and get Account Link
+      // Include business data in case business doesn't exist yet
+      const response = await fetch("/api/business/onboarding/step-11-payment-setup", {
+        method: "PUT",
+        headers,
+        credentials: "include", // Include cookies for authentication
+        body: JSON.stringify({
+          connectStatus: "not_started",
+          acceptedMethods: config.acceptedMethods,
+          subscriptionStatus: config.subscriptionStatus,
+          businessName: business?.businessName,
+          industry: business?.industry,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to start Stripe Connect");
+      }
+
+      const data = await response.json();
+      
+      if (data.accountLinkUrl) {
+        // Redirect to Stripe Connect onboarding
+        window.location.href = data.accountLinkUrl;
+        return;
+      }
+
+      // If account already exists and is verified, mark as completed
+      if (data.success && data.connectAccountId) {
+        setConfig((prev) => ({
+          ...prev,
+          connectStatus: "completed",
+          subscriptionStatus: "trial",
+          trialEndsAt: addDaysISO(7),
+          nextBillDate: addDaysISO(7),
+        }));
+      } else {
+        setConfig((prev) => ({ ...prev, connectStatus: "in_progress" }));
+      }
+    } catch (error) {
+      console.error("Error starting Stripe Connect:", error);
+      toast.pushToast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start Stripe Connect",
+        intent: "error",
+      });
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleContinue = async () => {
+    // If Stripe Connect is completed but no payment method collected yet, don't proceed
+    if (config.connectStatus === "completed" && !paymentMethodId && clientSecret) {
+      toast.pushToast({
+        title: "Payment method required",
+        description: "Please add your credit card to continue with subscription setup.",
+        intent: "error",
+      });
+      return;
+    }
+    
+    // Include payment method ID and business data when calling onNext
+    const valuesToSave = {
+      ...config,
+      paymentMethodId: paymentMethodId || undefined,
+    };
+    
+    // Also save to backend with business data
+    try {
+      // Get session token for authentication
+      const supabase = createClientClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+      
+      const response = await fetch("/api/business/onboarding/step-11-payment-setup", {
+        method: "PUT",
+        headers,
+        credentials: "include", // Include cookies for authentication
+        body: JSON.stringify({
+          ...valuesToSave,
+          businessName: business?.businessName,
+          industry: business?.industry,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to save payment setup");
+      }
+    } catch (error) {
+      console.error("Error saving payment setup:", error);
+      toast.pushToast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save payment setup",
+        intent: "error",
+      });
+      return;
+    }
+    
+    onNext(valuesToSave);
   };
 
   const statusCopy = useMemo(() => getStatusCopy(config), [config]);
@@ -124,11 +340,18 @@ export function PaymentSetupStep({ defaultValues, onNext, onBack }: PaymentSetup
             {config.connectStatus === "not_started" ? (
               <button
                 type="button"
-                onClick={handleSimulateConnect}
+                onClick={handleStartConnect}
                 disabled={isSimulating}
                 className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white shadow-primary/30 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:opacity-60"
               >
-                Start Stripe Connect
+                {isSimulating ? (
+                  <>
+                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  "Start Stripe Connect"
+                )}
               </button>
             ) : null}
             {config.connectStatus === "in_progress" ? (
@@ -216,6 +439,32 @@ export function PaymentSetupStep({ defaultValues, onNext, onBack }: PaymentSetup
         </div>
       </div>
 
+      {config.connectStatus === "completed" && clientSecret ? (
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-white">Subscription payment method</h3>
+            <p className="text-xs text-white/60 mt-1">
+              Add your credit card to start your subscription. You won't be charged until your 7-day trial ends.
+            </p>
+          </div>
+          {stripePromise && clientSecret ? (
+            <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <CardCollectionForm
+                onPaymentMethodSaved={(pmId) => {
+                  setPaymentMethodId(pmId);
+                  setConfig((prev) => ({ ...prev, paymentMethodId: pmId }));
+                  toast.pushToast({
+                    title: "Card saved",
+                    description: "Your payment method has been securely saved.",
+                    intent: "success",
+                  });
+                }}
+              />
+            </Elements>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-xs text-white/60">
         <p>
           Stripe fees are deducted automatically. Tithi takes a 1% platform fee on capture,
@@ -291,6 +540,95 @@ function getStatusCopy(config: PaymentSetupConfig) {
     default:
       return { connect: "" };
   }
+}
+
+function CardCollectionForm({ onPaymentMethodSaved }: { onPaymentMethodSaved: (paymentMethodId: string) => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const { error: submitError } = await elements.submit();
+      if (submitError) {
+        setError(submitError.message || "Failed to submit payment form");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const { error: confirmError, setupIntent } = await stripe.confirmSetup({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/onboarding`,
+        },
+        redirect: "if_required",
+      });
+
+      if (confirmError) {
+        setError(confirmError.message || "Failed to save payment method");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (setupIntent && setupIntent.payment_method) {
+        const pmId = typeof setupIntent.payment_method === "string" 
+          ? setupIntent.payment_method 
+          : setupIntent.payment_method.id;
+        onPaymentMethodSaved(pmId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
+        <PaymentElement
+          options={{
+            layout: "tabs",
+          }}
+        />
+      </div>
+      {error && (
+        <HelperText intent="error" role="alert">
+          {error}
+        </HelperText>
+      )}
+      <Button
+        type="submit"
+        disabled={!stripe || isSubmitting}
+        className="w-full"
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Saving card...
+          </>
+        ) : (
+          <>
+            <CreditCard className="mr-2 h-4 w-4" />
+            Save payment method
+          </>
+        )}
+      </Button>
+      <HelperText className="text-xs">
+        Your card will be saved securely. You won't be charged until your trial ends.
+      </HelperText>
+    </form>
+  );
 }
 
 

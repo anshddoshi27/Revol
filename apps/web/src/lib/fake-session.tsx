@@ -37,6 +37,7 @@ export function FakeSessionProvider({ children }: { children: React.ReactNode })
 
   const logout = React.useCallback(() => {
     setSession(defaultState);
+    // No localStorage to clear - all data is in database
   }, []);
 
   const devLogin = React.useCallback(() => {

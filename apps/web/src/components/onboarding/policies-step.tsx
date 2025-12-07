@@ -7,6 +7,8 @@ import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generatePoliciesData } from "@/lib/test-data-generator";
 import type { PoliciesConfig } from "@/lib/onboarding-context";
 
 interface PoliciesStepProps {
@@ -18,6 +20,12 @@ interface PoliciesStepProps {
 export function PoliciesStep({ defaultValues, onNext, onBack }: PoliciesStepProps) {
   const [policies, setPolicies] = useState<PoliciesConfig>(defaultValues);
   const [error, setError] = useState<string | null>(null);
+  
+  const handleFillTestData = () => {
+    const testData = generatePoliciesData();
+    setPolicies(testData);
+    setError(null);
+  };
 
   const handleChange = <K extends keyof PoliciesConfig>(key: K, value: PoliciesConfig[K]) => {
     setPolicies((prev) => ({ ...prev, [key]: value }));
@@ -156,6 +164,10 @@ export function PoliciesStep({ defaultValues, onNext, onBack }: PoliciesStepProp
           {error}
         </HelperText>
       ) : null}
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} />
+      </div>
 
       <StepActions onBack={onBack} onNext={handleContinue} />
     </div>

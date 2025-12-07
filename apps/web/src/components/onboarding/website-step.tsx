@@ -9,6 +9,8 @@ import { z } from "zod";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { StepActions } from "@/components/onboarding/step-actions";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
+import { generateWebsiteData } from "@/lib/test-data-generator";
 import { RESERVED_SUBDOMAINS } from "@/components/onboarding/constants";
 import type { WebsiteConfig } from "@/lib/onboarding-context";
 
@@ -43,12 +45,24 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
     register,
     handleSubmit,
     watch,
+    setValue,
+    reset,
     formState: { errors, isSubmitting, isValid }
   } = useForm<WebsiteFormValues>({
     resolver: zodResolver(websiteSchema),
     defaultValues,
     mode: "onChange"
   });
+  
+  const handleFillTestData = () => {
+    const testData = generateWebsiteData();
+    reset(testData);
+    // Trigger validation by setting status
+    setTimeout(() => {
+      setStatus("reserved");
+      setMessage(`Great! ${testData.subdomain}.tithi.com is available and held for the next session.`);
+    }, 100);
+  };
 
   const subdomain = watch("subdomain");
 
@@ -185,6 +199,10 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-end gap-3">
+        <TestDataButton onClick={handleFillTestData} disabled={isSubmitting || isChecking} />
       </div>
 
       <StepActions

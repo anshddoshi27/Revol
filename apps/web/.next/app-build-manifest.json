@@ -21,6 +21,16 @@
       "static/chunks/main-app.js",
       "static/chunks/app/login/page.js"
     ],
+    "/signup/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/signup/page.js"
+    ],
+    "/onboarding/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/onboarding/page.js"
+    ],
     "/app/b/[businessId]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
@@ -31,15 +41,15 @@
       "static/chunks/main-app.js",
       "static/chunks/app/app/b/[businessId]/layout.js"
     ],
-    "/onboarding/page": [
+    "/app/b/[businessId]/catalog/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/onboarding/page.js"
+      "static/chunks/app/app/b/[businessId]/catalog/page.js"
     ],
-    "/_not-found/page": [
+    "/app/b/[businessId]/account/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/_not-found/page.js"
+      "static/chunks/app/app/b/[businessId]/account/page.js"
     ],
     "/app/b/[businessId]/calendar/page": [
       "static/chunks/webpack.js",
@@ -51,45 +61,35 @@
       "static/chunks/main-app.js",
       "static/chunks/app/app/b/[businessId]/analytics/page.js"
     ],
-    "/app/b/[businessId]/catalog/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/app/b/[businessId]/catalog/page.js"
-    ],
-    "/app/b/[businessId]/gift-cards/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/app/b/[businessId]/gift-cards/page.js"
-    ],
     "/app/b/[businessId]/availability/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/app/b/[businessId]/availability/page.js"
     ],
-    "/app/b/[businessId]/staff/page": [
+    "/app/b/[businessId]/notifications/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/app/b/[businessId]/staff/page.js"
-    ],
-    "/app/b/[businessId]/customers/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/app/b/[businessId]/customers/page.js"
-    ],
-    "/app/b/[businessId]/payments/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/app/b/[businessId]/payments/page.js"
+      "static/chunks/app/app/b/[businessId]/notifications/page.js"
     ],
     "/app/b/[businessId]/policies/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/app/b/[businessId]/policies/page.js"
     ],
-    "/public/[slug]/page": [
+    "/app/b/[businessId]/gift-cards/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/public/[slug]/page.js"
+      "static/chunks/app/app/b/[businessId]/gift-cards/page.js"
+    ],
+    "/app/b/[businessId]/payments/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/app/b/[businessId]/payments/page.js"
+    ],
+    "/app/b/[businessId]/customers/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/app/b/[businessId]/customers/page.js"
     ]
   }
 }

@@ -88,6 +88,46 @@ const CATEGORY_NAMES = [
 const COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2", "#F8B739", "#95A5A6"];
 
 /**
+ * Generate test data for Signup Form
+ * Each call generates unique email, name, and phone number
+ * This ensures each account created is new and unique
+ */
+export function generateSignupData(): {
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+} {
+  const uniqueId = getUniqueId();
+  const firstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+  const lastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+  
+  // Generate unique email using timestamp and random string
+  // Use a real email provider domain that Supabase accepts
+  // Gmail accepts + aliases, so test+unique@gmail.com will work
+  const emailSuffix = uniqueId.replace(/[^a-z0-9]/g, '').substring(0, 8);
+  const email = `test+${emailSuffix}@gmail.com`;
+  
+  // Generate unique phone number
+  const phoneArea = Math.floor(Math.random() * 900) + 100; // 100-999
+  const phoneExchange = Math.floor(Math.random() * 900) + 100; // 100-999
+  const phoneNumber = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+  const phone = `+1${phoneArea}${phoneExchange}${phoneNumber}`;
+  
+  // Use a consistent test password that meets requirements
+  const password = "Test123!@#";
+  
+  return {
+    fullName: `${firstName} ${lastName}`,
+    email: email,
+    phone: phone,
+    password: password,
+    confirmPassword: password
+  };
+}
+
+/**
  * Generate test data for Business Step
  */
 export function generateBusinessData(): BusinessBasics {

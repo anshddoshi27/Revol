@@ -112,10 +112,10 @@ export function LoginForm() {
         return;
       }
 
-      // Fetch user's business from database
+      // Fetch user's business from database - check if it's already launched
       const { data: business, error: businessError } = await supabase
         .from('businesses')
-        .select('id, subdomain, name')
+        .select('id, subdomain, name, subscription_status, stripe_connect_account_id, timezone, support_email')
         .eq('user_id', authData.user.id)
         .is('deleted_at', null)
         .maybeSingle();
@@ -131,24 +131,41 @@ export function LoginForm() {
           description: "Welcome! Let's set up your business.",
           intent: "success"
         });
-        router.push("/onboarding");
+        router.push("/onboarding?new=true");
         setIsLoading(false);
         return;
       }
 
+      // Check if business is already launched
+      // A business is considered "launched" if it has:
+      // - subscription_status set (trial, active, paused, canceled)
+      // - All required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+      const isLaunched = business && 
+        business.subscription_status && 
+        business.subscription_status !== null &&
+        business.name && 
+        business.name.trim().length > 0 &&
+        business.subdomain && 
+        !business.subdomain.startsWith('temp-') &&
+        business.timezone &&
+        business.support_email &&
+        business.stripe_connect_account_id;
+
       toast.pushToast({
         title: "Login successful",
         description: business 
-          ? `Welcome back to ${business.name}!`
+          ? (isLaunched 
+              ? `Welcome back to ${business.name}!`
+              : `Welcome back! Let's finish setting up ${business.name}.`)
           : "Welcome! Let's set up your business.",
         intent: "success"
       });
 
-      // Redirect based on whether business exists
-      if (business) {
-        // Business exists - go to admin
+      // Redirect based on whether business exists and is launched
+      if (business && isLaunched) {
+        // Business is already launched - go directly to admin (onboarding is locked)
         const redirectPath = `/app/b/${business.id}`;
-        console.log('Redirecting to:', redirectPath);
+        console.log('[login] Business is already launched - redirecting to admin:', redirectPath);
         router.push(redirectPath);
         // Force navigation if router.push doesn't work
         setTimeout(() => {
@@ -157,10 +174,14 @@ export function LoginForm() {
             window.location.href = redirectPath;
           }
         }, 500);
-      } else {
-        // No business - go to onboarding
-        console.log('No business found, redirecting to onboarding');
+      } else if (business) {
+        // Business exists but not launched - continue onboarding
+        console.log('[login] Business exists but not launched - redirecting to onboarding');
         router.push("/onboarding");
+      } else {
+        // No business - start fresh onboarding
+        console.log('[login] No business found - starting fresh onboarding');
+        router.push("/onboarding?new=true");
       }
     } catch (error) {
       console.error('Login error:', error);

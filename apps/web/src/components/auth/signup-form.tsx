@@ -11,7 +11,10 @@ import { Button } from "@/components/ui/button";
 import { HelperText } from "@/components/ui/helper-text";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { TestDataButton } from "@/components/onboarding/test-data-button";
 import { useFakeSession } from "@/lib/fake-session";
+import { generateSignupData } from "@/lib/test-data-generator";
+import { createClientClient } from "@/lib/supabase-client";
 import {
   signupSchema,
   type SignupFormValues
@@ -30,7 +33,8 @@ export function SignupForm() {
     register,
     handleSubmit,
     formState: { errors, isValid, isSubmitting },
-    watch
+    watch,
+    setValue
   } = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
     mode: "onChange",
@@ -47,21 +51,89 @@ export function SignupForm() {
   const passwordValue = watch("password");
   const confirmPasswordValue = watch("confirmPassword");
 
+  const handleFillTestData = () => {
+    const testData = generateSignupData();
+    setValue("fullName", testData.fullName, { shouldValidate: true });
+    setValue("email", testData.email, { shouldValidate: true });
+    setValue("phone", testData.phone, { shouldValidate: true });
+    setValue("password", testData.password, { shouldValidate: true });
+    setValue("confirmPassword", testData.confirmPassword, { shouldValidate: true });
+  };
+
   const onSubmit = async (values: SignupFormValues) => {
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    session.login({
-      id: "owner-new",
-      name: values.fullName,
-      email: values.email,
-      phone: values.phone
-    });
-    toast.pushToast({
-      title: "Account created",
-      description:
-        "Let’s walk through onboarding to configure your business before accepting bookings.",
-      intent: "success"
-    });
-    router.push("/onboarding");
+    try {
+      // Call the signup API to create user and business
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+          fullName: values.fullName,
+          phone: values.phone,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to create account");
+      }
+
+      const data = await response.json();
+      
+      // Sign in the user with Supabase to get a real session
+      const supabase = createClientClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: values.email.trim().toLowerCase(),
+        password: values.password,
+      });
+      
+      if (signInError) {
+        console.error('Sign in error after signup:', signInError);
+        // Even if sign in fails, we can still proceed with fake session
+        // The user account was created, they can log in manually
+        session.login({
+          id: data.user.id,
+          name: values.fullName,
+          email: values.email,
+          phone: values.phone
+        });
+        
+        toast.pushToast({
+          title: "Account created",
+          description: "Account created but automatic sign-in failed. Please sign in manually.",
+          intent: "warning"
+        });
+        
+        router.push("/login");
+        return;
+      }
+      
+      // Also set fake session for UI state (if needed)
+      session.login({
+        id: data.user.id,
+        name: values.fullName,
+        email: values.email,
+        phone: values.phone
+      });
+      
+      toast.pushToast({
+        title: "Account created",
+        description:
+          "Let's walk through onboarding to configure your business before accepting bookings.",
+        intent: "success"
+      });
+      
+      // Redirect to onboarding with new=true parameter to ensure fresh start
+      router.push("/onboarding?new=true");
+    } catch (error) {
+      console.error("Signup error:", error);
+      toast.pushToast({
+        title: "Signup failed",
+        description: error instanceof Error ? error.message : "Failed to create account. Please try again.",
+        intent: "error"
+      });
+    }
   };
 
   return (
@@ -318,6 +390,10 @@ export function SignupForm() {
               </HelperText>
             ) : null}
           </div>
+        </div>
+
+        <div className="flex justify-center">
+          <TestDataButton onClick={handleFillTestData} disabled={isSubmitting} />
         </div>
 
         <div className="space-y-4">

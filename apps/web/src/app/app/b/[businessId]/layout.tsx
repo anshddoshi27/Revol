@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useFakeBusiness } from "@/lib/fake-business";
 import { createClientClient } from "@/lib/supabase-client";
+// Removed DEV_WORKSPACE_SEED import - we use ONLY user data, no seed data
 import type { User } from "@supabase/supabase-js";
 
 const NAV_ITEMS = [
@@ -94,7 +95,7 @@ export default function AdminBusinessLayout({
   const router = useRouter();
   const params = useParams<{ businessId: string }>();
   const pathname = usePathname();
-  const { business: fakeBusiness, workspace, loadSeedBusiness } = useFakeBusiness();
+  const { business: fakeBusiness, workspace, loadSeedBusiness, createBusiness, bootstrapWorkspace } = useFakeBusiness();
   
   const [user, setUser] = useState<User | null>(null);
   const [realBusiness, setRealBusiness] = useState<any>(null);
@@ -219,20 +220,350 @@ export default function AdminBusinessLayout({
           }
         }
         
-        // Load fake workspace data if not already loaded
-        // This is temporary until we migrate all pages to use real data
-        if (!fakeBusiness || !workspace) {
-          console.log('Loading seed business data...');
-          try {
-            // Load default seed data - this matches what the seed script creates
-            const seedResult = loadSeedBusiness();
-            if (seedResult) {
-              console.log('Seed business loaded:', seedResult.business.name);
-            }
-          } catch (seedError) {
-            console.warn('Failed to load seed business:', seedError);
-            // Continue anyway - pages might work without it
+        // Load real business data from API and populate workspace
+        console.log('Loading real business data from API...');
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            throw new Error('No session token');
           }
+
+          const response = await fetch(`/api/business/${businessData.id}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            credentials: 'include',
+          });
+
+          if (response.ok) {
+            const apiData = await response.json();
+            console.log('[layout] Real business data loaded from database:', {
+              business: apiData.business?.name,
+              businessId: apiData.business?.id,
+              services: apiData.services?.length || 0,
+              serviceNames: apiData.services?.map((s: any) => s.name) || [],
+              staff: apiData.staff?.length || 0,
+              staffNames: apiData.staff?.map((s: any) => s.name) || [],
+              availability: apiData.availability?.length || 0,
+              categoriesCount: apiData.categories?.length || 0,
+              categoryNames: apiData.categories?.map((c: any) => c.name) || [],
+              notificationsCount: apiData.notifications?.length || 0,
+              hasPolicies: !!apiData.policies,
+              hasGiftCards: !!apiData.giftCards,
+              notificationsEnabled: apiData.business?.notifications_enabled,
+              planType: apiData.business?.notifications_enabled === true ? 'Pro' : 'Basic',
+              subscriptionStatus: apiData.business?.subscription_status,
+              rawNotificationsEnabled: apiData.business?.notifications_enabled,
+            });
+
+            // Transform and populate fake business context with real data
+            // Allow empty arrays for services and staff - they're valid
+            if (!apiData.business) {
+              console.error('[layout] No business data in API response:', apiData);
+              throw new Error('Business data not found in API response');
+            }
+
+            if (apiData.business) {
+              // Create business object
+              const transformedBusiness = {
+                id: apiData.business.id,
+                name: apiData.business.name,
+                slug: apiData.business.subdomain || apiData.business.id,
+                bookingUrl: `https://${apiData.business.subdomain}.tithi.com`,
+                previewUrl: `/public/${apiData.business.subdomain}`,
+                status: (apiData.business.subscription_status as "trial" | "active" | "paused" | "canceled") || "trial",
+                createdAt: apiData.business.created_at,
+                trialEndsAt: apiData.business.trial_ends_at,
+                nextBillDate: apiData.business.next_bill_at,
+              };
+
+              // Transform services into catalog format - USING ONLY DATABASE DATA
+              console.log('[layout] Transforming services from database:', {
+                rawServicesCount: apiData.services?.length || 0,
+                rawServices: apiData.services?.map((s: any) => ({ id: s.id, name: s.name, category_id: s.category_id })) || [],
+                rawCategoriesCount: apiData.categories?.length || 0,
+                rawCategories: apiData.categories?.map((c: any) => ({ id: c.id, name: c.name })) || [],
+              });
+              
+              const categoriesMap = new Map();
+              if (apiData.categories && apiData.categories.length > 0) {
+                apiData.categories.forEach((cat: any) => {
+                  categoriesMap.set(cat.id, {
+                    id: cat.id,
+                    name: cat.name, // Use database name, no defaults
+                    description: cat.description || '',
+                    color: cat.color || '#5B64FF',
+                    services: [],
+                  });
+                });
+              }
+
+              // Group services by category - ONLY FROM DATABASE
+              (apiData.services || []).forEach((service: any) => {
+                const categoryId = service.category_id || 'uncategorized';
+                if (!categoriesMap.has(categoryId)) {
+                  categoriesMap.set(categoryId, {
+                    id: categoryId,
+                    name: 'Uncategorized',
+                    description: '',
+                    color: '#5B64FF',
+                    services: [],
+                  });
+                }
+                // Get staff IDs from the map
+                const staffIds = apiData.staffServiceMap?.[service.id] || [];
+                categoriesMap.get(categoryId).services.push({
+                  id: service.id,
+                  name: service.name, // Use database name, no defaults
+                  description: service.description || '',
+                  durationMinutes: service.duration_min || service.duration_minutes || 60,
+                  priceCents: service.price_cents || 0,
+                  instructions: service.pre_appointment_instructions || service.instructions || '',
+                  staffIds: staffIds,
+                });
+              });
+
+              const catalog = Array.from(categoriesMap.values());
+              
+              console.log('[layout] Transformed catalog from database:', {
+                catalogCount: catalog.length,
+                totalServices: catalog.reduce((sum, cat) => sum + cat.services.length, 0),
+                servicesByCategory: catalog.map(cat => ({
+                  category: cat.name,
+                  services: cat.services.map(s => s.name)
+                })),
+              });
+
+              // Transform staff (handle empty staff array)
+              const staff = (apiData.staff || []).map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                role: s.role || '',
+                color: s.color || '#5B64FF',
+                active: s.active !== false,
+              }));
+
+              // Transform availability (handle empty availability array)
+              // Map weekday numbers (0-6) to day name strings
+              const WEEKDAY_TO_DAY: Record<number, string> = {
+                0: 'sunday',
+                1: 'monday',
+                2: 'tuesday',
+                3: 'wednesday',
+                4: 'thursday',
+                5: 'friday',
+                6: 'saturday',
+              };
+              
+              const availabilityMap = new Map();
+              (apiData.availability || []).forEach((rule: any) => {
+                const serviceId = rule.service_id;
+                const staffId = rule.staff_id;
+                if (!availabilityMap.has(serviceId)) {
+                  availabilityMap.set(serviceId, {
+                    serviceId: serviceId,
+                    staff: [],
+                  });
+                }
+                const entry = availabilityMap.get(serviceId);
+                let staffEntry = entry.staff.find((s: any) => s.staffId === staffId);
+                if (!staffEntry) {
+                  staffEntry = { staffId: staffId, slots: [] };
+                  entry.staff.push(staffEntry);
+                }
+                
+                // Convert weekday number (0-6) to day name string
+                // weekday is typically a number: 0=sunday, 1=monday, etc.
+                const weekdayNum = rule.weekday ?? rule.day_of_week ?? rule.day;
+                let dayString = 'monday'; // Default
+                
+                if (typeof weekdayNum === 'number' && weekdayNum >= 0 && weekdayNum <= 6) {
+                  dayString = WEEKDAY_TO_DAY[weekdayNum] || 'monday';
+                } else if (typeof weekdayNum === 'string') {
+                  dayString = weekdayNum.toLowerCase();
+                } else if (weekdayNum != null) {
+                  // Try to convert to number first, then to day name
+                  const num = Number(weekdayNum);
+                  if (!isNaN(num) && num >= 0 && num <= 6) {
+                    dayString = WEEKDAY_TO_DAY[num] || 'monday';
+                  }
+                }
+                
+                staffEntry.slots.push({
+                  id: rule.id || `slot_${dayString}_${staffId}`,
+                  day: dayString,
+                  startTime: rule.start_time || rule.startTime || '09:00',
+                  endTime: rule.end_time || rule.endTime || '17:00',
+                });
+              });
+              const availability = Array.from(availabilityMap.values());
+
+              // Bootstrap workspace with real data
+              // Create proper BusinessBasics object from API data
+              // businessName should come from the business name field, not industry
+              const businessBasics = {
+                businessName: apiData.business.name || '', // Use business name, not industry
+                description: apiData.business.description || '',
+                doingBusinessAs: apiData.business.dba_name || apiData.business.name || '',
+                legalName: apiData.business.legal_name || apiData.business.name || '',
+                industry: apiData.business.industry || '',
+              };
+
+              // Create workspace from ONLY user's actual data from database - NO seed data, NO separate API calls
+              // All data comes from the business API response
+              
+              // Transform notification templates from database format
+              const notificationTemplates = (apiData.notifications || []).map((nt: any) => ({
+                id: nt.id || `notif_${Date.now()}`,
+                name: nt.name || '',
+                channel: (nt.channel || 'email') as 'email' | 'sms',
+                category: nt.category || 'confirmation',
+                trigger: nt.trigger || 'booking_created',
+                subject: nt.subject || '', // email only
+                body: nt.body_markdown || nt.body || '', // Use body_markdown from database
+                enabled: nt.is_enabled !== false, // Use is_enabled from database
+              }));
+
+              // Transform gift card config from API format
+              const giftCardConfig = apiData.giftCards ? {
+                enabled: apiData.giftCards.enabled || false,
+                amountType: (apiData.giftCards.amount_type || 'amount') as 'amount' | 'percent',
+                amountValue: apiData.giftCards.amount_value || 10000,
+                expirationEnabled: apiData.giftCards.expiration_enabled || false,
+                generatedCodes: apiData.giftCards.generated_codes || [],
+              } : {
+                enabled: false,
+                amountType: 'amount' as const,
+                amountValue: 10000,
+                expirationEnabled: false,
+                generatedCodes: [],
+              };
+
+              // Build workspace input from ONLY user's actual data from database
+              // Use ONLY the data that was entered during onboarding - no defaults, no seed data
+              const seedInput = {
+                business: businessBasics,
+                website: apiData.website || {
+                  subdomain: apiData.business.subdomain || '',
+                  status: 'reserved' as const,
+                  customDomain: undefined,
+                },
+                location: apiData.location || {
+                  timezone: apiData.business.timezone || '',
+                  phone: apiData.business.phone || '',
+                  supportEmail: apiData.business.support_email || '',
+                  website: apiData.business.website_url || '',
+                  addressLine1: apiData.business.street || '',
+                  addressLine2: '',
+                  city: apiData.business.city || '',
+                  stateProvince: apiData.business.state || '',
+                  postalCode: apiData.business.postal_code || '',
+                  country: apiData.business.country || '',
+                },
+                branding: apiData.branding || {
+                  primaryColor: apiData.business.brand_primary_color || '',
+                  secondaryColor: apiData.business.brand_secondary_color || undefined,
+                  logoUrl: apiData.business.logo_url || undefined,
+                  logoName: undefined,
+                  recommendedDimensions: { width: 960, height: 1280 },
+                },
+                team: staff || [],
+                categories: catalog || [],
+                availability: availability || [],
+                notifications: notificationTemplates,
+                policies: apiData.policies ? {
+                  cancellationPolicy: apiData.policies.cancellation_policy || '',
+                  cancellationFeeType: (apiData.policies.cancellation_fee_type || 'percent') as 'percent' | 'flat',
+                  cancellationFeeValue: apiData.policies.cancellation_fee_value || 0,
+                  noShowPolicy: apiData.policies.no_show_policy || '',
+                  noShowFeeType: (apiData.policies.no_show_fee_type || 'percent') as 'percent' | 'flat',
+                  noShowFeeValue: apiData.policies.no_show_fee_value || 0,
+                  refundPolicy: apiData.policies.refund_policy || '',
+                  cashPolicy: apiData.policies.cash_policy || '',
+                } : {
+                  cancellationPolicy: '',
+                  cancellationFeeType: 'percent' as const,
+                  cancellationFeeValue: 0,
+                  noShowPolicy: '',
+                  noShowFeeType: 'percent' as const,
+                  noShowFeeValue: 0,
+                  refundPolicy: '',
+                  cashPolicy: '',
+                },
+                giftCards: giftCardConfig,
+                payment: {
+                  connectStatus: (apiData.business.stripe_connect_account_id ? 'active' : 'not_started') as const,
+                  acceptedMethods: ['card'] as const,
+                  subscriptionStatus: (apiData.business.subscription_status || 'trial') as const,
+                  trialEndsAt: apiData.business.trial_ends_at,
+                  nextBillDate: apiData.business.next_bill_at,
+                },
+              };
+
+              try {
+                // Log all services being used to verify they're from database
+                const allServices = seedInput.categories.flatMap(cat => cat.services);
+                console.log('[layout] Creating workspace with user data from database:', {
+                  businessName: seedInput.business.businessName,
+                  staffCount: seedInput.team.length,
+                  staffNames: seedInput.team.map(s => s.name),
+                  categoriesCount: seedInput.categories.length,
+                  categoryNames: seedInput.categories.map(c => c.name),
+                  servicesCount: allServices.length,
+                  serviceNames: allServices.map(s => s.name), // Log actual service names
+                  availabilityCount: seedInput.availability.length,
+                  notificationsCount: seedInput.notifications.length,
+                  hasPolicies: !!seedInput.policies,
+                  hasGiftCards: seedInput.giftCards.enabled,
+                  notificationsEnabled: apiData.business?.notifications_enabled,
+                  planType: apiData.business?.notifications_enabled === true ? 'Pro' : 'Basic',
+                  location: seedInput.location.city || 'Not set',
+                  branding: seedInput.branding.primaryColor,
+                });
+                
+                // Create business first
+                createBusiness(transformedBusiness);
+                
+                // Then bootstrap workspace
+                const workspaceResult = bootstrapWorkspace(seedInput);
+                if (workspaceResult) {
+                  console.log('[layout] Workspace populated with real data:', workspaceResult.identity.business.businessName);
+                } else {
+                  console.warn('[layout] Workspace creation returned undefined');
+                  throw new Error('Workspace creation returned undefined');
+                }
+              } catch (workspaceError) {
+                console.error('[layout] Error creating workspace:', workspaceError);
+                console.error('[layout] Workspace error stack:', workspaceError instanceof Error ? workspaceError.stack : 'No stack');
+                throw new Error(`Failed to create workspace: ${workspaceError instanceof Error ? workspaceError.message : 'Unknown error'}`);
+              }
+            } else {
+              console.error('[layout] Missing required business data:', {
+                hasBusiness: !!apiData.business,
+                hasServices: !!apiData.services,
+                hasStaff: !!apiData.staff,
+              });
+              throw new Error('Missing required business data to create workspace');
+            }
+          } else {
+            console.error('Failed to load real business data from API');
+            setError('Failed to load business data. Please try refreshing the page.');
+            setLoading(false);
+            return;
+          }
+        } catch (apiError) {
+          console.error('[layout] Error loading real business data:', apiError);
+          const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+          console.error('[layout] Error details:', {
+            message: errorMessage,
+            stack: apiError instanceof Error ? apiError.stack : undefined,
+            businessId: params.businessId,
+          });
+          setError(`Error loading business data: ${errorMessage}. Please try refreshing the page.`);
+          setLoading(false);
+          return;
         }
         
         setLoading(false);
@@ -261,19 +592,43 @@ export default function AdminBusinessLayout({
   }, [pathname, params.businessId]);
 
   // Filter nav items based on business settings
-  // Hide notifications page if notifications are not enabled
-  // Note: In production, this should come from the database businesses table
+  // Hide notifications page if notifications are not enabled (Basic Plan)
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
+  
+  // Fetch notifications_enabled from database
+  useEffect(() => {
+    async function fetchNotificationsEnabled() {
+      if (!realBusiness?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('businesses')
+          .select('notifications_enabled')
+          .eq('id', realBusiness.id)
+          .single();
+
+        if (!error && data) {
+          setNotificationsEnabled(data.notifications_enabled ?? false);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications_enabled:', error);
+      }
+    }
+
+    if (realBusiness?.id) {
+      fetchNotificationsEnabled();
+    }
+  }, [realBusiness?.id, supabase]);
+
   const visibleNavItems = useMemo(() => {
-    // For now, we'll assume notifications are enabled if workspace exists
-    // In production, check business.notifications_enabled from database
-    const notificationsEnabled = true; // TODO: Get from business data
+    // Hide notifications page for Basic Plan (notifications_enabled = false)
     return NAV_ITEMS.filter(item => {
-      if (item.segment === "notifications" && !notificationsEnabled) {
+      if (item.segment === "notifications" && notificationsEnabled === false) {
         return false;
       }
       return true;
     });
-  }, []);
+  }, [notificationsEnabled]);
 
   if (loading) {
     return (
@@ -328,6 +683,7 @@ export default function AdminBusinessLayout({
   const previewUrl = business.previewUrl ?? `/public/${business.slug}`;
 
   const handleSignOut = async () => {
+    // No localStorage to clear - all data is in database
     await supabase.auth.signOut();
     router.replace("/");
   };

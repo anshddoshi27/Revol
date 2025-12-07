@@ -252,7 +252,168 @@ const OnboardingContext = React.createContext<OnboardingContextValue | undefined
 );
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
+  // Start with initialState to avoid hydration mismatch
+  // Then load from database on client side only
   const [state, dispatch] = React.useReducer(reducer, initialState);
+  const [isHydrated, setIsHydrated] = React.useState(false);
+  
+  // Load from database on client side only (after mount)
+  // For new signups, always start at step 1 regardless of database state
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && !isHydrated) {
+      const loadStateFromDatabase = async () => {
+        try {
+          // Check URL parameter first - if new=true, this is a fresh signup, start at step 1
+          const urlParams = new URLSearchParams(window.location.search);
+          const isNewSignup = urlParams.get('new') === 'true';
+          
+          if (isNewSignup) {
+            console.log('[OnboardingProvider] New signup detected from URL parameter - starting fresh at step 1');
+            dispatch({ type: "SET_STEP", payload: "business" });
+            // Clean up URL parameter
+            window.history.replaceState({}, "", window.location.pathname);
+            setIsHydrated(true);
+            return;
+          }
+
+          const { createClientClient } = await import('./supabase-client');
+          const supabase = createClientClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (!session?.access_token) {
+            // No session - just mark as hydrated with initial state (step 1)
+            console.log('[OnboardingProvider] No session - starting fresh at step 1');
+            dispatch({ type: "SET_STEP", payload: "business" });
+            setIsHydrated(true);
+            return;
+          }
+
+          // Check if business has a valid name - if not, this is a new signup, start at step 1
+          const { loadOnboardingDataFromBackend } = await import('./load-onboarding-data');
+          const data = await loadOnboardingDataFromBackend();
+          
+          // Helper function to validate business data is actually complete (not just empty/default)
+          const isValidBusiness = (business: any) => {
+            return business && business.businessName && business.businessName.trim().length > 0;
+          };
+          
+          // If business has no valid name, this is a NEW signup - start completely fresh at step 1
+          if (!isValidBusiness(data.business)) {
+            console.log('[OnboardingProvider] New signup detected (no valid business name) - starting fresh at step 1');
+            dispatch({ type: "SET_STEP", payload: "business" });
+            setIsHydrated(true);
+            return;
+          }
+          
+          // Helper function to validate website data is actually complete
+          const isValidWebsite = (website: any) => {
+            return website && website.subdomain && website.subdomain.trim().length > 0 && !website.subdomain.startsWith('temp-');
+          };
+          
+          // Helper function to validate location data is actually complete
+          const isValidLocation = (location: any) => {
+            return location && (location.street?.trim() || location.city?.trim()) && location.timezone && location.timezone.trim().length > 0;
+          };
+          
+          // This is a RETURNING user - restore their progress from database
+          if (data.business && isValidBusiness(data.business)) {
+            dispatch({ type: "SAVE_BUSINESS", payload: data.business });
+          }
+          
+          if (data.website && isValidWebsite(data.website)) {
+            dispatch({ type: "SAVE_WEBSITE", payload: data.website });
+          }
+          
+          if (data.location && isValidLocation(data.location)) {
+            dispatch({ type: "SAVE_LOCATION", payload: data.location });
+          }
+          
+          if (data.team && data.team.length > 0) {
+            dispatch({ type: "SAVE_TEAM", payload: data.team });
+          }
+          
+          if (data.branding && data.branding.primaryColor && data.branding.primaryColor.trim().length > 0) {
+            dispatch({ type: "SAVE_BRANDING", payload: data.branding });
+          }
+          
+          if (data.services && data.services.length > 0) {
+            dispatch({ type: "SAVE_SERVICES", payload: data.services });
+          }
+          
+          if (data.availability && data.availability.length > 0) {
+            dispatch({ type: "SAVE_AVAILABILITY", payload: data.availability });
+          }
+          
+          if (data.notifications) {
+            dispatch({ type: "SAVE_NOTIFICATIONS", payload: data.notifications });
+          }
+          
+          if (data.policies) {
+            dispatch({ type: "SAVE_POLICIES", payload: data.policies });
+          }
+          
+          if (data.giftCards) {
+            dispatch({ type: "SAVE_GIFT_CARDS", payload: data.giftCards });
+          }
+          
+          if (data.paymentSetup) {
+            dispatch({ type: "SAVE_PAYMENT_SETUP", payload: data.paymentSetup });
+          }
+          
+          // Determine current step based on VALID completed steps only (for returning users)
+          const completedSteps: OnboardingStepId[] = [];
+          if (isValidBusiness(data.business)) completedSteps.push('business');
+          if (isValidWebsite(data.website)) completedSteps.push('website');
+          if (isValidLocation(data.location)) completedSteps.push('location');
+          if (data.team && data.team.length > 0) completedSteps.push('team');
+          if (data.branding?.primaryColor && data.branding.primaryColor.trim().length > 0) completedSteps.push('branding');
+          if (data.services && data.services.length > 0) completedSteps.push('services');
+          if (data.availability && data.availability.length > 0) completedSteps.push('availability');
+          if (data.notifications) completedSteps.push('notifications');
+          if (data.policies && (data.policies.cancellationPolicy?.trim() || data.policies.noShowPolicy?.trim())) completedSteps.push('policies');
+          if (data.giftCards) completedSteps.push('giftCards');
+          if (data.paymentSetup && data.paymentSetup.connectStatus !== "not_started") completedSteps.push('paymentSetup');
+          
+          // Set current step to the first incomplete step
+          const STEP_SEQUENCE: OnboardingStepId[] = [
+            "business",
+            "website",
+            "location",
+            "team",
+            "branding",
+            "services",
+            "availability",
+            "notifications",
+            "policies",
+            "giftCards",
+            "paymentSetup",
+            "goLive"
+          ];
+          
+          const firstIncomplete = STEP_SEQUENCE.find(step => !completedSteps.includes(step));
+          if (firstIncomplete) {
+            dispatch({ type: "SET_STEP", payload: firstIncomplete });
+          } else if (completedSteps.length > 0) {
+            // All steps completed, go to goLive
+            dispatch({ type: "SET_STEP", payload: "goLive" });
+          } else {
+            // Fallback: start at step 1
+            dispatch({ type: "SET_STEP", payload: "business" });
+          }
+          
+          console.log('[OnboardingProvider] Returning user - loaded from database, completed steps:', completedSteps, 'starting at:', firstIncomplete || 'goLive');
+        } catch (error) {
+          console.error('[OnboardingProvider] Error loading onboarding state from database:', error);
+          // On error, start fresh at step 1
+          dispatch({ type: "SET_STEP", payload: "business" });
+        } finally {
+          setIsHydrated(true);
+        }
+      };
+      
+      loadStateFromDatabase();
+    }
+  }, [isHydrated]);
 
   const setStep = React.useCallback((step: OnboardingStepId) => {
     dispatch({ type: "SET_STEP", payload: step });

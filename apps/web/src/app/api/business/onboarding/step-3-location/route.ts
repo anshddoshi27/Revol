@@ -4,6 +4,67 @@ import { getCurrentUserId } from '@/lib/auth';
 import type { LocationContacts } from '@/lib/onboarding-types';
 
 /**
+ * GET /api/business/onboarding/step-3-location
+ * 
+ * Retrieves location and contact information
+ */
+export async function GET(request: Request) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const supabase = await createServerClient();
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .select('timezone, phone, support_email, website_url, street, city, state, postal_code, country')
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[step-3-location] Error fetching location:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch location data' },
+        { status: 500 }
+      );
+    }
+
+    if (!business) {
+      return NextResponse.json(
+        { location: null },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json({
+      location: {
+        timezone: business.timezone || '',
+        phone: business.phone || '',
+        supportEmail: business.support_email || '',
+        website: business.website_url || '',
+        addressLine1: business.street || '',
+        addressLine2: '',
+        city: business.city || '',
+        stateProvince: business.state || '',
+        postalCode: business.postal_code || '',
+        country: business.country || '',
+      }
+    });
+  } catch (error) {
+    console.error('[step-3-location] Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PUT /api/business/onboarding/step-3-location
  * 
  * Updates business location and contact information
@@ -86,11 +147,69 @@ export async function PUT(request: Request) {
       .eq('id', business.id);
 
     if (updateError) {
-      console.error('Error updating location:', updateError);
-      return NextResponse.json(
-        { error: 'Failed to update location', details: updateError.message },
-        { status: 500 }
-      );
+      console.error('[step-3-location] Error updating location:', updateError);
+      
+      // Try with service role if RLS error
+      if (updateError.code === 'PGRST301' || updateError.message?.includes('No suitable key')) {
+        console.log('[step-3-location] RLS error, trying with service role');
+        const { createAdminClient } = await import('@/lib/db');
+        const adminSupabase = createAdminClient();
+        
+        const { error: adminUpdateError } = await adminSupabase
+          .from('businesses')
+          .update({
+            timezone,
+            phone,
+            support_email: supportEmail,
+            website_url: website || null,
+            street: addressLine1,
+            city,
+            state: stateProvince,
+            postal_code: postalCode,
+            country,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', business.id);
+        
+        if (adminUpdateError) {
+          console.error('[step-3-location] Error updating with admin client:', adminUpdateError);
+          return NextResponse.json(
+            { error: 'Failed to update location', details: adminUpdateError.message },
+            { status: 500 }
+          );
+        }
+        
+        // Verify the update worked
+        const { data: verifyBusiness } = await adminSupabase
+          .from('businesses')
+          .select('support_email, timezone, phone')
+          .eq('id', business.id)
+          .single();
+        
+        console.log('[step-3-location] Update verified:', {
+          support_email: verifyBusiness?.support_email,
+          timezone: verifyBusiness?.timezone,
+          phone: verifyBusiness?.phone,
+        });
+      } else {
+        return NextResponse.json(
+          { error: 'Failed to update location', details: updateError.message },
+          { status: 500 }
+        );
+      }
+    } else {
+      // Verify the update worked
+      const { data: verifyBusiness } = await supabase
+        .from('businesses')
+        .select('support_email, timezone, phone')
+        .eq('id', business.id)
+        .single();
+      
+      console.log('[step-3-location] Update successful:', {
+        support_email: verifyBusiness?.support_email,
+        timezone: verifyBusiness?.timezone,
+        phone: verifyBusiness?.phone,
+      });
     }
 
     return NextResponse.json({

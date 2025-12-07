@@ -29,8 +29,15 @@ export function OnboardingShell({
   onNavigate,
   children
 }: OnboardingShellProps) {
+  const [mounted, setMounted] = React.useState(false);
+  
+  // Avoid hydration mismatch by only calculating progress on client
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+  
   const currentIndex = steps.findIndex((step) => step.id === currentStep);
-  const progressPercent = Math.round(((currentIndex + 1) / steps.length) * 100);
+  const progressPercent = mounted ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
 
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-[#020817] via-[#050F2C] to-[#0B1D45] pb-24">

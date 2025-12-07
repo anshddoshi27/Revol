@@ -4,6 +4,92 @@ import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { GiftCardConfig } from '@/lib/onboarding-types';
 
 /**
+ * GET /api/business/onboarding/step-10-gift-cards
+ * 
+ * Retrieves gift card configuration
+ */
+export async function GET(request: Request) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const businessId = await getCurrentBusinessId();
+    if (!businessId) {
+      return NextResponse.json(
+        { giftCards: { enabled: false, amountType: 'amount', amountValue: 10000, expirationEnabled: false, generatedCodes: [] } },
+        { status: 200 }
+      );
+    }
+
+    const supabase = await createServerClient();
+    const { data: giftCards, error } = await supabase
+      .from('gift_cards')
+      .select('code, discount_type, initial_amount_cents, percent_off, expires_at')
+      .eq('user_id', userId)
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[step-10-gift-cards] Error fetching gift cards:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch gift cards data' },
+        { status: 500 }
+      );
+    }
+
+    if (!giftCards || giftCards.length === 0) {
+      return NextResponse.json({
+        giftCards: {
+          enabled: false,
+          amountType: 'amount' as const,
+          amountValue: 10000,
+          expirationEnabled: false,
+          generatedCodes: []
+        }
+      });
+    }
+
+    // Infer config from first gift card
+    const firstCard = giftCards[0];
+    const amountType = firstCard.discount_type === 'percent' ? 'percent' : 'amount';
+    const amountValue = amountType === 'amount' 
+      ? (firstCard.initial_amount_cents || 0) / 100
+      : (firstCard.percent_off || 0);
+    
+    // Check if any cards have expiration dates
+    const expirationEnabled = giftCards.some(card => card.expires_at !== null);
+    const expirationMonths = expirationEnabled && giftCards[0]?.expires_at
+      ? Math.round((new Date(giftCards[0].expires_at).getTime() - new Date().getTime()) / (30 * 24 * 60 * 60 * 1000))
+      : undefined;
+
+    const generatedCodes = giftCards.map(card => card.code);
+
+    return NextResponse.json({
+      giftCards: {
+        enabled: true,
+        amountType: amountType as 'amount' | 'percent',
+        amountValue,
+        expirationEnabled,
+        expirationMonths,
+        generatedCodes,
+      }
+    });
+  } catch (error) {
+    console.error('[step-10-gift-cards] Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PUT /api/business/onboarding/step-10-gift-cards
  * 
  * Configures gift cards and generates codes

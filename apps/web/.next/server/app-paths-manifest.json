@@ -1,7 +1,7 @@
 {
-  "/public/[slug]/page": "app/public/[slug]/page.js",
-  "/app/b/[businessId]/customers/page": "app/app/b/[businessId]/customers/page.js",
-  "/app/b/[businessId]/payments/page": "app/app/b/[businessId]/payments/page.js",
-  "/app/b/[businessId]/page": "app/app/b/[businessId]/page.js",
-  "/app/b/[businessId]/policies/page": "app/app/b/[businessId]/policies/page.js"
+  "/page": "app/page.js",
+  "/app/b/[businessId]/gift-cards/page": "app/app/b/[businessId]/gift-cards/page.js",
+  "/app/b/[businessId]/calendar/page": "app/app/b/[businessId]/calendar/page.js",
+  "/app/b/[businessId]/availability/page": "app/app/b/[businessId]/availability/page.js",
+  "/app/b/[businessId]/payments/page": "app/app/b/[businessId]/payments/page.js"
 }

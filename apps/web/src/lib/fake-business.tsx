@@ -80,7 +80,7 @@ interface FakeBusinessContextValue {
   clearBusiness: () => void;
 }
 
-const STORAGE_KEY = "tithi.fakeBusiness.v1";
+// Removed STORAGE_KEY - no localStorage usage, all data in database
 
 export interface PublicBookingPayload {
   serviceId: string;
@@ -112,48 +112,37 @@ export function FakeBusinessProvider({ children }: { children: React.ReactNode }
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
-        return;
+    
+    // Check if we have a current user session
+    const checkUserAndLoad = async () => {
+      try {
+        // Get current user from Supabase session
+        const { createClientClient } = await import('./supabase-client');
+        const supabase = createClientClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session?.user?.id) {
+          // No user session - don't load any data
+          setHasHydratedFromStorage(true);
+          return;
+        }
+        
+        // Business data should be loaded from database via API calls, not localStorage
+        // This ensures proper user isolation and fresh data for each user
+        console.log('[FakeBusinessProvider] Using database-only approach - no localStorage');
+        
+        setHasHydratedFromStorage(true);
+      } catch (error) {
+        console.warn("[FakeBusinessProvider] Failed to check session", error);
+        setHasHydratedFromStorage(true);
       }
-      const parsed = JSON.parse(stored) as {
-        business?: FakeBusiness & { previewUrl?: string };
-        workspace?: FakeBusinessWorkspace;
-      };
-      const storedBusiness = parsed.business
-        ? {
-            ...parsed.business,
-            previewUrl: parsed.business.previewUrl ?? `/public/${parsed.business.slug}`
-          }
-        : undefined;
-      if (storedBusiness) {
-        setBusiness((existing) => existing ?? storedBusiness);
-      }
-      if (parsed.workspace) {
-        setWorkspace((existing) => existing ?? parsed.workspace);
-      }
-    } catch (error) {
-      console.warn("[FakeBusinessProvider] Failed to hydrate from storage", error);
-    } finally {
-      setHasHydratedFromStorage(true);
-    }
+    };
+    
+    checkUserAndLoad();
   }, []);
 
-  React.useEffect(() => {
-    if (typeof window === "undefined" || !hasHydratedFromStorage) return;
-    if (business && workspace) {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          business,
-          workspace
-        })
-      );
-    } else {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [business, workspace, hasHydratedFromStorage]);
+  // No localStorage persistence - data is stored in database only
+  // This ensures proper user isolation and prevents stale data issues
 
   const createBusiness = React.useCallback((payload: FakeBusiness) => {
     setBusiness(payload);
@@ -507,9 +496,7 @@ export function FakeBusinessProvider({ children }: { children: React.ReactNode }
   const clearBusiness = React.useCallback(() => {
     setBusiness(undefined);
     setWorkspace(undefined);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
+    // Business data is in database, no localStorage to clear
   }, []);
 
   const value = React.useMemo(

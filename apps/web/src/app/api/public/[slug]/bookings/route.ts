@@ -169,14 +169,33 @@ export async function POST(
 
       // Calculate discount
       if (giftCard.discount_type === 'amount') {
-        // For amount-type gift cards, check balance is sufficient
-        if (giftCard.current_balance_cents <= 0) {
+        // For amount-type gift cards, calculate remaining balance
+        // by subtracting amounts already applied in pending/completed bookings
+        const { data: existingBookings } = await supabase
+          .from('bookings')
+          .select('gift_card_amount_applied_cents, status')
+          .eq('gift_card_id', giftCard.id)
+          .in('status', ['pending', 'scheduled', 'completed', 'held'])
+          .is('deleted_at', null);
+
+        // Sum up amounts already applied in pending/completed bookings
+        const alreadyAppliedCents = existingBookings?.reduce((sum, booking) => {
+          return sum + (booking.gift_card_amount_applied_cents || 0);
+        }, 0) || 0;
+
+        // Calculate remaining available balance
+        const remainingBalanceCents = Math.max(0, giftCard.current_balance_cents - alreadyAppliedCents);
+
+        // Check if there's any remaining balance
+        if (remainingBalanceCents <= 0) {
           return NextResponse.json(
             { error: 'Gift card has no remaining balance' },
             { status: 400 }
           );
         }
-        gift_card_amount_applied_cents = Math.min(giftCard.current_balance_cents, service.price_cents);
+
+        // Apply only the remaining balance (not the full current_balance_cents)
+        gift_card_amount_applied_cents = Math.min(remainingBalanceCents, service.price_cents);
         final_price_cents = service.price_cents - gift_card_amount_applied_cents;
       } else if (giftCard.discount_type === 'percent') {
         const percentOff = giftCard.percent_off || 0;
@@ -197,14 +216,22 @@ export async function POST(
     }
 
     // Get current active policy and create snapshot
-    const { data: policy } = await supabase
+    const { data: policy, error: policyError } = await supabase
       .from('business_policies')
       .select('*')
       .eq('business_id', business.id)
       .eq('is_active', true)
       .order('version', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
+
+    if (policyError) {
+      console.error('Error fetching business policies:', policyError);
+      return NextResponse.json(
+        { error: 'Failed to fetch business policies', details: policyError.message },
+        { status: 500 }
+      );
+    }
 
     if (!policy) {
       return NextResponse.json(
@@ -326,7 +353,7 @@ export async function POST(
         gift_card_amount_applied_cents,
         source: 'public',
         policy_snapshot: policySnapshot,
-        policy_hash: policyHash,
+        // policy_hash: policyHash, // Column doesn't exist in schema - removed
         consent_at: new Date().toISOString(),
         consent_ip: consent_ip || null,
         consent_user_agent: consent_user_agent || null,
@@ -363,7 +390,7 @@ export async function POST(
       }
     );
 
-    // Create booking payment record
+    // Create booking payment record (status will be updated to 'card_saved' by webhook when SetupIntent succeeds)
     const { error: paymentError } = await supabase
       .from('booking_payments')
       .insert({
@@ -373,7 +400,7 @@ export async function POST(
         stripe_setup_intent_id: setupIntent.setupIntentId,
         amount_cents: final_price_cents,
         money_action: 'none',
-        status: 'card_saved',
+        status: 'pending', // Will be updated to 'card_saved' by webhook when SetupIntent succeeds
         currency: 'usd',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

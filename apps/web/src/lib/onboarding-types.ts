@@ -163,6 +163,7 @@ export interface PaymentSetupConfig {
   subscriptionStatus: "trial" | "active" | "paused" | "canceled";
   trialEndsAt?: string;
   nextBillDate?: string;
+  paymentMethodId?: string; // Stripe payment method ID for subscription
 }
 
 

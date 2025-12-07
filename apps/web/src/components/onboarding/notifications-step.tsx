@@ -62,12 +62,16 @@ const SAMPLE_DATA = {
   "${booking.url}": "https://novastudio.tithi.com/manage/NOV-2025-1042"
 };
 
-export function NotificationsStep({ defaultValues, notificationsEnabled: defaultNotificationsEnabled = true, onNext, onBack }: NotificationsStepProps) {
-  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(defaultNotificationsEnabled ? true : null);
+export function NotificationsStep({ defaultValues, notificationsEnabled: defaultNotificationsEnabled, onNext, onBack }: NotificationsStepProps) {
+  // Always start with null to show subscription selection UI, unless explicitly set to false
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(
+    defaultNotificationsEnabled === false ? false : null
+  );
   const [templates, setTemplates] = useState<NotificationTemplate[]>(defaultValues);
   const [expandedId, setExpandedId] = useState<string | null>(defaultValues[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; content: string } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const handleFillTestData = () => {
     const testData = generateNotificationsData();
@@ -130,17 +134,22 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
     }, {});
   }, [templates]);
 
-  const handleContinue = () => {
-    // If notifications are disabled, skip validation and proceed
-    if (notificationsEnabled === false) {
-      setError(null);
-      onNext([], false);
+  const handleContinue = async () => {
+    // If notifications enabled but not yet confirmed, require selection
+    if (notificationsEnabled === null) {
+      setError("Please select a subscription plan (Basic or Pro) to continue.");
       return;
     }
 
-    // If notifications enabled but not yet confirmed, require selection
-    if (notificationsEnabled === null) {
-      setError("Please select whether you want to enable notifications and emails.");
+    // If notifications are disabled, skip validation and proceed
+    if (notificationsEnabled === false) {
+      setError(null);
+      setIsSubmitting(true);
+      try {
+        await onNext([], false);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -151,7 +160,12 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
       return;
     }
     setError(null);
-    onNext(templates, true);
+    setIsSubmitting(true);
+    try {
+      await onNext(templates, true);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -184,7 +198,10 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
               >
                 <CheckCircle2 className="h-6 w-6 text-primary" />
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-white">Yes, enable notifications</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">Pro Plan</h3>
+                    <span className="text-xl font-bold text-primary">$21.99/month</span>
+                  </div>
                   <p className="mt-1 text-sm text-white/70">
                     Send automated SMS and email notifications to clients for bookings, reminders, and updates.
                   </p>
@@ -197,7 +214,10 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
               >
                 <XCircle className="h-6 w-6 text-white/60" />
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-white">No, skip notifications</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">Basic Plan</h3>
+                    <span className="text-xl font-bold text-white/90">$11.99/month</span>
+                  </div>
                   <p className="mt-1 text-sm text-white/70">
                     Clients will only see booking confirmation messages. No emails or SMS will be sent.
                   </p>
@@ -208,6 +228,32 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Show selected plan and allow changing */}
+          <div className="rounded-3xl border border-primary/30 bg-primary/10 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary/70">Selected Plan</p>
+                <h3 className="mt-1 text-lg font-semibold text-white">
+                  {notificationsEnabled ? "Pro Plan" : "Basic Plan"} - ${notificationsEnabled ? "21.99" : "11.99"}/month
+                </h3>
+                <p className="mt-1 text-sm text-white/70">
+                  {notificationsEnabled 
+                    ? "SMS and email notifications enabled"
+                    : "Notifications disabled - booking confirmations only"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotificationsEnabled(null)}
+                className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-white/70 transition hover:border-white/25 hover:text-white"
+              >
+                Change Plan
+              </button>
+            </div>
+          </div>
+          
+          {notificationsEnabled && (
+            <>
         {templates.map((template) => (
           <div
             key={template.id}
@@ -366,6 +412,8 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
             ) : null}
           </div>
         ))}
+            </>
+          )}
         </div>
       )}
 
@@ -386,7 +434,7 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
         <TestDataButton onClick={handleFillTestData} />
       </div>
 
-      <StepActions onBack={onBack} onNext={handleContinue} />
+      <StepActions onBack={onBack} onNext={handleContinue} isSubmitting={isSubmitting} />
     </div>
   );
 }

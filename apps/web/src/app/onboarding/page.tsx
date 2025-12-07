@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
@@ -20,6 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { useOnboarding, type OnboardingStepId, type NotificationTemplate } from "@/lib/onboarding-context";
 import { useFakeBusiness } from "@/lib/fake-business";
 import { useFakeSession } from "@/lib/fake-session";
+import { loadOnboardingDataFromBackend } from "@/lib/load-onboarding-data";
 
 function sanitizeSubdomain(value: string) {
   return value
@@ -52,6 +54,8 @@ export default function OnboardingPage() {
   const session = useFakeSession();
   const businessStore = useFakeBusiness();
   const onboarding = useOnboarding();
+  const [supabaseSession, setSupabaseSession] = React.useState<any>(null);
+  const [isCheckingSession, setIsCheckingSession] = React.useState(true);
 
   const currentIndex = useMemo(
     () => STEP_SEQUENCE.findIndex((step) => step === onboarding.currentStep),
@@ -61,15 +65,224 @@ export default function OnboardingPage() {
   const previousStep = currentIndex > 0 ? STEP_SEQUENCE[currentIndex - 1] : undefined;
   const nextStep = currentIndex < STEP_SEQUENCE.length - 1 ? STEP_SEQUENCE[currentIndex + 1] : undefined;
 
+  // Check Supabase session on mount (persists across redirects)
   useEffect(() => {
-    if (!session.isAuthenticated) {
-      router.replace("/login");
-      return;
+    const checkSupabaseSession = async () => {
+      try {
+        const { createClientClient } = await import('@/lib/supabase-client');
+        const supabase = createClientClient();
+        const { data: { session: supabaseSessionData }, error } = await supabase.auth.getSession();
+        
+        if (supabaseSessionData && !error) {
+          setSupabaseSession(supabaseSessionData);
+          // Restore fake session from Supabase session if needed
+          if (!session.isAuthenticated && supabaseSessionData.user) {
+            session.login({
+              id: supabaseSessionData.user.id,
+              name: supabaseSessionData.user.user_metadata?.full_name || supabaseSessionData.user.email?.split('@')[0] || 'User',
+              email: supabaseSessionData.user.email || '',
+              phone: supabaseSessionData.user.user_metadata?.phone || undefined,
+            });
+          }
+          
+          // If returning from Stripe, ensure we load business data from database
+          const urlParams = new URLSearchParams(window.location.search);
+          const accountId = urlParams.get("account_id");
+          if (accountId) {
+            // Load business data to ensure it's in state
+            try {
+              const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseSessionData.access_token}`,
+              };
+              
+              const businessResponse = await fetch('/api/business/onboarding/step-1-business', {
+                method: 'GET',
+                headers,
+                credentials: 'include',
+              });
+              
+              if (businessResponse.ok) {
+                const businessData = await businessResponse.json();
+                if (businessData.business) {
+                  onboarding.saveBusiness({
+                    businessName: businessData.business.name || '',
+                    description: '',
+                    doingBusinessAs: businessData.business.dba_name || '',
+                    legalName: businessData.business.legal_name || '',
+                    industry: businessData.business.industry || '',
+                  });
+                }
+              }
+            } catch (error) {
+              console.error('Error loading business data:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking Supabase session:', error);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+    
+    checkSupabaseSession();
+  }, []);
+
+  // Handle Stripe Connect return FIRST - before auth check
+  // Load ALL onboarding data from backend to restore state
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const accountId = urlParams.get("account_id");
+    if (accountId) {
+      console.log('[onboarding] Stripe return detected, account_id:', accountId);
+      
+      // Navigate to payment setup step immediately
+      onboarding.setStep("paymentSetup");
+      
+      // Load ALL onboarding data from backend to restore complete state
+      const restoreAllOnboardingData = async () => {
+        try {
+          const data = await loadOnboardingDataFromBackend();
+          
+          // Restore all the data to onboarding context
+          if (data.business) {
+            onboarding.saveBusiness(data.business);
+          }
+          if (data.website) {
+            onboarding.saveWebsite(data.website);
+          }
+          if (data.location) {
+            onboarding.saveLocation(data.location);
+          }
+          if (data.team) {
+            onboarding.saveTeam(data.team);
+          }
+          if (data.branding) {
+            onboarding.saveBranding(data.branding);
+          }
+          if (data.services) {
+            onboarding.saveServices(data.services);
+          }
+          if (data.availability) {
+            onboarding.saveAvailability(data.availability);
+          }
+          if (data.notifications) {
+            onboarding.saveNotifications(data.notifications);
+          }
+          if (data.policies) {
+            onboarding.savePolicies(data.policies);
+          }
+          if (data.giftCards) {
+            onboarding.saveGiftCards(data.giftCards);
+          }
+          if (data.paymentSetup) {
+            onboarding.savePaymentSetup(data.paymentSetup);
+          }
+          
+          // Mark all completed steps
+          const completedSteps: OnboardingStepId[] = [];
+          if (data.business?.businessName) completedSteps.push('business');
+          if (data.website?.subdomain) completedSteps.push('website');
+          if (data.location?.street || data.location?.city) completedSteps.push('location');
+          if (data.team && data.team.length > 0) completedSteps.push('team');
+          if (data.branding?.primaryColor) completedSteps.push('branding');
+          if (data.services && data.services.length > 0) completedSteps.push('services');
+          if (data.availability && data.availability.length > 0) completedSteps.push('availability');
+          if (data.notifications) completedSteps.push('notifications');
+          if (data.policies) completedSteps.push('policies');
+          if (data.giftCards) completedSteps.push('giftCards');
+          
+          completedSteps.forEach(step => {
+            onboarding.completeStep(step);
+          });
+          
+          console.log('[onboarding] All onboarding data restored from backend');
+        } catch (error) {
+          console.error('Error restoring onboarding data:', error);
+        }
+      };
+      
+      // Load and restore all state from backend
+      restoreAllOnboardingData();
+      
+      // Clean up URL (remove query params) after a short delay
+      setTimeout(() => {
+        window.history.replaceState({}, "", window.location.pathname);
+      }, 100);
     }
-    if (businessStore.business && onboarding.onboardingCompleted) {
-      router.replace(`/app/b/${businessStore.business.slug}`);
-    }
-  }, [session.isAuthenticated, businessStore.business, onboarding.onboardingCompleted, router]);
+  }, [onboarding]);
+
+  // Check if business is already launched and redirect to admin
+  useEffect(() => {
+    const checkIfBusinessIsLaunched = async () => {
+      if (isCheckingSession) return; // Wait for session check to complete
+      
+      // Check both fake session and Supabase session
+      const isAuthenticated = session.isAuthenticated || (supabaseSession?.user !== null);
+      
+      if (!isAuthenticated) {
+        router.replace("/login");
+        return;
+      }
+
+      try {
+        // Check if business is already launched by checking database
+        const { createClientClient } = await import('@/lib/supabase-client');
+        const supabase = createClientClient();
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        
+        if (!currentSession?.access_token) {
+          return;
+        }
+
+        // Fetch business to check if it's already launched
+        const businessResponse = await fetch('/api/business/onboarding/step-1-business', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentSession.access_token}`,
+          },
+          credentials: 'include',
+        });
+
+        if (businessResponse.ok) {
+          const businessData = await businessResponse.json();
+          const business = businessData.business;
+          
+          // Check if business is already launched:
+          // 1. Has subscription_status set (trial, active, paused, canceled)
+          // 2. Has all required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+          const isLaunched = business && 
+            business.subscription_status && 
+            business.subscription_status !== null &&
+            business.name && 
+            business.name.trim().length > 0 &&
+            business.subdomain && 
+            !business.subdomain.startsWith('temp-') &&
+            business.timezone &&
+            business.support_email &&
+            business.stripe_connect_account_id;
+
+          if (isLaunched) {
+            console.log('[onboarding] Business is already launched - redirecting to admin');
+            // Business is already launched - redirect to admin dashboard
+            const businessId = business.id;
+            router.replace(`/app/b/${businessId}`);
+            return;
+          }
+        }
+
+        // If business exists but not launched, continue with onboarding
+        // If no business exists, onboarding will create one
+      } catch (error) {
+        console.error('[onboarding] Error checking if business is launched:', error);
+        // On error, continue with onboarding
+      }
+    };
+
+    checkIfBusinessIsLaunched();
+  }, [session.isAuthenticated, supabaseSession, isCheckingSession, router]);
 
   const navigateTo = (step: OnboardingStepId) => {
     onboarding.setStep(step);
@@ -87,23 +300,92 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleBusinessNext = (values: Parameters<typeof onboarding.saveBusiness>[0]) => {
+  // Helper function to make authenticated API calls
+  const makeAuthenticatedRequest = async (url: string, method: string, body: any) => {
+    const { createClientClient } = await import('@/lib/supabase-client');
+    const supabase = createClientClient();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('Error getting session:', sessionError);
+    }
+    
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    
+    const response = await fetch(url, {
+      method,
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `Failed to save to ${url}`);
+    }
+
+    return await response.json();
+  };
+
+  const handleBusinessNext = async (values: Parameters<typeof onboarding.saveBusiness>[0]) => {
     onboarding.saveBusiness(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-1-business', 'PUT', values);
+      console.log('Business saved:', data);
+      
+      // Verify the save worked by checking the response
+      if (!data || !data.success) {
+        throw new Error('Business save did not return success');
+      }
+    } catch (error) {
+      console.error('Error saving business:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: `Failed to save business information: ${errorMessage}. Please check the console and try again.`
+      });
+      return;
+    }
+    
     onboarding.completeStep("business");
     goForward();
   };
 
-  const handleWebsiteNext = (values: Parameters<typeof onboarding.saveWebsite>[0]) => {
+  const handleWebsiteNext = async (values: Parameters<typeof onboarding.saveWebsite>[0]) => {
     const fallback = onboarding.business.businessName || "yourbusiness";
     const fallbackSanitized = sanitizeSubdomain(fallback);
     let normalizedSubdomain = sanitizeSubdomain(values.subdomain || fallbackSanitized);
     if (normalizedSubdomain.length < 3) {
       normalizedSubdomain = fallbackSanitized.length >= 3 ? fallbackSanitized : "yourbusiness";
     }
-    onboarding.saveWebsite({
+    const websiteData = {
       ...values,
       subdomain: normalizedSubdomain
-    });
+    };
+    
+    onboarding.saveWebsite(websiteData);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-2-website', 'PUT', websiteData);
+      console.log('Website saved:', data);
+    } catch (error) {
+      console.error('Error saving website:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save website information. Please try again.'
+      });
+      return;
+    }
+    
     if (values.status === "reserved") {
       const url = `https://${normalizedSubdomain}.tithi.com`;
       onboarding.setBookingUrl(url);
@@ -112,56 +394,207 @@ export default function OnboardingPage() {
     goForward();
   };
 
-  const handleLocationNext = (values: Parameters<typeof onboarding.saveLocation>[0]) => {
+  const handleLocationNext = async (values: Parameters<typeof onboarding.saveLocation>[0]) => {
     onboarding.saveLocation(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-3-location', 'PUT', values);
+      console.log('Location saved:', data);
+      
+      // Verify the save worked
+      if (!data || !data.success) {
+        throw new Error('Location save did not return success');
+      }
+    } catch (error) {
+      console.error('Error saving location:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: `Failed to save location information: ${errorMessage}. Please check the console and try again.`
+      });
+      return;
+    }
+    
     onboarding.completeStep("location");
     goForward();
   };
 
-  const handleTeamNext = (values: Parameters<typeof onboarding.saveTeam>[0]) => {
+  const handleTeamNext = async (values: Parameters<typeof onboarding.saveTeam>[0]) => {
     onboarding.saveTeam(values);
+    
+    try {
+      // API expects { staff: StaffMember[] } not just the array
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-4-team', 'PUT', { staff: values });
+      console.log('Team saved:', data);
+    } catch (error) {
+      console.error('Error saving team:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save team information. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("team");
     goForward();
   };
 
-  const handleBrandingNext = (values: Parameters<typeof onboarding.saveBranding>[0]) => {
+  const handleBrandingNext = async (values: Parameters<typeof onboarding.saveBranding>[0]) => {
     onboarding.saveBranding(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-5-branding', 'PUT', values);
+      console.log('Branding saved:', data);
+    } catch (error) {
+      console.error('Error saving branding:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save branding information. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("branding");
     goForward();
   };
 
-  const handleServicesNext = (values: Parameters<typeof onboarding.saveServices>[0]) => {
+  const handleServicesNext = async (values: Parameters<typeof onboarding.saveServices>[0]) => {
     onboarding.saveServices(values);
+    
+    try {
+      // API expects { categories: ... } not just the array
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-6-services', 'PUT', { categories: values });
+      console.log('Services saved:', data);
+    } catch (error) {
+      console.error('Error saving services:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save services information. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("services");
     goForward();
   };
 
-  const handleAvailabilityNext = (values: Parameters<typeof onboarding.saveAvailability>[0]) => {
+  const handleAvailabilityNext = async (values: Parameters<typeof onboarding.saveAvailability>[0]) => {
     onboarding.saveAvailability(values);
+    
+    try {
+      // API expects { availability: ... } not just the array
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-7-availability', 'PUT', { availability: values });
+      console.log('Availability saved:', data);
+    } catch (error) {
+      console.error('Error saving availability:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save availability information. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("availability");
     goForward();
   };
 
-  const handleNotificationsNext = (templates: NotificationTemplate[], enabled: boolean) => {
+  const handleNotificationsNext = async (templates: NotificationTemplate[], enabled: boolean) => {
     onboarding.saveNotifications({ templates, enabled });
+    
+    // Log what we're sending to ensure it's correct
+    console.log('[onboarding] Sending notifications_enabled to API:', {
+      enabled,
+      enabledType: typeof enabled,
+      planType: enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      templatesCount: templates.length,
+    });
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-8-notifications', 'PUT', {
+        templates,
+        notifications_enabled: enabled, // Explicitly send the boolean value
+      });
+      console.log('[onboarding] Notifications saved, API response:', {
+        success: data.success,
+        notifications_enabled: data.notifications_enabled,
+        plan_type: data.plan_type,
+        plan_price: data.plan_price,
+      });
+    } catch (error) {
+      console.error('Error saving notifications:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save notifications. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("notifications");
     goForward();
   };
 
-  const handlePoliciesNext = (values: Parameters<typeof onboarding.savePolicies>[0]) => {
+  const handlePoliciesNext = async (values: Parameters<typeof onboarding.savePolicies>[0]) => {
     onboarding.savePolicies(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-9-policies', 'PUT', values);
+      console.log('Policies saved:', data);
+    } catch (error) {
+      console.error('Error saving policies:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save policies. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("policies");
     goForward();
   };
 
-  const handleGiftCardsNext = (values: Parameters<typeof onboarding.saveGiftCards>[0]) => {
+  const handleGiftCardsNext = async (values: Parameters<typeof onboarding.saveGiftCards>[0]) => {
     onboarding.saveGiftCards(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-10-gift-cards', 'PUT', values);
+      console.log('Gift cards saved:', data);
+    } catch (error) {
+      console.error('Error saving gift cards:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save gift cards information. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("giftCards");
     goForward();
   };
 
-  const handlePaymentNext = (values: Parameters<typeof onboarding.savePaymentSetup>[0]) => {
+  const handlePaymentNext = async (values: Parameters<typeof onboarding.savePaymentSetup>[0]) => {
     onboarding.savePaymentSetup(values);
+    
+    try {
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/step-11-payment-setup', 'PUT', values);
+      console.log('Payment setup saved:', data);
+    } catch (error) {
+      console.error('Error saving payment setup:', error);
+      toast.pushToast({
+        intent: 'error',
+        title: 'Error',
+        description: 'Failed to save payment setup. Please try again.'
+      });
+      return;
+    }
+    
     onboarding.completeStep("paymentSetup");
     goForward();
   };
@@ -184,25 +617,8 @@ export default function OnboardingPage() {
 
   const handleLaunch = async () => {
     try {
-      // Call the backend API to finalize onboarding
-      const response = await fetch('/api/business/onboarding/complete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        toast.pushToast({
-          title: "Failed to launch business",
-          description: errorData.error || 'An error occurred while finalizing onboarding.',
-          intent: "error"
-        });
-        return;
-      }
-
-      const data = await response.json();
+      // Call the backend API to finalize onboarding using authenticated request
+      const data = await makeAuthenticatedRequest('/api/business/onboarding/complete', 'POST', {});
       
       onboarding.completeStep("goLive");
       onboarding.setOnboardingCompleted(true);
@@ -230,9 +646,10 @@ export default function OnboardingPage() {
       router.push(`/app/b/${business.slug}`);
     } catch (error) {
       console.error('Error launching business:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred while finalizing onboarding.';
       toast.pushToast({
         title: "Failed to launch business",
-        description: 'An error occurred while finalizing onboarding.',
+        description: errorMessage,
         intent: "error"
       });
     }
@@ -357,6 +774,7 @@ export default function OnboardingPage() {
       content = (
         <PaymentSetupStep
           defaultValues={onboarding.paymentSetup}
+          business={onboarding.business}
           onNext={handlePaymentNext}
           onBack={goBack}
         />

@@ -269,8 +269,10 @@ export async function emitNotification(
     return;
   }
 
-  // If notifications are disabled, skip
+  // If notifications are disabled (Basic Plan), skip sending notifications
+  // Basic Plan accounts only show booking confirmations, no SMS/email notifications
   if (business.notifications_enabled === false) {
+    console.log(`Skipping notification for business ${businessId} - Basic Plan (notifications disabled)`);
     return;
   }
 

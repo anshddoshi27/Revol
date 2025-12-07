@@ -19,19 +19,19 @@ export default function PastBookingsPage() {
     () => [
       {
         label: "Captured revenue",
-        value: formatCurrency(analytics.feeBreakdown.totalCapturedCents),
+        value: formatCurrency(analytics?.feeBreakdown?.totalCapturedCents ?? 0),
         description: "Includes manual capture, cancellation fees, and no-show fees.",
         icon: <TrendingUp className="h-5 w-5 text-emerald-300" aria-hidden="true" />
       },
       {
         label: "Net to business",
-        value: formatCurrency(analytics.feeBreakdown.netPayoutCents),
+        value: formatCurrency(analytics?.feeBreakdown?.netPayoutCents ?? 0),
         description: "After 1% platform fee and estimated Stripe fees.",
         icon: <Wallet2 className="h-5 w-5 text-sky-300" aria-hidden="true" />
       },
       {
         label: "No-show rate",
-        value: `${analytics.noShowRatePercent}%`,
+        value: `${analytics?.noShowRatePercent ?? 0}%`,
         description: "Trackable once bookings flow through the calendar.",
         icon: <XCircle className="h-5 w-5 text-amber-300" aria-hidden="true" />
       }
@@ -85,6 +85,7 @@ export default function PastBookingsPage() {
               endpoints with the same contracts.
             </HelperText>
           </div>
+
         </div>
         <MoneyBoard
           bookings={workspace.bookings}

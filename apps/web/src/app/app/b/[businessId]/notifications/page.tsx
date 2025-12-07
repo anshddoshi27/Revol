@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { HelperText } from "@/components/ui/helper-text";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useFakeBusiness } from "@/lib/fake-business";
+import { createClientClient } from "@/lib/supabase-client";
 import type { NotificationTemplate } from "@/lib/onboarding-types";
 
 const PLACEHOLDERS = [
@@ -25,18 +27,40 @@ const PLACEHOLDERS = [
 export default function NotificationsPage() {
   const { workspace, setNotifications } = useFakeBusiness();
   const [previewTemplate, setPreviewTemplate] = useState<NotificationTemplate | null>(null);
+  const params = useParams<{ businessId: string }>();
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClientClient();
 
-  if (!workspace) {
-    return null;
-  }
+  // Fetch notifications_enabled from database
+  useEffect(() => {
+    async function fetchNotificationsEnabled() {
+      if (!params.businessId) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('businesses')
+          .select('notifications_enabled')
+          .eq('id', params.businessId)
+          .single();
 
-  // Check if notifications are enabled
-  // In production, this should come from the database businesses table
-  // For now, we'll show a message if somehow accessed when disabled
-  // The layout should prevent access, but this is a safety check
-  const notificationsEnabled = true; // TODO: Get from business data from database
+        if (!error && data) {
+          setNotificationsEnabled(data.notifications_enabled ?? false);
+        } else {
+          setNotificationsEnabled(false);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications_enabled:', error);
+        setNotificationsEnabled(false);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  if (!notificationsEnabled) {
+    fetchNotificationsEnabled();
+  }, [params.businessId, supabase]);
+
+  if (loading) {
     return (
       <div className="space-y-10">
         <header className="space-y-4">
@@ -44,10 +68,41 @@ export default function NotificationsPage() {
           <h1 className="font-display text-4xl text-white">Notifications</h1>
         </header>
         <div className="rounded-3xl border border-white/15 bg-black/80 p-8 text-center">
-          <p className="text-lg font-semibold text-white">Notifications are not enabled</p>
-          <p className="mt-2 text-sm text-white/60">
-            SMS and email notifications are disabled for this business. Only booking confirmation messages are shown to clients.
+          <p className="text-sm text-white/60">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!workspace) {
+    return null;
+  }
+
+  // Check if notifications are enabled (Basic Plan = false, Pro Plan = true)
+  if (!notificationsEnabled) {
+    return (
+      <div className="space-y-10">
+        <header className="space-y-4">
+          <p className="text-xs uppercase tracking-[0.35em] text-white/40">Messaging</p>
+          <h1 className="font-display text-4xl text-white">Notifications</h1>
+        </header>
+        <div className="rounded-3xl border border-amber-400/30 bg-amber-400/10 p-8 text-center">
+          <p className="text-lg font-semibold text-white">Basic Plan - Notifications Not Available</p>
+          <p className="mt-2 text-sm text-white/70">
+            Your account is on the Basic Plan ($11.99/month). SMS and email notifications are not included.
           </p>
+          <p className="mt-4 text-sm text-white/60">
+            Only booking confirmation messages are shown to clients. To enable automated SMS and email notifications, 
+            reminders, and follow-ups, upgrade to the Pro Plan ($21.99/month).
+          </p>
+          <div className="mt-6">
+            <a
+              href={`/app/b/${params.businessId}/account`}
+              className="inline-flex items-center rounded-full border border-primary/50 bg-primary/10 px-6 py-3 text-sm font-semibold text-white transition hover:border-primary/70 hover:bg-primary/15"
+            >
+              View Account Settings
+            </a>
+          </div>
         </div>
       </div>
     );

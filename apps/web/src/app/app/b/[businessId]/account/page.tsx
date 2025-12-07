@@ -1,13 +1,17 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { HelperText } from "@/components/ui/helper-text";
 import { useFakeBusiness } from "@/lib/fake-business";
+import { getSubscriptionPlanName, getSubscriptionPlanPrice } from "@/lib/subscription-utils";
+import { createClientClient } from "@/lib/supabase-client";
 
 export default function AccountPage() {
   const router = useRouter();
+  const params = useParams<{ businessId: string }>();
   const {
     business,
     workspace,
@@ -16,11 +20,59 @@ export default function AccountPage() {
     clearBusiness
   } = useFakeBusiness();
 
+  const [realBusiness, setRealBusiness] = useState<{
+    notifications_enabled: boolean | null;
+    subscription_status: string | null;
+    trial_ends_at: string | null;
+    next_bill_at: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClientClient();
+
+  // Fetch real business data to get notifications_enabled
+  useEffect(() => {
+    async function fetchBusiness() {
+      if (!params.businessId) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('businesses')
+          .select('notifications_enabled, subscription_status, trial_ends_at, next_bill_at')
+          .eq('id', params.businessId)
+          .single();
+
+        if (error) {
+          console.error('Error fetching business:', error);
+        } else if (data) {
+          console.log('[account] Loaded business plan data from database:', {
+            businessId: params.businessId,
+            notifications_enabled: data.notifications_enabled,
+            planType: data.notifications_enabled === true ? 'Pro' : 'Basic',
+            subscription_status: data.subscription_status,
+          });
+          setRealBusiness(data);
+        }
+      } catch (error) {
+        console.error('Error in fetchBusiness:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchBusiness();
+  }, [params.businessId, supabase]);
+
   if (!workspace || !business) {
     return null;
   }
 
   const payment = workspace.payment;
+  
+  // Use ONLY database value - no fallback
+  // The notifications_enabled flag determines the subscription plan
+  // Basic Plan: notifications_enabled = false ($11.99/month)
+  // Pro Plan: notifications_enabled = true ($21.99/month)
+  const notificationsEnabled = realBusiness?.notifications_enabled === true;
 
   const startTrial = () => {
     const trialEnds = addDays(new Date(), 7);
@@ -101,6 +153,15 @@ export default function AccountPage() {
           <div>
             <h2 className="text-lg font-semibold text-white">Current status</h2>
             <dl className="mt-4 space-y-3 text-sm text-white/70">
+              <div className="flex items-center justify-between">
+                <dt>Plan</dt>
+                <dd className="text-white font-semibold">
+                  {/* Plan is determined by notifications_enabled flag from onboarding Step 8 */}
+                  {/* Basic Plan ($11.99/month): notifications_enabled = false */}
+                  {/* Pro Plan ($21.99/month): notifications_enabled = true */}
+                  {getSubscriptionPlanName(notificationsEnabled)} - ${getSubscriptionPlanPrice(notificationsEnabled).toFixed(2)}/month
+                </dd>
+              </div>
               <div className="flex items-center justify-between">
                 <dt>Status</dt>
                 <dd className="capitalize text-white">{payment.subscriptionStatus}</dd>

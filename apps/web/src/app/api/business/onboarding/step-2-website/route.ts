@@ -4,6 +4,60 @@ import { getCurrentUserId } from '@/lib/auth';
 import type { WebsiteConfig } from '@/lib/onboarding-types';
 
 /**
+ * GET /api/business/onboarding/step-2-website
+ * 
+ * Retrieves website/subdomain information
+ */
+export async function GET(request: Request) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const supabase = await createServerClient();
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .select('subdomain')
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[step-2-website] Error fetching website:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch website data' },
+        { status: 500 }
+      );
+    }
+
+    if (!business || !business.subdomain) {
+      return NextResponse.json(
+        { website: null },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json({
+      website: {
+        subdomain: business.subdomain,
+        status: 'reserved',
+        customDomain: undefined,
+      }
+    });
+  } catch (error) {
+    console.error('[step-2-website] Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PUT /api/business/onboarding/step-2-website
  * 
  * Validates and reserves a subdomain for the business's booking site

@@ -4,6 +4,87 @@ import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { PoliciesConfig } from '@/lib/onboarding-types';
 
 /**
+ * GET /api/business/onboarding/step-9-policies
+ * 
+ * Retrieves current active policies
+ */
+export async function GET(request: Request) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const businessId = await getCurrentBusinessId();
+    if (!businessId) {
+      return NextResponse.json(
+        { policies: null },
+        { status: 200 }
+      );
+    }
+
+    const supabase = await createServerClient();
+    const { data: policy, error } = await supabase
+      .from('business_policies')
+      .select('cancellation_policy_text, cancel_fee_type, cancel_fee_amount_cents, cancel_fee_percent, no_show_policy_text, no_show_fee_type, no_show_fee_amount_cents, no_show_fee_percent, refund_policy_text, cash_policy_text')
+      .eq('user_id', userId)
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[step-9-policies] Error fetching policies:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch policies data' },
+        { status: 500 }
+      );
+    }
+
+    if (!policy) {
+      return NextResponse.json(
+        { policies: null },
+        { status: 200 }
+      );
+    }
+
+    // Convert fee types: 'flat' -> 'amount', 'percent' -> 'percent'
+    const cancellationFeeType = policy.cancel_fee_type === 'flat' ? 'amount' : 'percent';
+    const cancellationFeeValue = cancellationFeeType === 'amount' 
+      ? (policy.cancel_fee_amount_cents || 0) / 100
+      : (policy.cancel_fee_percent || 0);
+    
+    const noShowFeeType = policy.no_show_fee_type === 'flat' ? 'amount' : 'percent';
+    const noShowFeeValue = noShowFeeType === 'amount'
+      ? (policy.no_show_fee_amount_cents || 0) / 100
+      : (policy.no_show_fee_percent || 0);
+
+    return NextResponse.json({
+      policies: {
+        cancellationPolicy: policy.cancellation_policy_text || '',
+        cancellationFeeType: cancellationFeeType as 'amount' | 'percent',
+        cancellationFeeValue,
+        noShowPolicy: policy.no_show_policy_text || '',
+        noShowFeeType: noShowFeeType as 'amount' | 'percent',
+        noShowFeeValue,
+        refundPolicy: policy.refund_policy_text || '',
+        cashPolicy: policy.cash_policy_text || '',
+      }
+    });
+  } catch (error) {
+    console.error('[step-9-policies] Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PUT /api/business/onboarding/step-9-policies
  * 
  * Creates a new version of business policies

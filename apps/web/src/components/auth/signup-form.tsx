@@ -76,6 +76,12 @@ export function SignupForm() {
 
       if (!response.ok) {
         const error = await response.json();
+        
+        // Handle specific error codes
+        if (error.code === 'EMAIL_ALREADY_EXISTS' || response.status === 409) {
+          throw new Error('An account with this email already exists. Please sign in instead.');
+        }
+        
         throw new Error(error.error || "Failed to create account");
       }
 
@@ -83,7 +89,7 @@ export function SignupForm() {
       
       // Sign in the user with Supabase to get a real session
       const supabase = createClientClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: values.email.trim().toLowerCase(),
         password: values.password,
       });
@@ -109,9 +115,31 @@ export function SignupForm() {
         return;
       }
       
+      // Verify that the signed-in user matches the user we just created
+      // This prevents issues where an existing user with the same email gets signed in instead
+      if (signInData.user && signInData.user.id !== data.user.id) {
+        console.error('User ID mismatch after signup:', {
+          signupUserId: data.user.id,
+          signInUserId: signInData.user.id
+        });
+        
+        // Sign out the wrong user
+        await supabase.auth.signOut();
+        
+        toast.pushToast({
+          title: "Account creation issue",
+          description: "An account with this email already exists. Please sign in instead.",
+          intent: "error"
+        });
+        
+        router.push("/login");
+        return;
+      }
+      
       // Also set fake session for UI state (if needed)
+      const finalUserId = signInData.user?.id || data.user.id;
       session.login({
-        id: data.user.id,
+        id: finalUserId,
         name: values.fullName,
         email: values.email,
         phone: values.phone

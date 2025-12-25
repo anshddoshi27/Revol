@@ -21,6 +21,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useFakeBusiness } from "@/lib/fake-business";
 import { createClientClient } from "@/lib/supabase-client";
+import { deriveCustomersFromBookings, recomputeAnalytics, type FakeBooking, type FakeCustomer, type FakePayment } from "@/lib/admin-workspace";
+import type { ServiceCategory, StaffMember } from "@/lib/onboarding-types";
 // Removed DEV_WORKSPACE_SEED import - we use ONLY user data, no seed data
 import type { User } from "@supabase/supabase-js";
 
@@ -95,7 +97,7 @@ export default function AdminBusinessLayout({
   const router = useRouter();
   const params = useParams<{ businessId: string }>();
   const pathname = usePathname();
-  const { business: fakeBusiness, workspace, loadSeedBusiness, createBusiness, bootstrapWorkspace } = useFakeBusiness();
+  const { business: fakeBusiness, workspace, loadSeedBusiness, createBusiness, bootstrapWorkspace, clearBusiness, updateWorkspace } = useFakeBusiness();
   
   const [user, setUser] = useState<User | null>(null);
   const [realBusiness, setRealBusiness] = useState<any>(null);
@@ -474,14 +476,20 @@ export default function AdminBusinessLayout({
                 availability: availability || [],
                 notifications: notificationTemplates,
                 policies: apiData.policies ? {
-                  cancellationPolicy: apiData.policies.cancellation_policy || '',
-                  cancellationFeeType: (apiData.policies.cancellation_fee_type || 'percent') as 'percent' | 'flat',
-                  cancellationFeeValue: apiData.policies.cancellation_fee_value || 0,
-                  noShowPolicy: apiData.policies.no_show_policy || '',
-                  noShowFeeType: (apiData.policies.no_show_fee_type || 'percent') as 'percent' | 'flat',
-                  noShowFeeValue: apiData.policies.no_show_fee_value || 0,
-                  refundPolicy: apiData.policies.refund_policy || '',
-                  cashPolicy: apiData.policies.cash_policy || '',
+                  // Map database field names to frontend format
+                  // Database uses: cancellation_policy_text, cancel_fee_type, cancel_fee_amount_cents, cancel_fee_percent
+                  cancellationPolicy: apiData.policies.cancellation_policy_text || '',
+                  cancellationFeeType: (apiData.policies.cancel_fee_type === 'flat' ? 'amount' : 'percent') as 'amount' | 'percent',
+                  cancellationFeeValue: apiData.policies.cancel_fee_type === 'flat' 
+                    ? ((apiData.policies.cancel_fee_amount_cents || 0) / 100)
+                    : (apiData.policies.cancel_fee_percent || 0),
+                  noShowPolicy: apiData.policies.no_show_policy_text || '',
+                  noShowFeeType: (apiData.policies.no_show_fee_type === 'flat' ? 'amount' : 'percent') as 'amount' | 'percent',
+                  noShowFeeValue: apiData.policies.no_show_fee_type === 'flat'
+                    ? ((apiData.policies.no_show_fee_amount_cents || 0) / 100)
+                    : (apiData.policies.no_show_fee_percent || 0),
+                  refundPolicy: apiData.policies.refund_policy_text || '',
+                  cashPolicy: apiData.policies.cash_policy_text || '',
                 } : {
                   cancellationPolicy: '',
                   cancellationFeeType: 'percent' as const,
@@ -521,6 +529,7 @@ export default function AdminBusinessLayout({
                   planType: apiData.business?.notifications_enabled === true ? 'Pro' : 'Basic',
                   location: seedInput.location.city || 'Not set',
                   branding: seedInput.branding.primaryColor,
+                  bookingsCount: apiData.bookings?.length || 0,
                 });
                 
                 // Create business first
@@ -530,6 +539,59 @@ export default function AdminBusinessLayout({
                 const workspaceResult = bootstrapWorkspace(seedInput);
                 if (workspaceResult) {
                   console.log('[layout] Workspace populated with real data:', workspaceResult.identity.business.businessName);
+                  
+                  // Transform and add bookings from database
+                  console.log('[layout] Bookings from API:', {
+                    bookingsCount: apiData.bookings?.length || 0,
+                    bookingPaymentsCount: apiData.bookingPayments?.length || 0,
+                    sampleBooking: apiData.bookings?.[0] ? {
+                      id: apiData.bookings[0].id,
+                      status: apiData.bookings[0].status,
+                      start_at: apiData.bookings[0].start_at,
+                      service_id: apiData.bookings[0].service_id,
+                    } : null,
+                  });
+                  
+                  if (apiData.bookings && apiData.bookings.length > 0) {
+                    const transformedBookings = transformBookingsFromAPI(
+                      apiData.bookings,
+                      apiData.bookingPayments || [],
+                      catalog,
+                      staff
+                    );
+                    
+                    console.log('[layout] Transformed bookings:', {
+                      count: transformedBookings.length,
+                      sample: transformedBookings[0] ? {
+                        id: transformedBookings[0].id,
+                        code: transformedBookings[0].code,
+                        serviceName: transformedBookings[0].serviceName,
+                        startDateTime: transformedBookings[0].startDateTime,
+                      } : null,
+                    });
+                    
+                    // Update workspace with bookings, customers, and analytics
+                    updateWorkspace((existing) => {
+                      const updatedBookings = transformedBookings;
+                      const updatedCustomers = deriveCustomersFromBookings(updatedBookings);
+                      const updatedAnalytics = recomputeAnalytics(updatedBookings);
+                      
+                      console.log('[layout] Updated workspace with bookings:', {
+                        bookingsCount: updatedBookings.length,
+                        customersCount: updatedCustomers.length,
+                        analyticsBookingsByStatus: updatedAnalytics.bookingsByStatus,
+                      });
+                      
+                      return {
+                        ...existing,
+                        bookings: updatedBookings,
+                        customers: updatedCustomers,
+                        analytics: updatedAnalytics,
+                      };
+                    });
+                  } else {
+                    console.log('[layout] No bookings found in API response');
+                  }
                 } else {
                   console.warn('[layout] Workspace creation returned undefined');
                   throw new Error('Workspace creation returned undefined');
@@ -683,6 +745,8 @@ export default function AdminBusinessLayout({
   const previewUrl = business.previewUrl ?? `/public/${business.slug}`;
 
   const handleSignOut = async () => {
+    // Clear in-memory business state to prevent data leakage between users
+    clearBusiness();
     // No localStorage to clear - all data is in database
     await supabase.auth.signOut();
     router.replace("/");
@@ -788,5 +852,132 @@ export default function AdminBusinessLayout({
       </div>
     </div>
   );
+}
+
+// Transform bookings from API format to FakeBooking format
+function transformBookingsFromAPI(
+  apiBookings: any[],
+  apiPayments: any[],
+  catalog: ServiceCategory[],
+  staff: StaffMember[]
+): FakeBooking[] {
+  const paymentsByBookingId = new Map<string, any[]>();
+  apiPayments.forEach((payment: any) => {
+    if (!paymentsByBookingId.has(payment.booking_id)) {
+      paymentsByBookingId.set(payment.booking_id, []);
+    }
+    paymentsByBookingId.get(payment.booking_id)!.push(payment);
+  });
+
+  return apiBookings.map((booking: any) => {
+    // Find service and category
+    const service = catalog
+      .flatMap(cat => cat.services)
+      .find(svc => svc.id === booking.service_id);
+    
+    const category = catalog.find(cat => 
+      cat.services.some(svc => svc.id === booking.service_id)
+    );
+
+    // Find staff
+    const staffMember = staff.find(s => s.id === booking.staff_id);
+
+    // Transform customer
+    const customer: FakeCustomer = booking.customers ? {
+      id: booking.customers.id,
+      name: booking.customers.name,
+      email: booking.customers.email,
+      phone: booking.customers.phone || undefined,
+      createdAt: booking.customers.created_at,
+    } : {
+      id: booking.customer_id || 'unknown',
+      name: 'Unknown Customer',
+      email: '',
+      createdAt: booking.created_at,
+    };
+
+    // Transform payments
+    const bookingPayments = paymentsByBookingId.get(booking.id) || [];
+    const payments: FakePayment[] = bookingPayments.map((payment: any) => {
+      let type: FakePayment['type'] = 'authorization';
+      if (payment.money_action === 'capture') type = 'capture';
+      else if (payment.money_action === 'no_show_fee') type = 'no_show_fee';
+      else if (payment.money_action === 'cancel_fee') type = 'cancel_fee';
+      else if (payment.money_action === 'refund') type = 'refund';
+
+      let status: FakePayment['status'] = 'authorized';
+      if (payment.status === 'card_saved' || payment.status === 'authorized') status = 'authorized';
+      else if (payment.status === 'captured') status = 'captured';
+      else if (payment.status === 'refunded') status = 'refunded';
+      else if (payment.status === 'failed') status = 'failed';
+      else if (payment.status === 'requires_action') status = 'requires_action';
+
+      return {
+        id: payment.id,
+        bookingId: booking.id,
+        type,
+        amountCents: payment.amount_cents || 0,
+        status,
+        occurredAt: payment.created_at || booking.created_at,
+        notes: payment.notes || undefined,
+      };
+    });
+
+    // Calculate financials
+    const listPriceCents = booking.price_cents || 0;
+    const giftCardAmountCents = booking.gift_card_amount_applied_cents || 0;
+    const capturedPayments = payments.filter(p => p.status === 'captured');
+    const capturedAmount = capturedPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const platformFeeCents = Math.round(capturedAmount * 0.01);
+    const stripeFeeEstimateCents = capturedAmount > 0 ? Math.round(capturedAmount * 0.029) + 30 : 0;
+    const netPayoutCents = Math.max(capturedAmount - platformFeeCents - stripeFeeEstimateCents, 0);
+
+    // Generate booking code
+    const bookingCode = `TITHI-${booking.id.slice(0, 8).toUpperCase()}`;
+
+    // Determine booking status
+    let status: FakeBooking['status'] = 'pending';
+    if (booking.status === 'pending') status = 'pending';
+    else if (booking.status === 'scheduled') status = 'pending';
+    else if (booking.status === 'completed') status = 'completed';
+    else if (booking.status === 'canceled') status = 'canceled';
+    else if (booking.status === 'no_show') status = 'no_show';
+    else if (booking.payment_status === 'requires_action') status = 'requires_action';
+
+    return {
+      id: booking.id,
+      code: bookingCode,
+      status,
+      serviceId: booking.service_id,
+      serviceName: service?.name || 'Unknown Service',
+      categoryName: category?.name || 'Uncategorized',
+      durationMinutes: booking.duration_min || 60,
+      startDateTime: booking.start_at,
+      endDateTime: booking.end_at,
+      staff: staffMember ? {
+        id: staffMember.id,
+        name: staffMember.name,
+        color: staffMember.color,
+      } : null,
+      customer,
+      payments,
+      financials: {
+        listPriceCents,
+        giftCardAmountCents,
+        platformFeeCents,
+        stripeFeeEstimateCents,
+        netPayoutCents,
+        currency: 'usd',
+      },
+      policyConsent: {
+        hash: '',
+        acceptedAt: booking.created_at,
+        ip: '',
+        userAgent: '',
+      },
+      requiresAction: booking.payment_status === 'requires_action',
+      notes: undefined,
+    };
+  });
 }
 

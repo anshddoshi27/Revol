@@ -138,8 +138,9 @@ export function LoginForm() {
 
       // Check if business is already launched
       // A business is considered "launched" if it has:
-      // - subscription_status set (trial, active, paused, canceled)
-      // - All required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+      // - subscription_status set (trial, active, paused, canceled) - this indicates go-live step was completed
+      // - Essential fields (name, subdomain, timezone, support_email)
+      // Note: stripe_connect_account_id is optional - business can be launched without Stripe Connect
       const isLaunched = business && 
         business.subscription_status && 
         business.subscription_status !== null &&
@@ -148,8 +149,7 @@ export function LoginForm() {
         business.subdomain && 
         !business.subdomain.startsWith('temp-') &&
         business.timezone &&
-        business.support_email &&
-        business.stripe_connect_account_id;
+        business.support_email;
 
       toast.pushToast({
         title: "Login successful",

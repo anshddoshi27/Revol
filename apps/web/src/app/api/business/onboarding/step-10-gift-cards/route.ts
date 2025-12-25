@@ -151,11 +151,14 @@ export async function PUT(request: Request) {
         ? new Date(now.getTime() + expirationMonths * 30 * 24 * 60 * 60 * 1000)
         : null;
 
-      const giftCardsToInsert = generatedCodes.map((code: string) => {
+      // Deduplicate codes (normalize to uppercase and remove duplicates within the input array)
+      const uniqueCodes = Array.from(new Set(generatedCodes.map((code: string) => code.toUpperCase().trim())));
+
+      const giftCardsToInsert = uniqueCodes.map((code: string) => {
         const giftCardData: any = {
           user_id: userId,
           business_id: businessId,
-          code: code.toUpperCase().trim(),
+          code: code,
           discount_type: amountType,
           is_active: true,
           expires_at: expiresAt ? expiresAt.toISOString() : null,
@@ -176,12 +179,10 @@ export async function PUT(request: Request) {
         return giftCardData;
       });
 
+      // Insert gift cards (multi-tenant isolation ensures no conflicts with other businesses)
       const { data: insertedCards, error: insertError } = await supabase
         .from('gift_cards')
-        .upsert(giftCardsToInsert, {
-          onConflict: 'code', // Assuming there's a unique constraint on (user_id, code)
-          ignoreDuplicates: false,
-        })
+        .insert(giftCardsToInsert)
         .select('id');
 
       if (insertError) {

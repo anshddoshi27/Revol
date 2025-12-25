@@ -1,1 +1,10 @@
-{}
+{
+  "/public/[slug]/page": "app/public/[slug]/page.js",
+  "/signup/page": "app/signup/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/public/[slug]/availability/route": "app/api/public/[slug]/availability/route.js",
+  "/onboarding/page": "app/onboarding/page.js",
+  "/api/public/[slug]/bookings/route": "app/api/public/[slug]/bookings/route.js",
+  "/api/public/[slug]/catalog/route": "app/api/public/[slug]/catalog/route.js",
+  "/app/b/[businessId]/page": "app/app/b/[businessId]/page.js"
+}

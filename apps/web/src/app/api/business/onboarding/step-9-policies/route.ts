@@ -171,17 +171,21 @@ export async function PUT(request: Request) {
         .eq('is_active', true);
     }
 
+    // Convert 'flat' to 'amount' for database enum (which only accepts 'amount' or 'percent')
+    const cancelFeeTypeDb = cancellationFeeType === 'flat' ? 'amount' : cancellationFeeType;
+    const noShowFeeTypeDb = noShowFeeType === 'flat' ? 'amount' : noShowFeeType;
+
     // Insert new policy version
     const policyData = {
       user_id: userId,
       business_id: businessId,
       version: nextVersion,
       cancellation_policy_text: cancellationPolicy,
-      cancel_fee_type: cancellationFeeType, // 'flat' -> 'amount', 'percent' -> 'percent'
+      cancel_fee_type: cancelFeeTypeDb, // 'flat' -> 'amount', 'percent' -> 'percent'
       cancel_fee_amount_cents: cancellationFeeType === 'flat' ? Math.round(cancellationFeeValue * 100) : null,
       cancel_fee_percent: cancellationFeeType === 'percent' ? cancellationFeeValue : null,
       no_show_policy_text: noShowPolicy,
-      no_show_fee_type: noShowFeeType,
+      no_show_fee_type: noShowFeeTypeDb,
       no_show_fee_amount_cents: noShowFeeType === 'flat' ? Math.round(noShowFeeValue * 100) : null,
       no_show_fee_percent: noShowFeeType === 'percent' ? noShowFeeValue : null,
       refund_policy_text: refundPolicy,

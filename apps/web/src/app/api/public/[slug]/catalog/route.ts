@@ -75,6 +75,23 @@ export async function GET(
       .eq('business_id', business.id)
       .in('service_id', serviceIds.length > 0 ? serviceIds : ['00000000-0000-0000-0000-000000000000']);
 
+    // Get accepted payment methods from payment_methods table
+    let acceptedMethods: string[] = ['card']; // Default to card
+    try {
+      const { data: paymentMethods } = await supabase
+        .from('payment_methods')
+        .select('method')
+        .eq('business_id', business.id)
+        .eq('enabled', true);
+      
+      if (paymentMethods && paymentMethods.length > 0) {
+        acceptedMethods = paymentMethods.map(pm => pm.method);
+      }
+    } catch (error) {
+      // payment_methods table might not exist, use default
+      console.log('[public-catalog] Could not fetch payment methods, using default (card)');
+    }
+
     // Group services by category and attach staff
     const servicesByCategory = new Map<string, any[]>();
     services?.forEach(service => {
@@ -110,6 +127,7 @@ export async function GET(
       },
       categories: categoriesWithServices,
       staff: staff || [],
+      acceptedPaymentMethods: acceptedMethods, // Include accepted payment methods
     });
   } catch (error) {
     console.error('Error in public catalog:', error);

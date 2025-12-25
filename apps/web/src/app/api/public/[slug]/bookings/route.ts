@@ -400,7 +400,7 @@ export async function POST(
         stripe_setup_intent_id: setupIntent.setupIntentId,
         amount_cents: final_price_cents,
         money_action: 'none',
-        status: 'pending', // Will be updated to 'card_saved' by webhook when SetupIntent succeeds
+        status: 'none', // Will be updated to 'card_saved' by webhook when SetupIntent succeeds
         currency: 'usd',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

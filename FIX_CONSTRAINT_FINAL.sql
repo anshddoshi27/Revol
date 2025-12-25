@@ -78,3 +78,4 @@ WHERE tc.table_name = 'businesses'
 -- Try the payment setup again in your app.
 
 
+

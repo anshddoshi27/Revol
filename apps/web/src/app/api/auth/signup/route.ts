@@ -125,11 +125,57 @@ Solutions:
     }
 
     const userId = authData.user.id;
-    console.log('[signup] User created in auth.users:', userId);
-
-    // Use admin client to bypass RLS since user just signed up
+    console.log('[signup] User ID from auth:', userId);
+    
+    // Check if user was just created or already existed
+    // If user already existed, Supabase might return the existing user
+    // We need to check if this user already has a business
     const adminSupabase = createAdminClient();
     
+    // Check if user already has a business (this indicates they've signed up before)
+    const { data: existingBusiness, error: businessCheckError } = await adminSupabase
+      .from('businesses')
+      .select('id, name, subscription_status, deleted_at')
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    
+    if (businessCheckError && businessCheckError.code !== 'PGRST116') {
+      console.error('[signup] Error checking for existing business:', businessCheckError);
+      // Continue with signup if it's just a table not found error
+    } else if (existingBusiness) {
+      // User already has a business - this means they've signed up before
+      console.log('[signup] User already has a business:', existingBusiness.id, existingBusiness.name);
+      
+      // Check if business is already launched
+      const isLaunched = existingBusiness.subscription_status && 
+        existingBusiness.subscription_status !== null &&
+        existingBusiness.name && 
+        existingBusiness.name.trim().length > 0;
+      
+      if (isLaunched) {
+        return NextResponse.json(
+          { 
+            error: 'An account with this email already exists and is active. Please sign in instead.',
+            code: 'EMAIL_ALREADY_EXISTS'
+          },
+          { status: 409 } // Conflict
+        );
+      } else {
+        // Business exists but not launched - user might be trying to restart onboarding
+        // Still return error to prevent confusion - they should sign in and continue
+        return NextResponse.json(
+          { 
+            error: 'An account with this email already exists. Please sign in to continue setting up your business.',
+            code: 'EMAIL_ALREADY_EXISTS'
+          },
+          { status: 409 } // Conflict
+        );
+      }
+    }
+    
+    console.log('[signup] User is new or has no business - proceeding with signup');
+
     // Check if there's a public.users table and create record if needed
     // The foreign key constraint might reference public.users instead of auth.users
     // This is a workaround until the migration fixes the constraint

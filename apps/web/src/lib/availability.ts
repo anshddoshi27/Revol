@@ -84,7 +84,42 @@ export async function generateAvailabilitySlots(
   const targetDateStr = `${date}T00:00:00`;
   // Parse as if in business timezone, then convert to UTC Date
   const targetDateLocal = new Date(targetDateStr);
-  const targetDateUTC = fromZonedTime(targetDateLocal, timezone);
+  
+  // Validate input date
+  if (isNaN(targetDateLocal.getTime())) {
+    console.error(`[availability] Invalid date string: ${targetDateStr}`);
+    return [];
+  }
+  
+  // Validate timezone
+  if (!timezone || typeof timezone !== 'string') {
+    console.error(`[availability] Invalid timezone: ${timezone}`);
+    return [];
+  }
+  
+  let targetDateUTC: Date;
+  try {
+    targetDateUTC = fromZonedTime(targetDateLocal, timezone);
+    
+    // Validate converted date
+    if (isNaN(targetDateUTC.getTime())) {
+      console.error(`[availability] Invalid date after timezone conversion:`, {
+        date,
+        targetDateStr,
+        timezone,
+        targetDateLocal: targetDateLocal.toISOString(),
+      });
+      return [];
+    }
+  } catch (error) {
+    console.error(`[availability] Error converting timezone:`, error, {
+      date,
+      targetDateStr,
+      timezone,
+    });
+    return [];
+  }
+  
   const targetDateInTimezone = toZonedTime(targetDateUTC, timezone);
   const weekday = targetDateInTimezone.getDay(); // Get weekday in business timezone
 
@@ -101,46 +136,81 @@ export async function generateAvailabilitySlots(
 
   const serviceDurationMinutes = service.duration_min;
 
-  // Get all staff that can perform this service
+  // First, try to get staff from staff_services associations
+  let staffIds: string[] = [];
   const { data: staffServices } = await supabase
     .from('staff_services')
     .select('staff_id')
     .eq('service_id', serviceId)
     .eq('business_id', businessId);
 
-  if (!staffServices || staffServices.length === 0) {
-    return [];
+  if (staffServices && staffServices.length > 0) {
+    staffIds = staffServices.map(ss => ss.staff_id);
+    console.log(`[availability] Found ${staffIds.length} staff from staff_services for service ${serviceId}`);
+  } else {
+    // If no staff_services associations exist, get staff from availability_rules directly
+    // This handles cases where staff associations weren't created during onboarding
+    console.log(`[availability] No staff_services found, checking availability_rules for service ${serviceId}`);
+    const { data: rulesWithStaff } = await supabase
+      .from('availability_rules')
+      .select('staff_id')
+      .eq('business_id', businessId)
+      .eq('service_id', serviceId)
+      .eq('rule_type', 'weekly')
+      .is('deleted_at', null);
+    
+    if (rulesWithStaff && rulesWithStaff.length > 0) {
+      // Get unique staff IDs from rules
+      const uniqueStaffIds = [...new Set(rulesWithStaff.map(r => r.staff_id))];
+      staffIds = uniqueStaffIds;
+      console.log(`[availability] Found ${staffIds.length} staff from availability_rules for service ${serviceId}`);
+    }
   }
 
-  const staffIds = staffServices.map(ss => ss.staff_id);
+  if (staffIds.length === 0) {
+    console.log(`[availability] No staff found for service ${serviceId}`);
+    return [];
+  }
 
   // Get staff names
   const { data: staffList } = await supabase
     .from('staff')
     .select('id, name')
     .in('id', staffIds)
+    .eq('business_id', businessId)
     .eq('is_active', true)
     .is('deleted_at', null);
 
   if (!staffList || staffList.length === 0) {
+    console.log(`[availability] No active staff found for IDs:`, staffIds);
     return [];
   }
 
   const staffMap = new Map(staffList.map(s => [s.id, s.name]));
+  console.log(`[availability] Staff map:`, Array.from(staffMap.entries()));
 
   // Get availability rules for this service, staff, and weekday
-  const { data: rules } = await supabase
+  // Also filter by business_id to ensure we get the right rules
+  const { data: rules, error: rulesError } = await supabase
     .from('availability_rules')
     .select('staff_id, weekday, start_time, end_time')
+    .eq('business_id', businessId)
     .eq('service_id', serviceId)
-    .in('staff_id', staffIds)
+    .in('staff_id', staffIds.length > 0 ? staffIds : ['00000000-0000-0000-0000-000000000000']) // Prevent empty array
     .eq('weekday', weekday)
     .eq('rule_type', 'weekly')
     .is('deleted_at', null);
 
+  if (rulesError) {
+    console.error(`[availability] Error fetching rules for ${date}:`, rulesError);
+  }
+
   if (!rules || rules.length === 0) {
+    console.log(`[availability] No rules found for service ${serviceId}, date ${date}, weekday ${weekday}, staffIds:`, staffIds);
     return [];
   }
+
+  console.log(`[availability] Found ${rules.length} rules for service ${serviceId}, date ${date}, weekday ${weekday}`);
 
   // Get blackouts for this date (staff-specific and global)
   const dayStart = new Date(`${date}T00:00:00Z`);
@@ -199,30 +269,123 @@ export async function generateAvailabilitySlots(
   const minStartTime = new Date(now.getTime() + minLeadTime * 60 * 1000);
   const maxAdvanceDate = new Date(now.getTime() + maxAdvance * 24 * 60 * 60 * 1000);
 
+  // Validate targetDateUTC before logging
+  const targetDateUTCStr = isNaN(targetDateUTC.getTime()) ? 'Invalid Date' : targetDateUTC.toISOString();
+  
+  console.log(`[availability] Slot generation params:`, {
+    date,
+    weekday,
+    now: now.toISOString(),
+    minStartTime: minStartTime.toISOString(),
+    maxAdvanceDate: maxAdvanceDate.toISOString(),
+    targetDateUTC: targetDateUTCStr,
+    minLeadTime,
+    maxAdvance,
+    rulesCount: rules.length,
+  });
+  
+  // If targetDateUTC is invalid, return early
+  if (isNaN(targetDateUTC.getTime())) {
+    console.error(`[availability] Invalid targetDateUTC for date ${date}, timezone ${timezone}`);
+    return [];
+  }
+
   // If the target date is too far in advance, return empty
   // Use UTC date for comparison
   const targetDateUTCForComparison = targetDateUTC;
   if (targetDateUTCForComparison > maxAdvanceDate) {
+    console.log(`[availability] Target date ${targetDateUTCForComparison.toISOString()} is beyond max advance date ${maxAdvanceDate.toISOString()}`);
     return [];
   }
+
+  let totalSlotsChecked = 0;
+  let slotsFilteredByLeadTime = 0;
+  let slotsFilteredByPast = 0;
+  let slotsFilteredByBlackout = 0;
+  let slotsFilteredByBooking = 0;
 
   // Process each rule
   for (const rule of rules) {
     const staffId = rule.staff_id;
     const staffName = staffMap.get(staffId);
-    if (!staffName) continue;
+    if (!staffName) {
+      console.log(`[availability] Skipping rule - staff name not found for ${staffId}`);
+      continue;
+    }
 
     // Parse start_time and end_time (HH:mm format in business timezone)
-    // Create date strings as if they're in business timezone, then convert to UTC
-    const ruleStartStr = `${date}T${rule.start_time}:00`;
-    const ruleEndStr = `${date}T${rule.end_time}:00`;
+    // Parse date components
+    const [year, month, day] = date.split('-').map(Number);
+    const [startHour, startMin] = rule.start_time.split(':').map(Number);
+    const [endHour, endMin] = rule.end_time.split(':').map(Number);
     
-    // fromZonedTime creates a UTC Date from a local Date in the specified timezone
-    // This properly handles timezone conversion (e.g., "2025-01-15T09:00:00" in "America/New_York" → UTC)
+    // Validate timezone
+    if (!timezone || typeof timezone !== 'string') {
+      console.error(`[availability] Invalid timezone:`, timezone);
+      continue;
+    }
+    
+    // Create a date string in ISO format, then parse it
+    // The key: we create the date as if it's in UTC, then use fromZonedTime to treat it as business timezone
+    const ruleStartStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`;
+    const ruleEndStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`;
+    
+    // Create Date objects - these represent the wall-clock time
+    // We'll treat them as if they're in the business timezone
     const ruleStartLocal = new Date(ruleStartStr);
     const ruleEndLocal = new Date(ruleEndStr);
-    const ruleStartUTC = fromZonedTime(ruleStartLocal, timezone);
-    const ruleEndUTC = fromZonedTime(ruleEndLocal, timezone);
+    
+    // Validate input dates
+    if (isNaN(ruleStartLocal.getTime()) || isNaN(ruleEndLocal.getTime())) {
+      console.error(`[availability] Invalid date created from:`, {
+        ruleStartStr,
+        ruleEndStr,
+        date,
+        startTime: rule.start_time,
+        endTime: rule.end_time,
+      });
+      continue;
+    }
+    
+    // fromZonedTime: treats the input Date as representing a time in the given timezone,
+    // and returns the equivalent Date in UTC
+    let ruleStartUTC: Date;
+    let ruleEndUTC: Date;
+    
+    try {
+      ruleStartUTC = fromZonedTime(ruleStartLocal, timezone);
+      ruleEndUTC = fromZonedTime(ruleEndLocal, timezone);
+      
+      // Validate the converted dates
+      if (isNaN(ruleStartUTC.getTime()) || isNaN(ruleEndUTC.getTime())) {
+        console.error(`[availability] Invalid date after timezone conversion:`, {
+          date,
+          startTime: rule.start_time,
+          endTime: rule.end_time,
+          timezone,
+          ruleStartLocal: ruleStartLocal.toISOString(),
+          ruleEndLocal: ruleEndLocal.toISOString(),
+        });
+        continue;
+      }
+    } catch (error) {
+      console.error(`[availability] Error converting timezone for rule:`, error, {
+        date,
+        startTime: rule.start_time,
+        endTime: rule.end_time,
+        timezone,
+      });
+      continue;
+    }
+
+    console.log(`[availability] Processing rule:`, {
+      staffId,
+      staffName,
+      startTime: rule.start_time,
+      endTime: rule.end_time,
+      ruleStartUTC: ruleStartUTC.toISOString(),
+      ruleEndUTC: ruleEndUTC.toISOString(),
+    });
 
     // Walk in 15-minute increments (working in UTC)
     let currentStart = new Date(ruleStartUTC);
@@ -230,6 +393,7 @@ export async function generateAvailabilitySlots(
 
     while (currentStart < ruleEndTime) {
       const slotEnd = new Date(currentStart.getTime() + serviceDurationMinutes * 60 * 1000);
+      totalSlotsChecked++;
 
       // Check if slot fits within rule end time
       if (slotEnd > ruleEndTime) {
@@ -238,24 +402,28 @@ export async function generateAvailabilitySlots(
 
       // Check lead time (must be after minimum lead time from now)
       if (currentStart < minStartTime) {
+        slotsFilteredByLeadTime++;
         currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
         continue;
       }
 
       // Check if slot is in the past
       if (currentStart < now) {
+        slotsFilteredByPast++;
         currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
         continue;
       }
 
       // Check blackouts
       if (isInBlackout(currentStart, slotEnd, staffId)) {
+        slotsFilteredByBlackout++;
         currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
         continue;
       }
 
       // Check existing bookings
       if (isOverlappingBooking(currentStart, slotEnd, staffId)) {
+        slotsFilteredByBooking++;
         currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
         continue;
       }
@@ -272,6 +440,15 @@ export async function generateAvailabilitySlots(
       currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
     }
   }
+
+  console.log(`[availability] Slot generation summary:`, {
+    totalSlotsChecked,
+    slotsGenerated: slots.length,
+    filteredByLeadTime: slotsFilteredByLeadTime,
+    filteredByPast: slotsFilteredByPast,
+    filteredByBlackout: slotsFilteredByBlackout,
+    filteredByBooking: slotsFilteredByBooking,
+  });
 
   // Sort slots by start time
   slots.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());

@@ -59,3 +59,4 @@ WHERE tc.table_name = 'businesses'
 --   ON DELETE CASCADE;
 
 
+

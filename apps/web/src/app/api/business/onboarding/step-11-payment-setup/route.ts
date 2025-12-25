@@ -334,7 +334,7 @@ async function handlePaymentSetup(request: Request) {
     console.log('[step-11-payment-setup] Business ID:', businessId);
     
     // Frontend sends PaymentSetupConfig, but we also accept direct Stripe Connect params
-    const { connectAccountId, email, returnUrl, refreshUrl } = body;
+    const { connectAccountId, email, returnUrl, refreshUrl, acceptedMethods: requestedMethods } = body;
 
     const supabase = await createServerClient();
     
@@ -599,6 +599,69 @@ async function handlePaymentSetup(request: Request) {
           },
           { status: 500 }
         );
+      }
+    }
+
+    // Save accepted payment methods if provided
+    if (requestedMethods && Array.isArray(requestedMethods) && requestedMethods.length > 0) {
+      try {
+        // First, disable all existing payment methods for this business
+        await supabase
+          .from('payment_methods')
+          .update({ enabled: false })
+          .eq('business_id', businessId);
+
+        // Then, insert or update the requested methods
+        const methodsToSave = requestedMethods.map((method: string) => ({
+          business_id: businessId,
+          user_id: userId,
+          method: method === 'wallets' ? 'apple_pay' : method, // Map 'wallets' to specific methods
+          enabled: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }));
+
+        // If 'wallets' is in the list, also add google_pay
+        if (requestedMethods.includes('wallets')) {
+          methodsToSave.push({
+            business_id: businessId,
+            user_id: userId,
+            method: 'google_pay',
+            enabled: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        // Always ensure 'card' is enabled
+        if (!requestedMethods.includes('card')) {
+          methodsToSave.push({
+            business_id: businessId,
+            user_id: userId,
+            method: 'card',
+            enabled: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        // Upsert payment methods
+        const { error: paymentMethodsError } = await supabase
+          .from('payment_methods')
+          .upsert(methodsToSave, {
+            onConflict: 'business_id,method',
+            ignoreDuplicates: false,
+          });
+
+        if (paymentMethodsError) {
+          console.error('[step-11-payment-setup] Error saving payment methods:', paymentMethodsError);
+          // Don't fail the request if payment methods save fails
+        } else {
+          console.log('[step-11-payment-setup] Saved payment methods:', methodsToSave.map(m => m.method));
+        }
+      } catch (error) {
+        // payment_methods table might not exist, log and continue
+        console.log('[step-11-payment-setup] Could not save payment methods (table might not exist):', error);
       }
     }
 

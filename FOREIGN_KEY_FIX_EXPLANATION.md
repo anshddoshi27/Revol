@@ -110,3 +110,4 @@ Once the constraint is fixed:
 - `supabase/migrations/20250104000000_fix_businesses_user_id_fkey.sql` - Migration file
 
 
+

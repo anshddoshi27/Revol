@@ -76,6 +76,7 @@ export async function GET(
     }
 
     // Generate availability slots
+    console.log(`[public-availability] Generating slots for service ${serviceId}, date ${date}, business ${business.id}`);
     const slots = await generateAvailabilitySlots({
       serviceId,
       date,
@@ -85,6 +86,8 @@ export async function GET(
       minLeadTimeMinutes: business.min_lead_time_minutes,
       maxAdvanceDays: business.max_advance_days,
     });
+
+    console.log(`[public-availability] Generated ${slots.length} slots for service ${serviceId}, date ${date}`);
 
     return NextResponse.json({
       slots,

@@ -1,21 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   CreditCard,
   Gift,
+  Loader2,
   MapPin,
   PartyPopper,
   ShieldCheck,
   Sparkles,
   Users
 } from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +32,9 @@ import type { FakeBooking, FakeBusinessWorkspace } from "@/lib/admin-workspace";
 import type { FakeBusiness, PublicBookingPayload } from "@/lib/fake-business";
 import { buildExpandedSlots, groupSlotsByDay, type ExpandedAvailabilitySlot } from "@/lib/availability-utils";
 import { formatInTimeZone } from "@/lib/timezone";
+
+// Initialize Stripe
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
 type Step = "catalog" | "availability" | "checkout" | "confirmation";
 
@@ -58,13 +66,17 @@ export function PublicBookingExperience({
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExp, setCardExp] = useState("");
-  const [cardCvc, setCardCvc] = useState("");
+  const [setupIntentClientSecret, setSetupIntentClientSecret] = useState<string | null>(null);
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [createdBookingCode, setCreatedBookingCode] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdBooking, setCreatedBooking] = useState<FakeBooking | null>(null);
+  const [fetchedSlots, setFetchedSlots] = useState<ExpandedAvailabilitySlot[]>([]);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
 
   const selectedService = useMemo(() => {
     if (!selectedServiceId) return undefined;
@@ -81,19 +93,95 @@ export function PublicBookingExperience({
     return undefined;
   }, [selectedServiceId, workspace.catalog]);
 
+  // Fetch availability from API when service is selected
+  useEffect(() => {
+    if (!selectedService || step !== "availability") {
+      setFetchedSlots([]);
+      return;
+    }
+
+    async function fetchAvailability() {
+      setIsLoadingAvailability(true);
+      setAvailabilityError(null);
+      
+      try {
+        // Fetch availability for the next 14 days (2 weeks)
+        const today = new Date();
+        const allSlots: ExpandedAvailabilitySlot[] = [];
+        const timezone = workspace.identity.location.timezone || "UTC";
+        const dayFormatter = new Intl.DateTimeFormat("en-US", { 
+          timeZone: timezone, 
+          weekday: "long" 
+        });
+        
+        for (let i = 0; i < 14; i++) {
+          const date = new Date(today);
+          date.setDate(today.getDate() + i);
+          const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+          
+          try {
+            const response = await fetch(
+              `/api/public/${business.slug}/availability?service_id=${selectedService.id}&date=${dateStr}`
+            );
+            
+            if (!response.ok) {
+              console.warn(`Failed to fetch availability for ${dateStr}:`, response.status);
+              continue;
+            }
+            
+            const data = await response.json();
+            console.log(`[booking-flow] Fetched availability for ${dateStr}:`, {
+              slotsCount: data.slots?.length || 0,
+              hasSlots: Array.isArray(data.slots),
+              sampleSlot: data.slots?.[0],
+            });
+            
+            if (data.slots && Array.isArray(data.slots)) {
+              // Transform API slots to ExpandedAvailabilitySlot format
+              for (const slot of data.slots) {
+                const startDate = new Date(slot.start_at);
+                const endDate = new Date(slot.end_at);
+                const dayLabel = dayFormatter.format(startDate);
+                
+                // Find staff member to get color
+                const staffMember = workspace.staff.find(s => s.id === slot.staff_id);
+                const staffColor = staffMember?.color || "#000000";
+                
+                allSlots.push({
+                  id: `${slot.staff_id}-${slot.start_at}`,
+                  serviceId: selectedService.id,
+                  staffId: slot.staff_id,
+                  staffName: slot.staff_name,
+                  staffColor: staffColor,
+                  startDateTime: slot.start_at,
+                  endDateTime: slot.end_at,
+                  dayLabel: dayLabel,
+                });
+              }
+            } else {
+              console.warn(`[booking-flow] No slots array in response for ${dateStr}:`, data);
+            }
+          } catch (err) {
+            console.error(`Error fetching availability for ${dateStr}:`, err);
+          }
+        }
+        
+        setFetchedSlots(allSlots);
+      } catch (error) {
+        console.error('Error fetching availability:', error);
+        setAvailabilityError('Failed to load availability. Please try again.');
+      } finally {
+        setIsLoadingAvailability(false);
+      }
+    }
+
+    fetchAvailability();
+  }, [selectedService, step, business.slug, workspace.staff, workspace.identity.location.timezone]);
+
   const serviceAvailability = useMemo(() => {
-    if (!selectedService) return [];
-    const availabilityEntry = workspace.availability.find(
-      (entry) => entry.serviceId === selectedService.id
-    );
-    return buildExpandedSlots({
-      service: selectedService,
-      serviceAvailability: availabilityEntry,
-      staff: workspace.staff,
-      timezone: workspace.identity.location.timezone || "UTC",
-      startDate: new Date()
-    });
-  }, [selectedService, workspace.availability, workspace.identity.location.timezone, workspace.staff]);
+    // Use fetched slots from API instead of workspace.availability
+    return fetchedSlots;
+  }, [fetchedSlots]);
 
   const groupedSlots = useMemo(() => {
     if (!selectedService) return {};
@@ -113,9 +201,12 @@ export function PublicBookingExperience({
   const appliedGiftCardCents = giftCardState?.amountCents ?? 0;
   const amountDueCents = Math.max(listPriceCents - appliedGiftCardCents, 0);
 
-  const acceptedMethods = workspace.payment.acceptedMethods.includes("card")
-    ? workspace.payment.acceptedMethods
-    : ["card", ...workspace.payment.acceptedMethods];
+  // Card is always required for all bookings (even cash) as backup for no-show fees
+  // But we display the business's accepted methods from onboarding for information
+  const businessAcceptedMethods = workspace.payment.acceptedMethods || [];
+  const acceptedMethodsForDisplay = businessAcceptedMethods.length > 0 
+    ? businessAcceptedMethods 
+    : ["card"]; // Default to card if no methods specified
 
   const policies = workspace.policies;
   const timezone = workspace.identity.location.timezone || "UTC";
@@ -218,58 +309,70 @@ export function PublicBookingExperience({
       });
       return;
     }
-    if (cardNumber.replace(/\s/g, "").length < 12 || cardExp.length < 4 || cardCvc.length < 3) {
+    
+    // If payment method is already confirmed, booking is already created and we're done
+    if (paymentMethodId && createdBookingId) {
+      // Booking is complete, show confirmation
+      if (selectedService && selectedSlot) {
+        const booking: FakeBooking = {
+          id: createdBookingId,
+          code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+          status: 'pending',
+          serviceId: selectedService.id,
+          serviceName: selectedService.name,
+          categoryName: selectedService.categoryName,
+          durationMinutes: selectedService.durationMinutes,
+          startDateTime: selectedSlot.startDateTime,
+          endDateTime: selectedSlot.endDateTime,
+          staff: {
+            id: selectedSlot.staffId,
+            name: selectedSlot.staffName,
+            color: workspace.staff.find(s => s.id === selectedSlot.staffId)?.color || "#000000",
+          },
+          customer: {
+            name: customerName.trim(),
+            email: customerEmail.trim().toLowerCase(),
+            phone: customerPhone.trim(),
+          },
+          payments: [],
+          financials: {
+            listPriceCents: listPriceCents,
+            giftCardAmountCents: giftCardState?.amountCents || 0,
+            platformFeeCents: 0,
+            stripeFeeEstimateCents: 0,
+            netPayoutCents: 0,
+            currency: 'usd',
+          },
+          policyConsent: createPolicyConsent(policies),
+          requiresAction: false,
+        };
+        setCreatedBooking(booking);
+        setStep("confirmation");
+      }
+      return;
+    }
+
+    // Payment method must be set via Stripe Elements
+    if (!paymentMethodId) {
       toast.pushToast({
-        title: "Card details incomplete",
-        description: "Enter a valid card number, expiration, and CVC. We only save the card today.",
+        title: "Payment method required",
+        description: "Please complete the payment form above. Your card will be saved securely but not charged.",
         intent: "error"
       });
       return;
     }
 
-    setIsSubmitting(true);
-    const consent = createPolicyConsent(policies);
-    const payload: PublicBookingPayload = {
-      serviceId: selectedService.id,
-      staffId: selectedSlot.staffId,
-      startDateTime: selectedSlot.startDateTime,
-      endDateTime: selectedSlot.endDateTime,
-      customer: {
-        name: customerName.trim(),
-        email: customerEmail.trim().toLowerCase(),
-        phone: customerPhone.trim()
-      },
-      consent,
-      giftCard: giftCardState
-        ? { code: giftCardState.code, amountCents: giftCardState.amountCents }
-        : undefined,
-      paymentMethod: "card",
-      requiresAction: false
-    };
-
-    const booking = recordBooking(payload);
-    setIsSubmitting(false);
-
-    if (!booking) {
+    // If we have paymentMethodId but no booking ID, the booking was created in useEffect
+    // We just need to wait for the payment to be processed (it should already be done)
+    if (paymentMethodId && !createdBookingId) {
+      // This shouldn't happen, but handle it gracefully
       toast.pushToast({
-        title: "Something went wrong",
-        description: "We couldn’t finalize the booking. Refresh and try again or contact support.",
-        intent: "error"
+        title: "Processing payment",
+        description: "Please wait while we complete your booking.",
+        intent: "info"
       });
       return;
     }
-
-    setCreatedBooking(booking);
-    setStep("confirmation");
-    toast.pushToast({
-      title: "Booking confirmed",
-      description: `${selectedService.name} on ${formatInTimeZone(
-        booking.startDateTime,
-        timezone,
-        { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
-      )}. No charge yet—card saved securely.`,
-      intent: "success"
-    });
   };
 
   const handleResetFlow = () => {
@@ -283,9 +386,10 @@ export function PublicBookingExperience({
     setCustomerName("");
     setCustomerEmail("");
     setCustomerPhone("");
-    setCardNumber("");
-    setCardExp("");
-    setCardCvc("");
+    setSetupIntentClientSecret(null);
+    setPaymentMethodId(null);
+    setCreatedBookingId(null);
+    setCreatedBookingCode(null);
     setConsentChecked(false);
     setIsPolicyModalOpen(false);
     setCreatedBooking(null);
@@ -373,6 +477,8 @@ export function PublicBookingExperience({
             staff={workspace.staff}
             timezone={timezone}
             supportEmail={workspace.identity.location.supportEmail}
+            isLoading={isLoadingAvailability}
+            error={availabilityError}
           />
         ) : null}
 
@@ -387,12 +493,27 @@ export function PublicBookingExperience({
             setCustomerEmail={setCustomerEmail}
             customerPhone={customerPhone}
             setCustomerPhone={setCustomerPhone}
-            cardNumber={cardNumber}
-            setCardNumber={setCardNumber}
-            cardExp={cardExp}
-            setCardExp={setCardExp}
-            cardCvc={cardCvc}
-            setCardCvc={setCardCvc}
+            setupIntentClientSecret={setupIntentClientSecret}
+            setSetupIntentClientSecret={setSetupIntentClientSecret}
+            paymentMethodId={paymentMethodId}
+            setPaymentMethodId={setPaymentMethodId}
+            createdBookingId={createdBookingId}
+            setCreatedBookingId={setCreatedBookingId}
+            createdBookingCode={createdBookingCode}
+            setCreatedBookingCode={setCreatedBookingCode}
+            workspace={workspace}
+            customerName={customerName}
+            customerEmail={customerEmail}
+            customerPhone={customerPhone}
+            listPriceCents={listPriceCents}
+            giftCardState={giftCardState}
+            policies={policies}
+            timezone={timezone}
+            selectedService={selectedService}
+            selectedSlot={selectedSlot}
+            setCreatedBooking={setCreatedBooking}
+            setStep={setStep}
+            toast={toast}
             consentChecked={consentChecked}
             setConsentChecked={setConsentChecked}
             giftCardInput={giftCardInput}
@@ -400,7 +521,7 @@ export function PublicBookingExperience({
             giftCardError={giftCardError}
             giftCardState={giftCardState}
             onApplyGiftCard={handleApplyGiftCard}
-            acceptedMethods={acceptedMethods}
+            acceptedMethods={acceptedMethodsForDisplay}
             policies={policies}
             timezone={timezone}
             amountDueCents={amountDueCents}
@@ -408,6 +529,7 @@ export function PublicBookingExperience({
             isSubmitting={isSubmitting}
             onSubmit={handleSubmitCheckout}
             onOpenPolicies={() => setIsPolicyModalOpen(true)}
+            business={business}
           />
         ) : null}
 
@@ -499,7 +621,9 @@ function AvailabilityStep({
   onSelectSlot,
   staff,
   timezone,
-  supportEmail
+  supportEmail,
+  isLoading,
+  error
 }: {
   service: {
     id: string;
@@ -517,9 +641,84 @@ function AvailabilityStep({
   staff: FakeBusinessWorkspace["staff"];
   timezone: string;
   supportEmail?: string;
+  isLoading?: boolean;
+  error?: string | null;
 }) {
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const diff = today.getDate() - dayOfWeek; // Get Sunday of this week
+    const sunday = new Date(today.setDate(diff));
+    sunday.setHours(0, 0, 0, 0);
+    return sunday;
+  });
+
   const staffOptions = staff.filter((member) => service.staffIds.includes(member.id));
   const totalSlots = Object.values(slotsByDay).reduce((sum, entries) => sum + entries.length, 0);
+
+  // Generate hours from 8 AM to 8 PM
+  const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8 AM to 8 PM
+
+  // Generate days of the week
+  const weekDays = useMemo(() => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(currentWeekStart);
+      date.setDate(currentWeekStart.getDate() + i);
+      days.push(date);
+    }
+    return days;
+  }, [currentWeekStart]);
+
+  // Group slots by day and hour, removing duplicates
+  const slotsByDayAndHour = useMemo(() => {
+    const grouped: Record<string, Record<number, ExpandedAvailabilitySlot[]>> = {};
+    
+    // Flatten all slots from all days
+    const allSlots = Object.values(slotsByDay).flat();
+    
+    allSlots.forEach(slot => {
+      const slotDate = new Date(slot.startDateTime);
+      const dateKey = formatInTimeZone(slotDate, timezone, "yyyy-MM-dd");
+      const hour = formatInTimeZone(slotDate, timezone, { hour: "numeric", hour12: false });
+      const hourNum = parseInt(hour, 10);
+      
+      // Only include slots that are in the current week
+      const isInCurrentWeek = weekDays.some(day => {
+        const dayKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+        return dayKey === dateKey;
+      });
+      
+      if (!isInCurrentWeek) return;
+      
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = {};
+      }
+      
+      if (!grouped[dateKey][hourNum]) {
+        grouped[dateKey][hourNum] = [];
+      }
+      
+      // Check for duplicates (same hour, same staff, same date)
+      const isDuplicate = grouped[dateKey][hourNum].some(
+        existing => existing.staffId === slot.staffId
+      );
+      
+      if (!isDuplicate) {
+        grouped[dateKey][hourNum].push(slot);
+      }
+    });
+    
+    return grouped;
+  }, [slotsByDay, weekDays, timezone]);
+
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+    setCurrentWeekStart(newDate);
+  };
+
+  const monthYear = formatInTimeZone(weekDays[0], timezone, { month: "long", year: "numeric" });
 
   return (
     <section className="rounded-3xl border border-white/10 bg-white/5 p-8 shadow-[0_0_60px_rgba(91,100,255,0.15)]">
@@ -540,7 +739,7 @@ function AvailabilityStep({
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <StaffPill
-          label="I don’t mind"
+          label="I don't mind"
           active={selectedStaffId === "any"}
           onClick={() => setSelectedStaffId("any")}
         />
@@ -555,7 +754,16 @@ function AvailabilityStep({
         ))}
       </div>
 
-      {totalSlots === 0 ? (
+      {isLoading ? (
+        <div className="mt-10 rounded-3xl border border-white/10 bg-black/60 p-8 text-center text-white/60">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-white/40" aria-hidden="true" />
+          <p className="mt-4 text-base">Loading availability...</p>
+        </div>
+      ) : error ? (
+        <div className="mt-10 rounded-3xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-200">
+          <p className="text-base">{error}</p>
+        </div>
+      ) : totalSlots === 0 ? (
         <div className="mt-10 rounded-3xl border border-white/10 bg-black/60 p-8 text-center text-white/60">
           <p className="text-base">No availability found in the next two weeks.</p>
           <p className="mt-2 text-sm">
@@ -567,33 +775,103 @@ function AvailabilityStep({
           </p>
         </div>
       ) : (
-        <div className="mt-10 grid gap-6 md:grid-cols-2">
-          {Object.entries(slotsByDay).map(([dayLabel, daySlots]) => (
-            <div key={dayLabel} className="rounded-3xl border border-white/10 bg-black/60 p-5">
-              <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                <CalendarDays className="h-4 w-4" aria-hidden="true" />
-                {dayLabel}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                {daySlots.map((slot) => (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    onClick={() => onSelectSlot(slot)}
-                    className="group rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left transition hover:border-primary/60 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                  >
+        <div className="mt-10">
+          {/* Week Navigation */}
+          <div className="mb-6 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              onClick={() => navigateWeek('prev')}
+              className="text-white/70 hover:text-white"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <div className="text-center">
+              <h3 className="text-lg font-semibold text-white">{monthYear}</h3>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => navigateWeek('next')}
+              className="text-white/70 hover:text-white"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </Button>
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="overflow-x-auto">
+            <div className="min-w-full">
+              {/* Day Headers */}
+              <div className="grid grid-cols-8 gap-2 border-b border-white/10 pb-2">
+                <div className="text-xs font-semibold text-white/60">Time</div>
+                {weekDays.map((day, idx) => (
+                  <div key={idx} className="text-center">
+                    <p className="text-xs font-semibold text-white/60">
+                      {formatInTimeZone(day, timezone, { weekday: "short" })}
+                    </p>
                     <p className="text-sm font-semibold text-white">
-                      {formatInTimeZone(slot.startDateTime, timezone, { hour: "numeric", minute: "2-digit" })}
+                      {formatInTimeZone(day, timezone, { day: "numeric" })}
                     </p>
-                    <p className="mt-1 flex items-center gap-2 text-xs text-white/60">
-                      <Users className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>{slot.staffName}</span>
-                    </p>
-                  </button>
+                  </div>
                 ))}
               </div>
+
+              {/* Hour Rows */}
+              <div className="mt-2 space-y-1">
+                {hours.map((hour) => {
+                  const hourLabel = hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`;
+                  return (
+                    <div key={hour} className="grid grid-cols-8 gap-2">
+                      <div className="flex items-center text-xs text-white/60 py-2">
+                        {hourLabel}
+                      </div>
+                      {weekDays.map((day, dayIdx) => {
+                        const dateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+                        const slotsForHour = slotsByDayAndHour[dateKey]?.[hour] || [];
+                        const filteredSlots = selectedStaffId === "any"
+                          ? slotsForHour
+                          : slotsForHour.filter(slot => slot.staffId === selectedStaffId);
+
+                        return (
+                          <div key={dayIdx} className="py-1">
+                            {filteredSlots.length > 0 ? (
+                              <div className="space-y-1">
+                                {filteredSlots.map((slot) => {
+                                  const staffMember = staff.find(s => s.id === slot.staffId);
+                                  return (
+                                    <button
+                                      key={slot.id}
+                                      type="button"
+                                      onClick={() => onSelectSlot(slot)}
+                                      className="w-full rounded-lg border border-primary/40 bg-primary/20 px-2 py-1.5 text-left transition hover:border-primary/60 hover:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+                                      style={{
+                                        borderColor: staffMember?.color ? `${staffMember.color}80` : undefined,
+                                        backgroundColor: staffMember?.color ? `${staffMember.color}20` : undefined,
+                                      }}
+                                    >
+                                      <p className="text-xs font-semibold text-white">
+                                        {formatInTimeZone(new Date(slot.startDateTime), timezone, { hour: "numeric", minute: "2-digit" })}
+                                      </p>
+                                      <p className="text-[10px] text-white/70 mt-0.5 truncate">
+                                        {slot.staffName}
+                                      </p>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="h-full rounded-lg bg-white/5 border border-white/5 py-1.5">
+                                <p className="text-[10px] text-white/20 text-center">—</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          </div>
         </div>
       )}
     </section>
@@ -616,12 +894,33 @@ function CheckoutStep(props: {
   setCustomerEmail: (value: string) => void;
   customerPhone: string;
   setCustomerPhone: (value: string) => void;
-  cardNumber: string;
-  setCardNumber: (value: string) => void;
-  cardExp: string;
-  setCardExp: (value: string) => void;
-  cardCvc: string;
-  setCardCvc: (value: string) => void;
+  setupIntentClientSecret: string | null;
+  setSetupIntentClientSecret: (value: string | null) => void;
+  paymentMethodId: string | null;
+  setPaymentMethodId: (value: string | null) => void;
+  createdBookingId: string | null;
+  setCreatedBookingId: (value: string | null) => void;
+  createdBookingCode: string | null;
+  setCreatedBookingCode: (value: string | null) => void;
+  workspace: FakeBusinessWorkspace;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  listPriceCents: number;
+  giftCardState: GiftCardState | null;
+  policies: FakeBusinessWorkspace["policies"];
+  timezone: string;
+  selectedService: {
+    id: string;
+    name: string;
+    durationMinutes: number;
+    priceCents: number;
+    categoryName: string;
+  } | undefined;
+  selectedSlot: ExpandedAvailabilitySlot | null;
+  setCreatedBooking: (booking: FakeBooking | null) => void;
+  setStep: (step: Step) => void;
+  toast: ReturnType<typeof useToast>;
   consentChecked: boolean;
   setConsentChecked: (value: boolean) => void;
   giftCardInput: string;
@@ -637,6 +936,7 @@ function CheckoutStep(props: {
   isSubmitting: boolean;
   onSubmit: () => void;
   onOpenPolicies: () => void;
+  business: FakeBusiness;
 }) {
   const {
     service,
@@ -648,28 +948,100 @@ function CheckoutStep(props: {
     setCustomerEmail,
     customerPhone,
     setCustomerPhone,
-    cardNumber,
-    setCardNumber,
-    cardExp,
-    setCardExp,
-    cardCvc,
-    setCardCvc,
+    setupIntentClientSecret,
+    setSetupIntentClientSecret,
+    paymentMethodId,
+    setPaymentMethodId,
+    createdBookingId,
+    setCreatedBookingId,
+    createdBookingCode,
+    setCreatedBookingCode,
+    workspace,
+    listPriceCents,
+    giftCardState,
+    policies,
+    timezone,
+    selectedService,
+    selectedSlot,
+    setCreatedBooking,
+    setStep,
+    toast,
     consentChecked,
     setConsentChecked,
     giftCardInput,
     setGiftCardInput,
     giftCardError,
-    giftCardState,
     onApplyGiftCard,
     acceptedMethods,
-    policies,
-    timezone,
     amountDueCents,
-    listPriceCents,
     isSubmitting,
     onSubmit,
-    onOpenPolicies
+    onOpenPolicies,
+    business
   } = props;
+
+  // Create SetupIntent when user has filled required fields so payment form appears immediately
+  useEffect(() => {
+    // Helper functions (defined later in file, but accessible here)
+    const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
+    const isValidPhone = (phone: string) => phone.trim().length >= 7;
+    
+    // Only create if we don't already have one and user has entered name, email, and phone
+    const hasRequiredFields = customerName.trim().length >= 2 && 
+                               isValidEmail(customerEmail) && 
+                               isValidPhone(customerPhone);
+    
+    if (!setupIntentClientSecret && selectedService && selectedSlot && hasRequiredFields) {
+      // Create booking to get SetupIntent - this allows the payment form to show immediately
+      const createSetupIntent = async () => {
+        try {
+          const apiPayload = {
+            service_id: selectedService.id,
+            staff_id: selectedSlot.staffId,
+            start_at: selectedSlot.startDateTime,
+            customer: {
+              name: customerName.trim(),
+              email: customerEmail.trim().toLowerCase(),
+              phone: customerPhone.trim()
+            },
+            gift_card_code: giftCardState?.code,
+          };
+
+          const response = await fetch(`/api/public/${business.slug}/bookings`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(apiPayload),
+          });
+
+          if (!response.ok) {
+            // Don't show error if booking creation fails - user hasn't clicked confirm yet
+            console.error('Failed to create SetupIntent:', await response.text());
+            return;
+          }
+
+          const apiResponse = await response.json();
+          
+          if (apiResponse.client_secret) {
+            setSetupIntentClientSecret(apiResponse.client_secret);
+            // Store booking IDs so we can use them when payment is confirmed
+            if (apiResponse.booking_id) {
+              setCreatedBookingId(apiResponse.booking_id);
+            }
+            if (apiResponse.booking_code) {
+              setCreatedBookingCode(apiResponse.booking_code);
+            }
+          }
+        } catch (error) {
+          console.error('Error creating SetupIntent:', error);
+          // Don't show error to user - they haven't tried to submit yet
+        }
+      };
+
+      createSetupIntent();
+    }
+  }, [setupIntentClientSecret, selectedService, selectedSlot, customerName, customerEmail, customerPhone, business.slug, giftCardState, setSetupIntentClientSecret, setCreatedBookingId, setCreatedBookingCode]);
 
   return (
     <section className="grid gap-8 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-[0_0_60px_rgba(91,100,255,0.2)] md:grid-cols-[1.4fr_1fr]">
@@ -749,31 +1121,97 @@ function CheckoutStep(props: {
             Payment method — card saved now, charged later
           </p>
           <p className="mt-1 text-xs text-white/50">
-            {describeAcceptedMethods(acceptedMethods)}. Even if you plan to pay with cash, we store a card
-            in case a policy fee applies.
+            {acceptedMethods.length > 0 
+              ? `${describeAcceptedMethods(acceptedMethods)}. ` 
+              : ''}A credit card is required for all bookings. Even if you plan to pay with cash, we store a card
+            in case a policy fee applies (e.g., no-show fees).
           </p>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <Input
-              value={cardNumber}
-              onChange={(event) => setCardNumber(event.target.value)}
-              placeholder="4242 4242 4242 4242"
-              maxLength={19}
-            />
-            <Input
-              value={cardExp}
-              onChange={(event) => setCardExp(event.target.value)}
-              placeholder="MM/YY"
-              maxLength={5}
-            />
-            <Input
-              value={cardCvc}
-              onChange={(event) => setCardCvc(event.target.value)}
-              placeholder="CVC"
-              maxLength={4}
-            />
-          </div>
+          {setupIntentClientSecret ? (
+            <div className="mt-4">
+              <Elements
+                stripe={stripePromise}
+                options={{
+                  clientSecret: setupIntentClientSecret,
+                  appearance: {
+                    theme: 'night',
+                    variables: {
+                      colorPrimary: '#5B64FF',
+                      colorBackground: '#000000',
+                      colorText: '#ffffff',
+                      colorDanger: '#ef4444',
+                      fontFamily: 'system-ui, sans-serif',
+                      spacingUnit: '4px',
+                      borderRadius: '8px',
+                    },
+                  },
+                }}
+              >
+                <StripePaymentForm
+                  onPaymentMethodReady={async (pmId: string) => {
+                    setPaymentMethodId(pmId);
+                    // Once payment method is confirmed, proceed to confirmation
+                    // The booking was already created by the API
+                    if (selectedService && selectedSlot && createdBookingId) {
+                      const booking: FakeBooking = {
+                        id: createdBookingId,
+                        code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+                        status: 'pending',
+                        serviceId: selectedService.id,
+                        serviceName: selectedService.name,
+                        categoryName: selectedService.categoryName,
+                        durationMinutes: selectedService.durationMinutes,
+                        startDateTime: selectedSlot.startDateTime,
+                        endDateTime: selectedSlot.endDateTime,
+                        staff: {
+                          id: selectedSlot.staffId,
+                          name: selectedSlot.staffName,
+                          color: workspace.staff.find(s => s.id === selectedSlot.staffId)?.color || "#000000",
+                        },
+                        customer: {
+                          name: customerName.trim(),
+                          email: customerEmail.trim().toLowerCase(),
+                          phone: customerPhone.trim(),
+                        },
+                        payments: [],
+                        financials: {
+                          listPriceCents: listPriceCents,
+                          giftCardAmountCents: giftCardState?.amountCents || 0,
+                          platformFeeCents: 0,
+                          stripeFeeEstimateCents: 0,
+                          netPayoutCents: 0,
+                          currency: 'usd',
+                        },
+                        policyConsent: createPolicyConsent(policies),
+                        requiresAction: false,
+                      };
+                      setCreatedBooking(booking);
+                      setStep("confirmation");
+                      toast.pushToast({
+                        title: "Booking confirmed",
+                        description: `${selectedService.name} on ${formatInTimeZone(
+                          selectedSlot.startDateTime,
+                          timezone,
+                          { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+                        )}. No charge yet—card saved securely.`,
+                        intent: "success"
+                      });
+                    }
+                  }}
+                  acceptedMethods={acceptedMethods}
+                  businessSlug={business.slug}
+                  bookingId={createdBookingId || ""}
+                />
+              </Elements>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <HelperText className="text-white/60">
+                Click "Confirm booking" below to set up your payment method. Your card will be saved securely but not charged.
+              </HelperText>
+            </div>
+          )}
           <HelperText className="mt-2">
-            You’re authorizing a card on file. Per Tithi’s manual capture rules, nothing is charged until
+            You're authorizing a card on file. Per Tithi's manual capture rules, nothing is charged until
             your appointment is completed or a policy fee applies.
           </HelperText>
         </div>
@@ -800,16 +1238,22 @@ function CheckoutStep(props: {
               .
             </label>
           </div>
-          <Button
-            size="lg"
-            onClick={onSubmit}
-            isLoading={isSubmitting}
-            disabled={isSubmitting}
-            className="inline-flex items-center justify-center gap-2 text-base"
-          >
-            <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-            Confirm booking — no charge today
-          </Button>
+          {!paymentMethodId ? (
+            <Button
+              size="lg"
+              onClick={onSubmit}
+              isLoading={isSubmitting}
+              disabled={isSubmitting || !!setupIntentClientSecret}
+              className="inline-flex items-center justify-center gap-2 text-base"
+            >
+              <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+              {setupIntentClientSecret ? 'Complete payment setup below' : 'Confirm booking — no charge today'}
+            </Button>
+          ) : (
+            <HelperText intent="success" className="text-emerald-200">
+              Payment method saved! Your booking is complete.
+            </HelperText>
+          )}
         </div>
       </div>
 
@@ -1176,7 +1620,17 @@ function formatCurrency(cents: number) {
 
 function describeAcceptedMethods(methods: string[]) {
   const unique = Array.from(new Set(methods));
-  return `Accepted: ${unique.map((method) => method.toUpperCase()).join(", ")}`;
+  const methodLabels: Record<string, string> = {
+    card: "Credit & Debit Cards",
+    cash: "Cash",
+    wallets: "Digital Wallets (Apple Pay, Google Pay)",
+    apple_pay: "Apple Pay",
+    "apple-pay": "Apple Pay",
+    google_pay: "Google Pay",
+    "google-pay": "Google Pay",
+  };
+  const labels = unique.map((method) => methodLabels[method.toLowerCase()] || method.toUpperCase());
+  return labels.length > 0 ? `Accepted: ${labels.join(", ")}` : "Accepted: Credit & Debit Cards";
 }
 
 function describeFee(type: "flat" | "percent", value: number) {
@@ -1220,6 +1674,189 @@ function simpleHash(input: string) {
     hash |= 0;
   }
   return Math.abs(hash).toString(16);
+}
+
+// Stripe Payment Form Component
+function StripePaymentForm({
+  onPaymentMethodReady,
+  acceptedMethods,
+  businessSlug,
+  bookingId,
+  createdBookingId,
+  createdBookingCode,
+  workspace,
+  customerName,
+  customerEmail,
+  customerPhone,
+  listPriceCents,
+  giftCardState,
+  policies,
+  timezone,
+  selectedService,
+  selectedSlot,
+  setCreatedBooking,
+  setStep,
+  toast
+}: {
+  onPaymentMethodReady: (paymentMethodId: string) => void;
+  acceptedMethods: string[];
+  businessSlug: string;
+  bookingId: string;
+  createdBookingId: string | null;
+  createdBookingCode: string | null;
+  workspace: FakeBusinessWorkspace;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  listPriceCents: number;
+  giftCardState: GiftCardState | null;
+  policies: FakeBusinessWorkspace["policies"];
+  timezone: string;
+  selectedService: {
+    id: string;
+    name: string;
+    durationMinutes: number;
+    priceCents: number;
+    categoryName: string;
+  } | undefined;
+  selectedSlot: ExpandedAvailabilitySlot | null;
+  setCreatedBooking: (booking: FakeBooking | null) => void;
+  setStep: (step: Step) => void;
+  toast: ReturnType<typeof useToast>;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      // Confirm the SetupIntent
+      const { error: confirmError, setupIntent } = await stripe.confirmSetup({
+        elements,
+        redirect: 'if_required',
+      });
+
+      if (confirmError) {
+        setError(confirmError.message || 'Failed to save payment method');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (setupIntent && setupIntent.payment_method) {
+        const pmId = typeof setupIntent.payment_method === 'string' 
+          ? setupIntent.payment_method 
+          : setupIntent.payment_method.id;
+        onPaymentMethodReady(pmId);
+        setError(null);
+        
+        // Create booking object and proceed to confirmation
+        if (selectedService && selectedSlot && createdBookingId) {
+          const booking: FakeBooking = {
+            id: createdBookingId,
+            code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+            status: 'pending',
+            serviceId: selectedService.id,
+            serviceName: selectedService.name,
+            categoryName: selectedService.categoryName,
+            durationMinutes: selectedService.durationMinutes,
+            startDateTime: selectedSlot.startDateTime,
+            endDateTime: selectedSlot.endDateTime,
+            staff: {
+              id: selectedSlot.staffId,
+              name: selectedSlot.staffName,
+              color: workspace.staff.find(s => s.id === selectedSlot.staffId)?.color || "#000000",
+            },
+            customer: {
+              name: customerName.trim(),
+              email: customerEmail.trim().toLowerCase(),
+              phone: customerPhone.trim(),
+            },
+            payments: [],
+            financials: {
+              listPriceCents: listPriceCents,
+              giftCardAmountCents: giftCardState?.amountCents || 0,
+              platformFeeCents: 0,
+              stripeFeeEstimateCents: 0,
+              netPayoutCents: 0,
+              currency: 'usd',
+            },
+            policyConsent: createPolicyConsent(policies),
+            requiresAction: false,
+          };
+          setCreatedBooking(booking);
+          setStep("confirmation");
+          toast.pushToast({
+            title: "Booking confirmed",
+            description: `${selectedService.name} on ${formatInTimeZone(
+              selectedSlot.startDateTime,
+              timezone,
+              { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+            )}. No charge yet—card saved securely.`,
+            intent: "success"
+          });
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Configure payment method types - card is ALWAYS required regardless of business settings
+  // This ensures card is always available as backup for no-show fees (even for cash payments)
+  const paymentMethodTypes: string[] = ['card'];
+
+  // Map accepted methods to Stripe payment method types
+  // Note: card is always included above, so we only add additional methods
+  if (acceptedMethods.includes('apple_pay') || acceptedMethods.includes('apple-pay')) {
+    paymentMethodTypes.push('apple_pay');
+  }
+  if (acceptedMethods.includes('google_pay') || acceptedMethods.includes('google-pay')) {
+    paymentMethodTypes.push('google_pay');
+  }
+  // Also check for 'wallets' which might include both
+  if (acceptedMethods.includes('wallets')) {
+    if (!paymentMethodTypes.includes('apple_pay')) paymentMethodTypes.push('apple_pay');
+    if (!paymentMethodTypes.includes('google_pay')) paymentMethodTypes.push('google_pay');
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-4">
+      <div className="space-y-4">
+        <PaymentElement
+          options={{
+            paymentMethodTypes: paymentMethodTypes,
+            // Use tabs only if we have multiple payment methods, otherwise use default layout
+            ...(paymentMethodTypes.length > 1 ? { layout: 'tabs' as const } : {}),
+          }}
+        />
+        {error && (
+          <HelperText intent="error" className="text-red-400 mt-2">
+            {error}
+          </HelperText>
+        )}
+        <Button
+          type="submit"
+          disabled={isProcessing || !stripe}
+          isLoading={isProcessing}
+          className="w-full mt-4"
+        >
+          {isProcessing ? 'Saving payment method...' : 'Save payment method'}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 

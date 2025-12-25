@@ -56,6 +56,8 @@ export default function OnboardingPage() {
   const onboarding = useOnboarding();
   const [supabaseSession, setSupabaseSession] = React.useState<any>(null);
   const [isCheckingSession, setIsCheckingSession] = React.useState(true);
+  const [businessCreated, setBusinessCreated] = React.useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = React.useState(false);
 
   const currentIndex = useMemo(
     () => STEP_SEQUENCE.findIndex((step) => step === onboarding.currentStep),
@@ -65,10 +67,67 @@ export default function OnboardingPage() {
   const previousStep = currentIndex > 0 ? STEP_SEQUENCE[currentIndex - 1] : undefined;
   const nextStep = currentIndex < STEP_SEQUENCE.length - 1 ? STEP_SEQUENCE[currentIndex + 1] : undefined;
 
+  // Helper function to create a business if one doesn't exist
+  const ensureBusinessExists = async (accessToken: string) => {
+    try {
+      // Check if business already exists
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      };
+      
+      const checkResponse = await fetch('/api/business/onboarding/step-1-business', {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+      });
+      
+      if (checkResponse.ok) {
+        const businessData = await checkResponse.json();
+        if (businessData.business && businessData.business.id) {
+          console.log('[onboarding] Business already exists:', businessData.business.id);
+          setBusinessCreated(true);
+          return businessData.business.id;
+        }
+      }
+      
+      // Business doesn't exist, create a temporary one
+      console.log('[onboarding] No business found, creating temporary business...');
+      const createResponse = await fetch('/api/business/onboarding/step-1-business', {
+        method: 'PUT',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({
+          businessName: 'New Business',
+          description: 'Business description will be added',
+          doingBusinessAs: '',
+          legalName: 'New Business',
+          industry: 'Other',
+        }),
+      });
+      
+      if (createResponse.ok) {
+        const result = await createResponse.json();
+        console.log('[onboarding] Temporary business created:', result.businessId);
+        setBusinessCreated(true);
+        return result.businessId;
+      } else {
+        console.error('[onboarding] Failed to create business:', await createResponse.text());
+      }
+    } catch (error) {
+      console.error('[onboarding] Error ensuring business exists:', error);
+    }
+    return null;
+  };
+
   // Check Supabase session on mount (persists across redirects)
   useEffect(() => {
     const checkSupabaseSession = async () => {
       try {
+        // Check if this is a new signup - if so, don't load any old data
+        const urlParams = new URLSearchParams(window.location.search);
+        const isNewSignup = urlParams.get('new') === 'true';
+        
         const { createClientClient } = await import('@/lib/supabase-client');
         const supabase = createClientClient();
         const { data: { session: supabaseSessionData }, error } = await supabase.auth.getSession();
@@ -85,11 +144,17 @@ export default function OnboardingPage() {
             });
           }
           
-          // If returning from Stripe, ensure we load business data from database
-          const urlParams = new URLSearchParams(window.location.search);
+          // Ensure business exists (create if it doesn't)
+          if (supabaseSessionData.access_token) {
+            await ensureBusinessExists(supabaseSessionData.access_token);
+          }
+          
+          // Only load business data if:
+          // 1. This is NOT a new signup (new=true not present)
+          // 2. AND we're returning from Stripe (account_id present)
           const accountId = urlParams.get("account_id");
-          if (accountId) {
-            // Load business data to ensure it's in state
+          if (!isNewSignup && accountId) {
+            // Load business data to ensure it's in state (only for Stripe returns)
             try {
               const headers: HeadersInit = {
                 'Content-Type': 'application/json',
@@ -117,6 +182,10 @@ export default function OnboardingPage() {
             } catch (error) {
               console.error('Error loading business data:', error);
             }
+          } else if (isNewSignup) {
+            console.log('[onboarding] New signup detected - skipping data load, starting fresh at step 1');
+            // Ensure we start at step 1 for new signups
+            onboarding.setStep("business");
           }
         }
       } catch (error) {
@@ -131,9 +200,18 @@ export default function OnboardingPage() {
 
   // Handle Stripe Connect return FIRST - before auth check
   // Load ALL onboarding data from backend to restore state
+  // Skip this for new signups
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const accountId = urlParams.get("account_id");
+    const isNewSignup = urlParams.get('new') === 'true';
+    
+    // Don't restore data for new signups - they should start fresh
+    if (isNewSignup) {
+      console.log('[onboarding] New signup detected - skipping Stripe return data restoration');
+      return;
+    }
+    
     if (accountId) {
       console.log('[onboarding] Stripe return detected, account_id:', accountId);
       
@@ -214,9 +292,19 @@ export default function OnboardingPage() {
   }, [onboarding]);
 
   // Check if business is already launched and redirect to admin
+  // Skip this check for new signups to ensure they start fresh
   useEffect(() => {
     const checkIfBusinessIsLaunched = async () => {
       if (isCheckingSession) return; // Wait for session check to complete
+      
+      // Check if this is a new signup - if so, skip the launch check
+      const urlParams = new URLSearchParams(window.location.search);
+      const isNewSignup = urlParams.get('new') === 'true';
+      
+      if (isNewSignup) {
+        console.log('[onboarding] New signup - skipping business launch check, starting fresh');
+        return;
+      }
       
       // Check both fake session and Supabase session
       const isAuthenticated = session.isAuthenticated || (supabaseSession?.user !== null);
@@ -251,8 +339,10 @@ export default function OnboardingPage() {
           const business = businessData.business;
           
           // Check if business is already launched:
-          // 1. Has subscription_status set (trial, active, paused, canceled)
-          // 2. Has all required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+          // 1. Has subscription_status set (trial, active, paused, canceled) - this indicates go-live step was completed
+          // 2. Has essential fields (name, subdomain, timezone, support_email)
+          // Note: stripe_connect_account_id is optional - business can be launched without Stripe Connect
+          // Also check that it's not a temp business (new signup with empty name)
           const isLaunched = business && 
             business.subscription_status && 
             business.subscription_status !== null &&
@@ -261,8 +351,7 @@ export default function OnboardingPage() {
             business.subdomain && 
             !business.subdomain.startsWith('temp-') &&
             business.timezone &&
-            business.support_email &&
-            business.stripe_connect_account_id;
+            business.support_email;
 
           if (isLaunched) {
             console.log('[onboarding] Business is already launched - redirecting to admin');
@@ -283,6 +372,131 @@ export default function OnboardingPage() {
 
     checkIfBusinessIsLaunched();
   }, [session.isAuthenticated, supabaseSession, isCheckingSession, router]);
+
+  // Cleanup: Delete incomplete business when user exits onboarding
+  useEffect(() => {
+    // Only set up cleanup if business was created and onboarding not completed
+    if (!businessCreated || onboardingCompleted) {
+      return;
+    }
+
+    // Check if current path is still onboarding
+    const checkIfStillOnOnboarding = () => {
+      return window.location.pathname === '/onboarding';
+    };
+
+    const deleteIncompleteBusiness = async () => {
+      // Don't delete if we're still on the onboarding page (user might be navigating between steps)
+      if (checkIfStillOnOnboarding()) {
+        return;
+      }
+
+      try {
+        const { createClientClient } = await import('@/lib/supabase-client');
+        const supabase = createClientClient();
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        
+        if (!currentSession?.access_token) {
+          return;
+        }
+
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentSession.access_token}`,
+        };
+
+        const response = await fetch('/api/business/onboarding/delete-incomplete', {
+          method: 'DELETE',
+          headers,
+          credentials: 'include',
+          keepalive: true, // Important for beforeunload
+        });
+
+        if (response.ok) {
+          console.log('[onboarding] Incomplete business deleted on exit');
+        } else {
+          console.error('[onboarding] Failed to delete incomplete business:', await response.text());
+        }
+      } catch (error) {
+        // Ignore errors during cleanup (network might be unavailable)
+        console.log('[onboarding] Cleanup error (expected if page is closing):', error);
+      }
+    };
+
+    // Handle page unload (user closes tab/window, navigates away)
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!onboardingCompleted && !checkIfStillOnOnboarding()) {
+        // Use fetch with keepalive for reliable delivery during page unload
+        // Can't use await in beforeunload handler, so use dynamic import with .then()
+        import('@/lib/supabase-client').then(({ createClientClient }) => {
+          return createClientClient();
+        }).then(async (supabase) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const headers: HeadersInit = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            };
+            
+            // Use fetch with keepalive for beforeunload
+            fetch('/api/business/onboarding/delete-incomplete', {
+              method: 'DELETE',
+              headers,
+              credentials: 'include',
+              keepalive: true,
+            }).catch(() => {
+              // Ignore errors - network might be unavailable
+            });
+          }
+        }).catch(() => {
+          // Ignore errors
+        });
+      }
+    };
+
+    // Handle visibility change (user switches tabs, minimizes window)
+    // Only delete if user has been away for a while (not just a quick tab switch)
+    let visibilityTimeout: NodeJS.Timeout | null = null;
+    const handleVisibilityChange = () => {
+      if (document.hidden && !onboardingCompleted) {
+        // Wait 10 seconds before deleting (user might come back)
+        visibilityTimeout = setTimeout(() => {
+          if (document.hidden && !checkIfStillOnOnboarding()) {
+            deleteIncompleteBusiness();
+          }
+        }, 10000);
+      } else {
+        // User came back, cancel deletion
+        if (visibilityTimeout) {
+          clearTimeout(visibilityTimeout);
+          visibilityTimeout = null;
+        }
+      }
+    };
+    
+    // Handle popstate (browser back/forward) - only if leaving onboarding
+    const handlePopState = () => {
+      // Small delay to check if we're still on onboarding
+      setTimeout(() => {
+        if (!onboardingCompleted && !checkIfStillOnOnboarding()) {
+          deleteIncompleteBusiness();
+        }
+      }, 100);
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('popstate', handlePopState);
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
+    };
+  }, [businessCreated, onboardingCompleted]);
 
   const navigateTo = (step: OnboardingStepId) => {
     onboarding.setStep(step);
@@ -620,6 +834,9 @@ export default function OnboardingPage() {
       // Call the backend API to finalize onboarding using authenticated request
       const data = await makeAuthenticatedRequest('/api/business/onboarding/complete', 'POST', {});
       
+      // Mark onboarding as completed to prevent cleanup
+      setOnboardingCompleted(true);
+      
       onboarding.completeStep("goLive");
       onboarding.setOnboardingCompleted(true);
       const business = onboarding.generateBusinessFromState();
@@ -737,6 +954,7 @@ export default function OnboardingPage() {
           services={onboarding.services}
           staff={onboarding.team}
           defaultValues={onboarding.availability}
+          timezone={onboarding.location?.timezone || "America/New_York"}
           onNext={handleAvailabilityNext}
           onBack={goBack}
         />

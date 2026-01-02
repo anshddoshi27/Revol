@@ -118,7 +118,7 @@ describe('Task 11: Spec Compliance with frontend logistics.txt', () => {
       expect(rendered).toContain('30');
       expect(rendered).toContain('$50.00');
       expect(rendered).toContain('Demo Salon');
-      expect(rendered).toContain('demo.tithi.com');
+      expect(rendered).toContain('demo.revol.com');
       
       // Should not contain placeholder syntax
       expect(rendered).not.toContain('${customer.name}');

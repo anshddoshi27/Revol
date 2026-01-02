@@ -1,6 +1,6 @@
 # Supabase Migrations
 
-This directory contains database migration files for Tithi.
+This directory contains database migration files for Revol.
 
 ## Running Migrations
 

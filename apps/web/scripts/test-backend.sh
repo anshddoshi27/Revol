@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Tithi Backend Testing Script
+# Revol Backend Testing Script
 # This script helps test the backend endpoints after setup
 #
 # Usage:
@@ -35,7 +35,7 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_WARNED=0
 
-echo -e "${GREEN}🚀 Tithi Backend Testing Script${NC}\n"
+echo -e "${GREEN}🚀 Revol Backend Testing Script${NC}\n"
 echo -e "${BLUE}Base URL:${NC} $BASE_URL"
 echo -e "${BLUE}Business Subdomain:${NC} $BUSINESS_SUBDOMAIN"
 [ -n "$ACCESS_TOKEN" ] && echo -e "${BLUE}Access Token:${NC} ${ACCESS_TOKEN:0:20}..."

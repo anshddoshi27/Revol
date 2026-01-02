@@ -174,13 +174,13 @@ describe('Data Model Validation', () => {
       const booking1 = createMockBooking({ id: 'abc12345-6789-0123' });
       const booking2 = createMockBooking({ id: 'xyz98765-4321-0987' });
 
-      const code1 = `TITHI-${booking1.id.slice(0, 8).toUpperCase()}`;
-      const code2 = `TITHI-${booking2.id.slice(0, 8).toUpperCase()}`;
+      const code1 = `REVOL-${booking1.id.slice(0, 8).toUpperCase()}`;
+      const code2 = `REVOL-${booking2.id.slice(0, 8).toUpperCase()}`;
 
       // Codes should be different for different booking IDs
       expect(code1).not.toBe(code2);
-      expect(code1).toBe('TITHI-ABC12345');
-      expect(code2).toBe('TITHI-XYZ98765');
+      expect(code1).toBe('REVOL-ABC12345');
+      expect(code2).toBe('REVOL-XYZ98765');
     });
 
     it('should prevent booking outside availability', () => {

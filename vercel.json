@@ -16,6 +16,12 @@
       "path": "/api/cron/subscription-health",
       "schedule": "0 2 * * *"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/$1"
+    }
   ]
 }
 

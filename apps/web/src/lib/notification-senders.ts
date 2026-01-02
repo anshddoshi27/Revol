@@ -24,7 +24,7 @@ export async function sendEmailViaSendGrid(
   fromEmail?: string
 ): Promise<SendEmailResult> {
   const sendGridApiKey = process.env.SENDGRID_API_KEY;
-  const sendGridFromEmail = fromEmail || process.env.SENDGRID_FROM_EMAIL || 'noreply@tithi.com';
+  const sendGridFromEmail = fromEmail || process.env.SENDGRID_FROM_EMAIL || 'noreply@revol.com';
 
   if (!sendGridApiKey) {
     console.error('SENDGRID_API_KEY not configured');
@@ -50,7 +50,7 @@ export async function sendEmailViaSendGrid(
         ],
         from: {
           email: sendGridFromEmail,
-          name: 'Tithi',
+          name: 'Revol',
         },
         content: [
           {
@@ -135,10 +135,32 @@ export async function sendSMSViaTwilio(
 
     if (!response.ok) {
       const errorText = await response.text();
+      let errorMessage = `Twilio API error: ${response.status}`;
+      
+      // Parse error details for better error messages
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.message) {
+          errorMessage = `Twilio API error: ${response.status} - ${errorData.message}`;
+          
+          // Check for common trial account errors
+          if (errorData.code === 21211 || errorData.message?.includes('not a valid') || errorData.message?.includes('unverified')) {
+            errorMessage += '\n💡 This phone number needs to be verified in Twilio Console (trial accounts can only send to verified numbers).';
+            errorMessage += '\n   Verify at: https://console.twilio.com/us1/develop/phone-numbers/manage/verified';
+          }
+        }
+      } catch {
+        // If parsing fails, use the raw error text
+        if (errorText.includes('unverified') || errorText.includes('not verified')) {
+          errorMessage += '\n💡 This phone number needs to be verified in Twilio Console (trial accounts can only send to verified numbers).';
+          errorMessage += '\n   Verify at: https://console.twilio.com/us1/develop/phone-numbers/manage/verified';
+        }
+      }
+      
       console.error('Twilio API error:', response.status, errorText);
       return {
         success: false,
-        error: `Twilio API error: ${response.status}`,
+        error: errorMessage,
       };
     }
 

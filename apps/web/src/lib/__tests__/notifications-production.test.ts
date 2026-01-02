@@ -112,7 +112,7 @@ describe('Notification System - Production Tests', () => {
     it('should render booking placeholders with timezone conversion', () => {
       const template = 'Date: ${booking.date}, Time: ${booking.time}, Code: ${booking.code}, Amount: ${booking.amount}';
       const rendered = renderTemplate(template, mockData, 'America/New_York');
-      expect(rendered).toContain('TITHI-BOOKING1');
+      expect(rendered).toContain('REVOL-BOOKING1');
       expect(rendered).toContain('$50.00');
       // Date and time should be formatted (exact format depends on formatInTimeZone implementation)
       expect(rendered).not.toContain('${booking.date}');
@@ -130,7 +130,7 @@ describe('Notification System - Production Tests', () => {
     it('should render booking URL placeholder', () => {
       const template = 'View booking: ${booking.url}';
       const rendered = renderTemplate(template, mockData);
-      expect(rendered).toContain('https://demo.tithi.com/confirm/TITHI-BOOKING1');
+      expect(rendered).toContain('https://demo.revol.com/confirm/REVOL-BOOKING1');
     });
 
     it('should handle missing data gracefully', () => {

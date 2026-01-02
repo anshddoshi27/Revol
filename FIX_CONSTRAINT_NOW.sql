@@ -32,3 +32,4 @@ WHERE tc.table_name = 'businesses'
 -- If you see: references_schema = 'auth' and references_table = 'users', you're done! ✅
 
 
+

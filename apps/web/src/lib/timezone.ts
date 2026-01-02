@@ -13,12 +13,56 @@ export function zonedMinutesToDate(date: Date, minutes: number, timeZone: string
 }
 
 export function formatInTimeZone(
-  isoString: string,
+  isoString: string | Date,
   timeZone: string,
-  options: Intl.DateTimeFormatOptions
+  options: Intl.DateTimeFormatOptions | string
 ): string {
+  // Handle both string and Date inputs
+  let date: Date;
+  if (isoString instanceof Date) {
+    date = isoString;
+  } else if (typeof isoString === 'string') {
+    // Validate string is not empty
+    if (!isoString || isoString.trim() === '') {
+      console.error(`[formatInTimeZone] Empty date string provided`);
+      return 'Invalid Date';
+    }
+    date = new Date(isoString);
+  } else {
+    console.error(`[formatInTimeZone] Invalid input type:`, typeof isoString, isoString);
+    return 'Invalid Date';
+  }
+  
+  // Validate the date
+  if (isNaN(date.getTime())) {
+    console.error(`[formatInTimeZone] Invalid date value:`, isoString);
+    return 'Invalid Date';
+  }
+  
+  // Handle string format option (like "yyyy-MM-dd")
+  if (typeof options === 'string') {
+    // For simple date format strings, use a basic formatter
+    const formatter = new Intl.DateTimeFormat("en-US", { 
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const parts = formatter.formatToParts(date);
+    const year = parts.find(p => p.type === 'year')?.value || '';
+    const month = parts.find(p => p.type === 'month')?.value || '';
+    const day = parts.find(p => p.type === 'day')?.value || '';
+    
+    // Replace format string placeholders
+    return options
+      .replace('yyyy', year)
+      .replace('MM', month)
+      .replace('dd', day);
+  }
+  
+  // Handle Intl.DateTimeFormatOptions
   const formatter = new Intl.DateTimeFormat("en-US", { timeZone, ...options });
-  return formatter.format(new Date(isoString));
+  return formatter.format(date);
 }
 
 function getDateParts(date: Date, timeZone: string) {

@@ -5,7 +5,7 @@
  *   npx tsx scripts/update-user-password.ts <email> <new-password>
  * 
  * Example:
- *   npx tsx scripts/update-user-password.ts demo@tithi.com Demo123!
+ *   npx tsx scripts/update-user-password.ts demo@revol.com Demo123!
  */
 
 // Load environment variables
@@ -74,7 +74,7 @@ const password = process.argv[3];
 
 if (!email || !password) {
   console.error('Usage: npx tsx scripts/update-user-password.ts <email> <new-password>');
-  console.error('Example: npx tsx scripts/update-user-password.ts demo@tithi.com "Demo123!"');
+  console.error('Example: npx tsx scripts/update-user-password.ts demo@revol.com "Demo123!"');
   process.exit(1);
 }
 

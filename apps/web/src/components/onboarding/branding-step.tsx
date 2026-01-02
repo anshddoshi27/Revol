@@ -21,8 +21,10 @@ interface BrandingStepProps {
 
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
 const MAX_SIZE_MB = 4;
-const TARGET_RATIO = 3 / 4; // portrait-first for mobile preview
-const RATIO_TOLERANCE = 0.2;
+const TARGET_RATIO = 3 / 4; // portrait-first for mobile preview (width/height)
+const RATIO_TOLERANCE = 0.2; // Maximum deviation from target ratio
+const MIN_WIDTH = 200; // Minimum width in pixels
+const MIN_HEIGHT = 200; // Minimum height in pixels
 
 export function BrandingStep({
   defaultValues,
@@ -36,44 +38,122 @@ export function BrandingStep({
   const [primaryColor, setPrimaryColor] = useState(defaultValues.primaryColor);
   const [ratioWarning, setRatioWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [objectUrlRef, setObjectUrlRef] = useState<string | null>(null);
+
+  // Clean up object URLs on unmount or when logo changes
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef) {
+        URL.revokeObjectURL(objectUrlRef);
+      }
+    };
+  }, [objectUrlRef]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Clear previous errors
+    setError(null);
+    setRatioWarning(null);
+
+    // Validate file type
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      setError("Upload PNG, JPG, WEBP, or SVG files.");
+      setError("Invalid file format. Please upload PNG, JPG, WEBP, or SVG files only.");
+      event.target.value = ""; // Reset input
       return;
     }
 
+    // Validate file size
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      setError(`Keep the logo under ${MAX_SIZE_MB}MB.`);
+      setError(`File size too large. Please keep the logo under ${MAX_SIZE_MB}MB.`);
+      event.target.value = ""; // Reset input
       return;
+    }
+
+    // Clean up previous object URL if exists
+    if (objectUrlRef) {
+      URL.revokeObjectURL(objectUrlRef);
     }
 
     const objectUrl = URL.createObjectURL(file);
     const img = new window.Image();
+    
     img.onload = () => {
+      // Validate minimum dimensions
+      if (img.width < MIN_WIDTH || img.height < MIN_HEIGHT) {
+        const errorMsg = `Image too small. Minimum dimensions are ${MIN_WIDTH} × ${MIN_HEIGHT}px. Your image is ${img.width} × ${img.height}px.`;
+        setError(errorMsg);
+        setRatioWarning(null);
+        URL.revokeObjectURL(objectUrl);
+        event.target.value = ""; // Reset input
+        return;
+      }
+
       const ratio = img.width / img.height;
-      if (Math.abs(ratio - TARGET_RATIO) > RATIO_TOLERANCE) {
+      const ratioDiff = Math.abs(ratio - TARGET_RATIO);
+      
+      // Reject images that are too far from the target ratio (portrait orientation)
+      // Portrait means height > width, so ratio should be < 1
+      if (ratio >= 1) {
+        const errorMsg = `Invalid orientation. Logo must be portrait-oriented (height greater than width). Your image is ${img.width} × ${img.height}px (landscape or square). Please use a portrait image with approximately 3:4 ratio (like 960 × 1280px).`;
+        setError(errorMsg);
+        setRatioWarning(null);
+        URL.revokeObjectURL(objectUrl);
+        event.target.value = ""; // Reset input
+        return;
+      }
+
+      // Reject if ratio is too far from target (more than tolerance)
+      if (ratioDiff > RATIO_TOLERANCE) {
+        const errorMsg = `Invalid dimensions. Logo must be portrait-oriented with approximately 3:4 ratio (like 960 × 1280px). Your image is ${img.width} × ${img.height}px (${ratio.toFixed(2)}:1 ratio).`;
+        setError(errorMsg);
+        setRatioWarning(null);
+        URL.revokeObjectURL(objectUrl);
+        event.target.value = ""; // Reset input
+        return;
+      }
+
+      // If ratio is close but not perfect, show warning but accept
+      if (ratioDiff > 0.1) {
         setRatioWarning(
           "For the best phone preview, aim for a portrait logo around 960 × 1280px or similar ratio."
         );
       } else {
         setRatioWarning(null);
       }
+
+      // All validations passed - set preview with the object URL
       setLogoPreview(objectUrl);
       setLogoName(file.name);
+      setObjectUrlRef(objectUrl);
       setError(null);
-      URL.revokeObjectURL(objectUrl);
     };
+
+    img.onerror = () => {
+      setError("Failed to load image. Please try a different file.");
+      URL.revokeObjectURL(objectUrl);
+      event.target.value = ""; // Reset input
+    };
+
     img.src = objectUrl;
   };
 
   const handleRemoveLogo = () => {
+    // Clean up object URL if it exists
+    if (objectUrlRef) {
+      URL.revokeObjectURL(objectUrlRef);
+      setObjectUrlRef(null);
+    }
     setLogoPreview(undefined);
     setLogoName(undefined);
     setRatioWarning(null);
+    setError(null);
+    // Reset file input
+    const fileInput = document.getElementById("branding-logo") as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = "";
+    }
   };
   
   const handleFillTestData = () => {
@@ -97,47 +177,8 @@ export function BrandingStep({
     }
   }, [logoPreview]);
 
-  const previewCategories = useMemo(() => {
-    if (!categories.length) {
-      return [
-        {
-          id: "sample-1",
-          name: "Featured",
-          color: primaryColor,
-          services: [
-            {
-              id: "sample-service-1",
-              name: "Signature Cut",
-              durationMinutes: 60,
-              priceCents: 12000
-            },
-            {
-              id: "sample-service-2",
-              name: "Hydra Facial",
-              durationMinutes: 75,
-              priceCents: 18000
-            }
-          ]
-        }
-      ];
-    }
-
-    return categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      color: category.color || primaryColor,
-      services: category.services.length
-        ? category.services
-        : [
-            {
-              id: `${category.id}-placeholder`,
-              name: "Add services to this category",
-              durationMinutes: 0,
-              priceCents: 0
-            }
-          ]
-    }));
-  }, [categories, primaryColor]);
+  // Preview should show only business name, logo, and color - no services
+  // This matches exactly what the booking page header will look like
 
   return (
     <div className="space-y-8" aria-labelledby="branding-step-heading">
@@ -229,72 +270,57 @@ export function BrandingStep({
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-white/5 p-6 lg:p-8">
-          <div className="mx-auto w-full max-w-sm rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-lg shadow-black/40">
-            <div className="flex flex-col items-center gap-4">
+          {/* Preview matches the booking page header exactly - just business name, logo, and color */}
+          <div className="mx-auto w-full max-w-sm rounded-3xl border border-white/10 bg-gradient-to-br from-black via-slate-950 to-[#0b0d1a] p-8 shadow-lg shadow-black/40">
+            {/* Background gradient with brand color accent */}
+            <div 
+              className="absolute inset-0 -z-10 rounded-3xl opacity-25"
+              style={{ background: `radial-gradient(circle at top, ${primaryColor}40, transparent 60%)` }}
+            />
+            
+            <div className="relative flex flex-col items-center gap-6">
+              {/* Logo preview */}
               <div
-                className="relative h-32 w-32 overflow-hidden rounded-3xl border border-white/10 bg-white/10"
+                className="relative h-32 w-32 flex-shrink-0 overflow-hidden rounded-3xl border border-white/10 bg-white/10"
                 style={{ boxShadow: `0 12px 24px -12px ${primaryColor}55` }}
               >
                 {logoPreview ? (
                   <Image
                     src={logoPreview}
-                    alt="Logo preview"
+                    alt={`${business.businessName || "Business"} logo preview`}
                     fill
-                    className="object-cover"
+                    className="object-contain p-2"
                     unoptimized
+                    priority
                   />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center text-xs text-white/40">
                     <Sparkle className="mb-2 h-4 w-4 text-white/40" aria-hidden="true" />
-                    Your logo
+                    Logo preview
                   </div>
                 )}
               </div>
-              <div className="text-center">
-                <h3 className="font-display text-2xl text-white">{business.businessName || "Your business name"}</h3>
-                <p className="mt-2 text-sm text-white/60">
-                  {business.description || "Add a short description in Business basics to showcase what you do."}
+              
+              {/* Business name and description */}
+              <div className="text-center space-y-2">
+                <h3 className="font-display text-2xl text-white">
+                  {business.businessName || "Your business name"}
+                </h3>
+                <p className="text-sm text-white/60 max-w-xs">
+                  {business.description || "booking app for local businesses"}
                 </p>
               </div>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              {previewCategories.map((category) => (
-                <div key={category.id}>
-                  <div className="mb-2 flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: category.color }}
-                    />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-white/60">
-                      {category.name}
-                    </span>
-                  </div>
-                  <div className="grid gap-3">
-                    {category.services.map((service) => (
-                      <div
-                        key={service.id}
-                        className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3"
-                        style={{ borderColor: `${primaryColor}33` }}
-                      >
-                        <div className="flex items-center justify-between text-sm text-white/90">
-                          <span className="font-medium">{service.name}</span>
-                          <span className="text-white/60">
-                            {service.durationMinutes
-                              ? `${service.durationMinutes} min`
-                              : "Configure services"}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-white/50">
-                          {service.priceCents
-                            ? `$${(service.priceCents / 100).toFixed(2)}`
-                            : "Add pricing in Services & Categories"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              
+              {/* Color accent indicator */}
+              <div className="mt-2 flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
+                <span
+                  className="h-3 w-3 rounded-full"
+                  style={{ backgroundColor: primaryColor }}
+                />
+                <span className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                  Theme color
+                </span>
+              </div>
             </div>
           </div>
         </div>

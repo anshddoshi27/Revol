@@ -15,8 +15,8 @@ import { createClientClient } from "@/lib/supabase-client";
 import { loginSchema, type LoginFormValues } from "@/lib/validators";
 
 const passwordHint = "Use 8+ characters and include at least one special character.";
-const DEV_EMAIL = "owner@tithi.dev";
-const DEV_PASSWORD = "Ready4Tithi!";
+const DEV_EMAIL = "owner@revol.dev";
+const DEV_PASSWORD = "Ready4Revol!";
 
 export function LoginForm() {
   const router = useRouter();
@@ -138,8 +138,9 @@ export function LoginForm() {
 
       // Check if business is already launched
       // A business is considered "launched" if it has:
-      // - subscription_status set (trial, active, paused, canceled)
-      // - All required fields (name, subdomain, timezone, support_email, stripe_connect_account_id)
+      // - subscription_status set (trial, active, paused, canceled) - this indicates go-live step was completed
+      // - Essential fields (name, subdomain, timezone, support_email)
+      // Note: stripe_connect_account_id is optional - business can be launched without Stripe Connect
       const isLaunched = business && 
         business.subscription_status && 
         business.subscription_status !== null &&
@@ -148,8 +149,7 @@ export function LoginForm() {
         business.subdomain && 
         !business.subdomain.startsWith('temp-') &&
         business.timezone &&
-        business.support_email &&
-        business.stripe_connect_account_id;
+        business.support_email;
 
       toast.pushToast({
         title: "Login successful",
@@ -256,7 +256,7 @@ export function LoginForm() {
           Owner Access
         </Badge>
         <h1 className="font-display text-4xl tracking-tight text-white">
-          Welcome back to Tithi
+          Welcome back to Revol
         </h1>
         <p className="mt-3 text-base text-white/60">
           Log in to manage your businesses, update onboarding steps, and control how payments

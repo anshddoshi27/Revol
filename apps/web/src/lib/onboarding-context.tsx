@@ -259,10 +259,21 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   
   // Load from database on client side only (after mount)
   // For new signups, always start at step 1 regardless of database state
+  // Only load data when user is actually on the onboarding page
   React.useEffect(() => {
     if (typeof window !== 'undefined' && !isHydrated) {
       const loadStateFromDatabase = async () => {
         try {
+          // Only load onboarding data if user is on the onboarding page
+          // Don't load data on signup, login, or other pages
+          const currentPath = window.location.pathname;
+          if (currentPath !== '/onboarding') {
+            console.log('[OnboardingProvider] Not on onboarding page, skipping data load:', currentPath);
+            dispatch({ type: "SET_STEP", payload: "business" });
+            setIsHydrated(true);
+            return;
+          }
+          
           // Check URL parameter first - if new=true, this is a fresh signup, start at step 1
           const urlParams = new URLSearchParams(window.location.search);
           const isNewSignup = urlParams.get('new') === 'true';
@@ -484,7 +495,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     const id = `biz_${crypto.randomUUID()}`;
     const fallbackSlug = createSubdomainFromName(business.businessName);
     const slug = normalizeSubdomain(website.subdomain, fallbackSlug);
-    const bookingUrl = `https://${slug}.tithi.com`;
+    const bookingUrl = `https://${slug}.main.tld`;
     const previewUrl = `/public/${slug}`;
     return {
       id,

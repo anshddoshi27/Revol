@@ -12,7 +12,7 @@ describe('SendGrid Email Sender', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.SENDGRID_API_KEY = 'test-sendgrid-key';
-    process.env.SENDGRID_FROM_EMAIL = 'test@tithi.com';
+    process.env.SENDGRID_FROM_EMAIL = 'test@revol.com';
   });
 
   afterEach(() => {
@@ -91,7 +91,7 @@ describe('SendGrid Email Sender', () => {
     const callArgs = (global.fetch as any).mock.calls[0];
     const body = JSON.parse(callArgs[1].body);
 
-    expect(body.from.email).toBe('test@tithi.com');
+    expect(body.from.email).toBe('test@revol.com');
   });
 
   it('should use custom from email if provided', async () => {

@@ -30,7 +30,7 @@ describe('Notification Template Rendering', () => {
       subdomain: 'testsalon',
       timezone: 'America/New_York',
     },
-    booking_url: 'https://testsalon.tithi.com/confirm/TITHI-ABC123DE',
+    booking_url: 'https://testsalon.revol.com/confirm/REVOL-ABC123DE',
   };
 
   it('should replace customer placeholders', () => {
@@ -54,7 +54,7 @@ describe('Notification Template Rendering', () => {
   it('should replace booking placeholders', () => {
     const template = 'Booking ${booking.code} on ${booking.date} at ${booking.time}';
     const result = renderTemplate(template, mockData, 'America/New_York');
-    expect(result).toContain('Booking TITHI-ABC123DE');
+    expect(result).toContain('Booking REVOL-ABC123DE');
     expect(result).toContain('Monday, January 20, 2025');
     expect(result).toMatch(/\d{1,2}:\d{2}\s(AM|PM)/); // Time format
   });
@@ -68,7 +68,7 @@ describe('Notification Template Rendering', () => {
   it('should replace booking URL placeholder', () => {
     const template = 'View booking: ${booking.url}';
     const result = renderTemplate(template, mockData, 'America/New_York');
-    expect(result).toBe('View booking: https://testsalon.tithi.com/confirm/TITHI-ABC123DE');
+    expect(result).toBe('View booking: https://testsalon.revol.com/confirm/REVOL-ABC123DE');
   });
 
   it('should replace booking amount placeholder', () => {
@@ -93,7 +93,7 @@ describe('Notification Template Rendering', () => {
     const dataWithoutUrl = { ...mockData };
     delete dataWithoutUrl.booking_url;
     const result = renderTemplate(template, dataWithoutUrl, 'America/New_York');
-    expect(result).toContain('https://testsalon.tithi.com/confirm/TITHI-');
+    expect(result).toContain('https://testsalon.revol.com/confirm/REVOL-');
   });
 });
 

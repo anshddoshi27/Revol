@@ -23,3 +23,4 @@ WHERE tc.table_name = 'businesses'
 -- It should show: referenced_schema = 'auth' and referenced_table = 'users'
 
 
+

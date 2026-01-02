@@ -26,3 +26,4 @@ WHERE tc.table_name = 'businesses'
 -- Should show: businesses_user_id_fkey | auth | users
 
 
+

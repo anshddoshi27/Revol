@@ -14,7 +14,7 @@ Front-end flows should communicate that card details are validated and stored se
 until then, there is no admin to show—onboarding is the only path.
 logging in (for owners who already finished an onboarding for at least one business) drops you straight into the admin for your selected business—there is no dashboard anymore.
 if the owner has multiple businesses, they switch between them from inside the admin (business picker in the header).
-(remember, each business has to be paid for separately, one onboarding flow for one business and gets its own subscription. Subscription pricing is determined in Step 8 (Notifications): Basic Plan is $11.99/month (notifications disabled) and Pro Plan is $21.99/month (notifications enabled). If you want multiple businesses you have to pay that many subscriptions, one per business).
+(remember, each business has to be paid for separately, one onboarding flow for one business and gets its own subscription. Subscription pricing is determined in Step 8 (Notifications): Basic Plan is $13.99/month (notifications disabled - emails and SMS do not go out) and Pro Plan is $21.99/month (notifications enabled - emails and SMS are enabled). If you want multiple businesses you have to pay that many subscriptions, one per business).
 once you’re inside a business admin, you land on the overview that mirrors the onboarding tabs.
 this has essentiall all the pages form the onbaording, allowing you to adjust all those parameters and settings that were set in onbaording so you can change them in real time even after the buisness went live.
 but it also has a past bookings page that shows all past bookings with all the data involved with it, along with the customer name email and phone number (gets entered when the customer is on the payment page).
@@ -54,7 +54,7 @@ And then you finish filling in the availability for that service and you go to t
 And you have to do it for all of the services that are listed.
 And once you do that, then you go to the next step, which is notification templates.
 And this is where you create notifications.
-You create a template, you do the template name, a channel, which will be email, SMS or push.
+You create a template, you do the template name, a channel, which will be email (SMS and push will be added in future versions - v1.0 is email only).
 And then email subject, if it is an email, and then category, which will either be confirmation, reminder, follow up, cancellation or reschedule.
 And then.
 And then.
@@ -106,12 +106,12 @@ user either creates an account or logs in.
 logging in now takes you right into the admin for the active business—no dashboard interstitial.
 if the owner has multiple businesses, the admin header exposes a business switcher to jump between them.
 remember: each business is its own thing and is billed separately. Subscription pricing is determined in Step 8 (Notifications) during onboarding:
-- Basic Plan: $11.99/month (notifications disabled)
-- Pro Plan: $21.99/month (notifications enabled)
+- Basic Plan: $13.99/month (notifications disabled - emails and SMS do not go out)
+- Pro Plan: $21.99/month (notifications enabled - emails and SMS are enabled)
 one onboarding flow per business.
 if you want multiple businesses you pay that many subscriptions, one per business.
 
-the admin basically mirrors all the pages from onboarding so you can tweak everything live even after go-live.
+the admin basically mirrors all the pages from onboarding so you can tweak everything live even after go-live. Note: The Notifications page is only available for Pro plan users - for Basic plan users, this page is disabled or not visible in the admin navigation since emails and SMS notifications do not go out for Basic plan.
 plus there’s a Past Bookings page that lists all bookings with the data tied to it, including the customer’s name, email, and phone (collected at booking).
 each booking is a block with four buttons: Completed, No-Show, Cancelled, Refund.
 these four buttons are the only way money moves.
@@ -183,15 +183,15 @@ it’s color-coded by staff in the booking UI and keeps overlaps readable when m
 Step 8 — Notifications
 FIRST: User selects subscription plan:
 - Pro Plan ($21.99/month): Enable notifications - allows SMS and email notifications to clients
-- Basic Plan ($11.99/month): Disable notifications - clients only see booking confirmation messages, no automated emails or SMS
+- Basic Plan ($13.99/month): Disable notifications - emails and SMS do not go out for Basic plan users
 
 This selection sets the `notifications_enabled` flag in the businesses table, which determines:
 1. Which Stripe price ID to use when creating the subscription (Step 11)
 2. The subscription plan name and price displayed in the admin Account page
-3. Whether the Notifications page is visible in the admin navigation
+3. Whether the Notifications page is visible in the admin navigation (disabled/not visible for Basic plan users)
 
 If Pro Plan selected: make templates.
-pick channel (email, SMS, push), template name, category (confirmation, reminder, follow-up, cancellation, reschedule, completion), subject (if email), and the trigger (Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Rescheduled, Completed).
+pick channel (email only in v1.0 - SMS and push will be added in future versions), template name, category (confirmation, reminder, follow-up, cancellation, reschedule, completion), subject (if email), and the trigger (Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Rescheduled, Completed).
 
 we give you placeholders you can drop into the content: Customer Name, Service Name, Service Duration, Price, Booking Date, Booking Time, Business Name, Booking URL.
 these are dynamic at send time and always resolve to the correct data.
@@ -214,7 +214,7 @@ owner connects Stripe Express (we set it up behind the scenes).
 credit card methods to accept are configured here (cards by default).
 this also sets up the subscription per business based on the plan selected in Step 8:
 - If notifications_enabled = true: Creates subscription with STRIPE_PLAN_PRICE_ID_WITH_NOTIFICATIONS (Pro Plan - $21.99/month)
-- If notifications_enabled = false: Creates subscription with STRIPE_PLAN_PRICE_ID_WITHOUT_NOTIFICATIONS (Basic Plan - $11.99/month)
+- If notifications_enabled = false: Creates subscription with STRIPE_PLAN_PRICE_ID_WITHOUT_NOTIFICATIONS (Basic Plan - $13.99/month)
 The correct Stripe price ID is selected based on the `notifications_enabled` flag saved in Step 8, and this price ID is stored in `businesses.stripe_price_id`.
 The Connect account is set up to receive booking charges.
 we'll show subscription state controls here too (see below).
@@ -228,12 +228,12 @@ subscription controls (business billing)
 in Account inside the admin you have subscription state:
 
 The Account page displays the subscription plan name and price based on the `notifications_enabled` flag:
-- Basic Plan - $11.99/month (if notifications_enabled = false)
+- Basic Plan - $13.99/month (if notifications_enabled = false)
 - Pro Plan - $21.99/month (if notifications_enabled = true)
 
 Trial: 7 days free; will switch to Active at day 7 unless paused or canceled before then.
 
-Active: charges based on plan selected (Basic $11.99/month or Pro $21.99/month).
+Active: charges based on plan selected (Basic $13.99/month or Pro $21.99/month).
 
 Paused: does not charge while paused.
 site can stay up (you pick), but we label it "Paused".
@@ -322,7 +322,7 @@ reserve bad words and reserved names.
 
 1) tenancy & billing rules
 
-one business == one subscription ($11.99/mo).
+one business == one subscription (Basic $13.99/mo or Pro $21.99/mo).
 multiple businesses = multiple subscriptions.
 
 subscription states: Trial (7d), Active (billed), Paused (not billed), Canceled (not billed + subdomain deprovisioned).
@@ -437,7 +437,7 @@ cache slot lists; invalidate on changes or new bookings.
 
 8) notifications (template logistics)
 
-channels: email, SMS, (push later).
+channels: email (v1.0), SMS and push will be added in future versions.
 
 triggers we support: Booking Created, Confirmed, 24h, 1h, Cancelled, Rescheduled, Completed, Fee Charged, Refunded, Payment Issue.
 
@@ -552,7 +552,7 @@ Update chip; disable button; toast success
 If action_required → show “Send Pay Link”
 
 Notifications
-Backend emits event → matches templates → merges placeholders → sends (email/SMS)
+Backend emits event → matches templates → merges placeholders → sends (email only in v1.0 - SMS will be added in future versions)
 frontend just gives you the editor + preview + enable/disable.
 
 tiny final gaps now closed
@@ -579,7 +579,7 @@ Cache invalidation after edits (admin updates instantly reflect on booking site)
 
 **Goal**: Implement a multi‑tenant, white‑label booking and payments SaaS for service businesses (salons, clinics, studios).
 Tenants sign up, configure brand + services, accept bookings on a public site, and get paid via Stripe Connect.
-Platform charges $11.99/month **per business** (per‑tenant subscription).
+Platform charges $13.99/month (Basic Plan) or $21.99/month (Pro Plan) **per business** (per‑tenant subscription).
 Payments for appointments support **manual capture**, **deposits + card‑on‑file**, **no‑show fees**, refunds, and basic dispute viewing.
 
 ---
@@ -600,7 +600,7 @@ Payments for appointments support **manual capture**, **deposits + card‑on‑f
 
 * **Key Systems**: Multi‑tenant auth + RLS isolation; Availability engine; Booking lifecycle; Payments (Stripe Connect); Notifications (email/SMS); Gift cards; Subscriptions; Analytics; Webhooks & background jobs.
 
-* **Pricing**: Each tenant (business) = distinct subscription ($11.99/mo).
+* **Pricing**: Each tenant (business) = distinct subscription (Basic $13.99/mo or Pro $21.99/mo).
 Multiple businesses = multiple subscriptions.
 
 ---
@@ -625,7 +625,7 @@ Multiple businesses = multiple subscriptions.
 **Onboarding Wizard (8 steps)**: Business details → Branding → Services & Categories → Staff → Availability rules → Notifications → Gift cards (optional) → Payments setup (Stripe Connect) & Plan subscription.
 
 2.
-**Admin App**: Edit all onboarding settings post‑launch; Bookings list (past/future), booking detail with actions; Payments tab; Gift cards; Notifications; Analytics.
+**Admin App**: Edit all onboarding settings post‑launch; Bookings list (past/future), booking detail with actions; Payments tab; Gift cards; Notifications (Pro plan only - page is disabled/not visible for Basic plan users); Analytics.
 
 3.
 **Public Booking Site**: Category → Service → Staff (optional) → Date/time slot → Customer info → Payment → Confirmation.
@@ -663,7 +663,7 @@ Redis for queues/cache.
 * **Queues/Jobs**: Celery/RQ (Python) or BullMQ (Node).
 Cron via service scheduler.
 
-* **Notifications**: SendGrid (email) + Twilio (SMS) adapters behind an internal interface.
+* **Notifications**: SendGrid (email) - SMS via Twilio will be added in future versions (v1.0 is email only).
 
 * **Infra**: Monorepo; Docker; Fly.
 io/Render/Heroku or k8s.
@@ -786,7 +786,7 @@ Evidence upload is out‑of‑scope MVP, just link.
 
 **Subscriptions (Platform fee)**
 
-* For each tenant, create Stripe Customer (platform), attach owner’s card, subscribe to `$11.99/mo`.
+* For each tenant, create Stripe Customer (platform), attach owner's card, subscribe to Basic Plan `$13.99/mo` or Pro Plan `$21.99/mo` based on notifications_enabled flag.
 Sync `subscriptions` table.
 
 **Webhooks (required)**
@@ -952,7 +952,7 @@ payments: Array<{ id: string; status: string; amount_authorized_cents?: number; 
 
 * Jobs: send notifications; update payment/booking state; collapse retries with exponential backoff.
 
-* **Reminders**: T‑24h email/SMS reminder; T‑2h SMS optional; daily digest to staff.
+* **Reminders**: T‑24h email reminder (SMS reminders will be added in future versions); daily digest to staff.
 
 * **Auth expiry**: Sweep `authorized` PIs near expiry; notify admin to mark complete or re‑authorize (policy: auto‑capture at end time if toggle on and service occurred).
 
@@ -994,7 +994,7 @@ name}}`, `{{amount}}`, `{{brand.colors}}`.
 **Gift Cards**: enable; default amounts; expiry rules; delivery template.
 
 8.
-**Payments & Plan**: Connect onboarding; link bank; test $0.50 microcharge (optional); subscribe to $11.99/mo; go live.
+**Payments & Plan**: Connect onboarding; link bank; test $0.50 microcharge (optional); subscribe to Basic Plan $13.99/mo or Pro Plan $21.99/mo based on Step 8 selection; go live.
 
 Each step autosaves; progress indicator; validation; “Preview Public Site” at any time.
 
@@ -1018,7 +1018,7 @@ Each step autosaves; progress indicator; validation; “Preview Public Site” a
 
 * **Gift Cards**: sell, search, adjust, ledger.
 
-* **Notifications**: templates; toggles; test send.
+* **Notifications** (Pro plan only): templates; toggles; test send. For Basic plan users, this page is disabled or not visible in the admin navigation - emails and SMS notifications do not go out for Basic plan.
 
 * **Settings**: branding, timezone, policies (cancellation window, no‑show fee defaults, deposits), public site domain/SEO.
 

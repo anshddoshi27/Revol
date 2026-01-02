@@ -111,7 +111,7 @@ export function renderTemplate(template: string, data: NotificationData, timezon
     const startDate = new Date(data.booking.start_at);
     rendered = rendered.replace(/\$\{booking\.date\}/g, formatDate(startDate, tz));
     rendered = rendered.replace(/\$\{booking\.time\}/g, formatTime(startDate, tz));
-    rendered = rendered.replace(/\$\{booking\.code\}/g, `TITHI-${data.booking.id?.slice(0, 8).toUpperCase() || ''}`);
+    rendered = rendered.replace(/\$\{booking\.code\}/g, `REVOL-${data.booking.id?.slice(0, 8).toUpperCase() || ''}`);
     
     // booking.amount uses final_price_cents if available, otherwise price_cents
     const amount = data.booking.final_price_cents ?? data.booking.price_cents ?? 0;
@@ -129,9 +129,9 @@ export function renderTemplate(template: string, data: NotificationData, timezon
   } else if (data.business?.subdomain) {
     // Generate booking URL if not provided
     const bookingCode = data.booking?.id 
-      ? `TITHI-${data.booking.id.slice(0, 8).toUpperCase()}`
+      ? `REVOL-${data.booking.id.slice(0, 8).toUpperCase()}`
       : '';
-    const url = `https://${data.business.subdomain}.tithi.com/confirm/${bookingCode}`;
+    const url = `https://${data.business.subdomain}.main.tld/confirm/${bookingCode}`;
     rendered = rendered.replace(/\$\{booking\.url\}/g, url);
   }
 
@@ -255,6 +255,13 @@ export async function emitNotification(
   supabase?: SupabaseClient,
   amount?: number
 ): Promise<void> {
+  // Check feature flag first - if notifications feature is disabled globally, skip all notifications
+  const { getEffectiveNotificationsEnabled } = await import('./feature-flags');
+  if (!getEffectiveNotificationsEnabled()) {
+    console.log(`Skipping notification for business ${businessId} - Notifications feature disabled (v2)`);
+    return;
+  }
+
   const client = supabase || createAdminClient();
 
   // Check if notifications are enabled for this business
@@ -359,52 +366,140 @@ export async function emitNotification(
       timezone: business.timezone || 'America/New_York',
     },
     booking_url: business.subdomain 
-      ? `https://${business.subdomain}.tithi.com/confirm/TITHI-${booking.id.slice(0, 8).toUpperCase()}`
+      ? `https://${business.subdomain}.main.tld/confirm/REVOL-${booking.id.slice(0, 8).toUpperCase()}`
       : undefined,
     amount: feeAmount, // For fee_charged and refunded triggers
   };
 
   // Load templates for this trigger
+  // NOTE: SMS notifications disabled for v1 - only email notifications are enabled
   const emailTemplate = await loadTemplateForTrigger(businessId, userId, trigger, 'email', client);
-  const smsTemplate = await loadTemplateForTrigger(businessId, userId, trigger, 'sms', client);
+  // const smsTemplate = await loadTemplateForTrigger(businessId, userId, trigger, 'sms', client); // Disabled for v1
 
   const timezone = business.timezone || 'America/New_York';
 
-  // Enqueue email notification if template exists and customer has email
+  // Log if template is missing (for debugging)
+  if (!emailTemplate) {
+    console.log(`[notifications] No email template found for business ${businessId}, trigger ${trigger}. Email will not be sent.`);
+    console.log(`[notifications] Make sure a template exists with: business_id=${businessId}, trigger=${trigger}, channel=email, is_enabled=true`);
+  } else {
+    console.log(`[notifications] Found email template: ${emailTemplate.id} (${emailTemplate.name}), enabled: ${emailTemplate.is_enabled}`);
+  }
+
+  // Send email notification if template exists and customer has email
   if (emailTemplate && notificationData.customer?.email) {
     const renderedBody = renderTemplate(emailTemplate.body_markdown, notificationData, timezone);
     const renderedSubject = emailTemplate.subject
       ? renderTemplate(emailTemplate.subject, notificationData, timezone)
       : undefined;
 
-    await enqueueNotification({
-      businessId,
-      userId,
-      bookingId,
-      trigger,
-      recipientEmail: notificationData.customer.email,
-      templateId: emailTemplate.id,
-      subject: renderedSubject,
-      body: renderedBody,
-      channel: 'email',
-    });
+    // For booking_created trigger, send immediately instead of queuing
+    // This ensures customers get confirmation emails right away
+    if (trigger === 'booking_created' && renderedSubject) {
+      console.log(`[notifications] Sending booking_created email immediately to ${notificationData.customer.email}`);
+      try {
+        const { sendEmailViaSendGrid } = await import('./notification-senders');
+        const emailResult = await sendEmailViaSendGrid(
+          notificationData.customer.email,
+          renderedSubject,
+          renderedBody
+        );
+
+        if (emailResult.success) {
+          console.log(`[notifications] Email sent successfully to ${notificationData.customer.email}, messageId: ${emailResult.messageId}`);
+          // Also enqueue for audit trail
+          await enqueueNotification({
+            businessId,
+            userId,
+            bookingId,
+            trigger,
+            recipientEmail: notificationData.customer.email,
+            templateId: emailTemplate.id,
+            subject: renderedSubject,
+            body: renderedBody,
+            channel: 'email',
+          });
+          // Mark the queued job as sent immediately
+          const adminSupabase = createAdminClient();
+          const { data: jobs } = await adminSupabase
+            .from('notification_jobs')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .eq('trigger', trigger)
+            .eq('channel', 'email')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (jobs && jobs.length > 0) {
+            await adminSupabase
+              .from('notification_jobs')
+              .update({ status: 'sent' })
+              .eq('id', jobs[0].id);
+          }
+        } else {
+          console.error(`[notifications] Failed to send email: ${emailResult.error}`);
+          // Fall back to queuing if immediate send fails
+          await enqueueNotification({
+            businessId,
+            userId,
+            bookingId,
+            trigger,
+            recipientEmail: notificationData.customer.email,
+            templateId: emailTemplate.id,
+            subject: renderedSubject,
+            body: renderedBody,
+            channel: 'email',
+          });
+        }
+      } catch (error) {
+        console.error(`[notifications] Error sending email immediately:`, error);
+        // Fall back to queuing if immediate send fails
+        await enqueueNotification({
+          businessId,
+          userId,
+          bookingId,
+          trigger,
+          recipientEmail: notificationData.customer.email,
+          templateId: emailTemplate.id,
+          subject: renderedSubject,
+          body: renderedBody,
+          channel: 'email',
+        });
+      }
+    } else {
+      // For other triggers, queue as normal
+      console.log(`[notifications] Enqueueing email notification for booking ${bookingId} to ${notificationData.customer.email}`);
+      await enqueueNotification({
+        businessId,
+        userId,
+        bookingId,
+        trigger,
+        recipientEmail: notificationData.customer.email,
+        templateId: emailTemplate.id,
+        subject: renderedSubject,
+        body: renderedBody,
+        channel: 'email',
+      });
+    }
   }
 
+  // SMS notifications disabled for v1 - will be enabled in v2
   // Enqueue SMS notification if template exists and customer has phone
-  if (smsTemplate && notificationData.customer?.phone) {
-    const renderedBody = renderTemplate(smsTemplate.body_markdown, notificationData, timezone);
-
-    await enqueueNotification({
-      businessId,
-      userId,
-      bookingId,
-      trigger,
-      recipientPhone: notificationData.customer.phone,
-      templateId: smsTemplate.id,
-      body: renderedBody,
-      channel: 'sms',
-    });
-  }
+  // if (smsTemplate && notificationData.customer?.phone) {
+  //   const renderedBody = renderTemplate(smsTemplate.body_markdown, notificationData, timezone);
+  //
+  //   await enqueueNotification({
+  //     businessId,
+  //     userId,
+  //     bookingId,
+  //     trigger,
+  //     recipientPhone: notificationData.customer.phone,
+  //     templateId: smsTemplate.id,
+  //     body: renderedBody,
+  //     channel: 'sms',
+  //   });
+  // }
 }
 
 /**

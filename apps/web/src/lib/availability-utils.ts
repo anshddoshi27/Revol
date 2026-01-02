@@ -24,6 +24,7 @@ interface BuildSlotsParams {
   timezone: string;
   startDate: Date;
   horizonDays?: number;
+  includePastSlots?: boolean; // If true, show slots even if they're in the past (useful for onboarding)
 }
 
 export function buildExpandedSlots({
@@ -32,7 +33,8 @@ export function buildExpandedSlots({
   staff,
   timezone,
   startDate,
-  horizonDays = 14
+  horizonDays = 14,
+  includePastSlots = false
 }: BuildSlotsParams): ExpandedAvailabilitySlot[] {
   if (!serviceAvailability) {
     return [];
@@ -63,7 +65,8 @@ export function buildExpandedSlots({
         ) {
           const slotStart = zonedMinutesToDate(currentDate, pointerMinutes, timezone);
           const slotEnd = zonedMinutesToDate(currentDate, pointerMinutes + duration, timezone);
-          if (slotStart <= now) continue;
+          // Only filter out past slots if includePastSlots is false
+          if (!includePastSlots && slotStart <= now) continue;
 
           slots.push({
             id: `${service.id}_${staffMember.id}_${slotStart.toISOString()}`,

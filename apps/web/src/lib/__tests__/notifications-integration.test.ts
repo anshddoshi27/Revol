@@ -108,7 +108,7 @@ describe('Notification System Integration', () => {
         subdomain: 'testsalon',
         timezone: 'America/New_York',
       },
-      booking_url: 'https://testsalon.tithi.com/confirm/TITHI-ABC123DE',
+      booking_url: 'https://testsalon.revol.com/confirm/REVOL-ABC123DE',
     };
 
     it('should render all placeholders correctly', () => {
@@ -136,7 +136,7 @@ Contact ${mockNotificationData.business?.name ? '${business.name}' : ''} at ${mo
       expect(rendered).toContain('John Doe');
       expect(rendered).toContain('Haircut');
       expect(rendered).toContain('Jane Smith');
-      expect(rendered).toContain('TITHI-ABC123DE');
+      expect(rendered).toContain('REVOL-ABC123DE');
       expect(rendered).toContain('$50.00');
       expect(rendered).toContain('Test Salon');
     });

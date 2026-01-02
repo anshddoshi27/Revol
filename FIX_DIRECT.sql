@@ -26,3 +26,4 @@ WHERE conname = 'businesses_user_id_fkey';
 -- If it shows "users" instead of "auth.users", the fix didn't work
 
 
+

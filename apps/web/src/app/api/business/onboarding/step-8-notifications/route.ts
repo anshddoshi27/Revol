@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/db';
 import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { NotificationTemplate } from '@/lib/onboarding-types';
+import { getEffectiveNotificationsEnabled } from '@/lib/feature-flags';
 
 /**
  * GET /api/business/onboarding/step-8-notifications
@@ -123,7 +124,15 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
-    const { templates, notifications_enabled } = body;
+    let { templates, notifications_enabled } = body;
+
+    // If notifications feature is disabled, force Basic Plan (notifications_enabled = false)
+    const notificationsFeatureEnabled = getEffectiveNotificationsEnabled();
+    if (!notificationsFeatureEnabled) {
+      console.log('[step-8-notifications] Notifications feature disabled - forcing Basic Plan');
+      notifications_enabled = false;
+      templates = []; // Clear any templates if feature is disabled
+    }
 
     // Log the received value for debugging
     console.log('[step-8-notifications] Received request body:', {
@@ -131,6 +140,7 @@ export async function PUT(request: Request) {
       notifications_enabled_type: typeof notifications_enabled,
       templates_count: Array.isArray(templates) ? templates.length : 'not an array',
       planType: notifications_enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      featureEnabled: notificationsFeatureEnabled,
     });
 
     if (!Array.isArray(templates)) {
@@ -166,57 +176,14 @@ export async function PUT(request: Request) {
       // Continue anyway
     }
 
-    if (templates.length === 0) {
-      return NextResponse.json({
-        success: true,
-        templateIds: [],
-        message: 'Notification templates cleared',
-      });
-    }
-
-    const templatesToInsert = templates.map((template: NotificationTemplate) => ({
-      id: template.id && template.id.startsWith('uuid-') ? undefined : template.id,
-      user_id: userId,
-      business_id: businessId,
-      name: template.name,
-      channel: template.channel, // 'email' | 'sms'
-      category: template.category,
-      trigger: template.trigger,
-      subject: template.subject || null,
-      body_markdown: template.body,
-      is_enabled: template.enabled !== false, // Default to true
-      deleted_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
-
-    const { data: insertedTemplates, error: insertError } = await supabase
-      .from('notification_templates')
-      .upsert(templatesToInsert, {
-        onConflict: 'id',
-        ignoreDuplicates: false,
-      })
-      .select('id');
-
-    if (insertError) {
-      console.error('Error upserting templates:', insertError);
-      return NextResponse.json(
-        { error: 'Failed to save notification templates', details: insertError.message },
-        { status: 500 }
-      );
-    }
-
-    const templateIds = insertedTemplates?.map(t => t.id) || [];
-
-    // Update notifications_enabled flag in businesses table
-    // This determines the subscription plan:
-    // - false = Basic Plan ($11.99/month) - no SMS/email notifications
-    // - true = Pro Plan ($21.99/month) - SMS and email notifications enabled
+    // CRITICAL FIX: Always update notifications_enabled BEFORE checking templates.length
+    // This ensures Basic plan (no templates) still saves the plan selection
     console.log('[step-8-notifications] BEFORE UPDATE - Current state:', {
       businessId,
       receivedValue: notifications_enabled,
       planType: notifications_enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
       valueType: typeof notifications_enabled,
+      templatesCount: templates.length,
     });
     
     // Always save the exact value received from frontend - no defaults, no fallbacks
@@ -275,65 +242,231 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Verify the update was successful - always use admin client to ensure we can read it
-    const { createAdminClient } = await import('@/lib/db');
-    const verifySupabase = createAdminClient();
-    
-    const { data: updatedBusiness, error: verifyError } = await verifySupabase
-      .from('businesses')
-      .select('notifications_enabled')
-      .eq('id', businessId)
-      .single();
-
-    if (verifyError) {
-      console.error('[step-8-notifications] Error verifying notifications_enabled update:', verifyError);
-    } else {
-      console.log('[step-8-notifications] VERIFICATION COMPLETE:', {
-        businessId,
-        savedValue: updatedBusiness.notifications_enabled,
-        expectedValue: notifications_enabled,
-        valuesMatch: updatedBusiness.notifications_enabled === notifications_enabled,
-        planType: updatedBusiness.notifications_enabled ? 'Pro ($21.99/month)' : 'Basic ($11.99/month)',
-      });
+    // If no templates, return early AFTER updating notifications_enabled
+    if (templates.length === 0) {
+      // Verify the update was successful
+      const { createAdminClient } = await import('@/lib/db');
+      const verifySupabase = createAdminClient();
       
-      // CRITICAL: If values don't match, this is a serious error - the save failed!
-      if (updatedBusiness.notifications_enabled !== notifications_enabled) {
-        console.error('[step-8-notifications] CRITICAL ERROR: Saved value does not match expected value!', {
-          expected: notifications_enabled,
-          actual: updatedBusiness.notifications_enabled,
+      const { data: updatedBusiness, error: verifyError } = await verifySupabase
+        .from('businesses')
+        .select('notifications_enabled')
+        .eq('id', businessId)
+        .single();
+
+      if (verifyError) {
+        console.error('[step-8-notifications] Error verifying notifications_enabled update:', verifyError);
+      } else {
+        console.log('[step-8-notifications] VERIFICATION COMPLETE (Basic plan - no templates):', {
           businessId,
-          userId,
+          savedValue: updatedBusiness.notifications_enabled,
+          expectedValue: notifications_enabled,
+          valuesMatch: updatedBusiness.notifications_enabled === notifications_enabled,
+          planType: updatedBusiness.notifications_enabled ? 'Pro ($21.99/month)' : 'Basic ($11.99/month)',
         });
         
-        // Try one more time with admin client to force the correct value
-        console.log('[step-8-notifications] Attempting to fix mismatch with admin client...');
-        const { createAdminClient } = await import('@/lib/db');
-        const fixSupabase = createAdminClient();
-        
-        const { error: fixError } = await fixSupabase
-          .from('businesses')
-          .update({
-            notifications_enabled: notifications_enabled, // Force the correct value
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', businessId);
-        
-        if (fixError) {
-          console.error('[step-8-notifications] Failed to fix mismatch:', fixError);
-          return NextResponse.json(
-            { 
-              error: 'Failed to save plan selection correctly', 
-              details: `Expected ${notifications_enabled} but got ${updatedBusiness.notifications_enabled}. Please try again.`,
-              savedValue: updatedBusiness.notifications_enabled,
-              expectedValue: notifications_enabled,
-            },
-            { status: 500 }
-          );
+        // CRITICAL: If values don't match, this is a serious error
+        if (updatedBusiness.notifications_enabled !== notifications_enabled) {
+          console.error('[step-8-notifications] CRITICAL ERROR: Saved value does not match expected value!', {
+            expected: notifications_enabled,
+            actual: updatedBusiness.notifications_enabled,
+            businessId,
+            userId,
+          });
+          
+          // Try one more time with admin client to force the correct value
+          console.log('[step-8-notifications] Attempting to fix mismatch with admin client...');
+          const fixSupabase = createAdminClient();
+          
+          const { error: fixError } = await fixSupabase
+            .from('businesses')
+            .update({
+              notifications_enabled: notifications_enabled, // Force the correct value
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', businessId);
+          
+          if (fixError) {
+            console.error('[step-8-notifications] Failed to fix mismatch:', fixError);
+            return NextResponse.json(
+              { 
+                error: 'Failed to save plan selection correctly', 
+                details: `Expected ${notifications_enabled} but got ${updatedBusiness.notifications_enabled}. Please try again.`,
+                savedValue: updatedBusiness.notifications_enabled,
+                expectedValue: notifications_enabled,
+              },
+              { status: 500 }
+            );
+          }
+          
+          console.log('[step-8-notifications] Successfully fixed value mismatch');
         }
-        
-        console.log('[step-8-notifications] Successfully fixed value mismatch');
       }
+
+      return NextResponse.json({
+        success: true,
+        templateIds: [],
+        notifications_enabled,
+        plan_type: notifications_enabled ? 'Pro' : 'Basic',
+        plan_price: notifications_enabled ? 21.99 : 11.99,
+        message: `Plan saved: ${notifications_enabled ? 'Pro' : 'Basic'} ($${notifications_enabled ? '21.99' : '11.99'}/month). No notification templates.`,
+      });
     }
+
+    // Helper function to validate UUID format
+    const isValidUUID = (id: string | undefined): boolean => {
+      if (!id) return false;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(id);
+    };
+
+    // Map frontend category values to database enum values
+    // Database only supports: 'confirmation', 'reminder', 'follow_up', 'cancellation', 'reschedule', 'completion'
+    const mapCategoryToDatabase = (category: string): string => {
+      const categoryMap: Record<string, string> = {
+        'fee': 'completion', // Map fee-related notifications to completion category
+        'payment_issue': 'completion', // Map payment issues to completion
+        'refund': 'completion', // Map refunds to completion
+        // Valid categories pass through
+        'confirmation': 'confirmation',
+        'reminder': 'reminder',
+        'follow_up': 'follow_up',
+        'cancellation': 'cancellation',
+        'reschedule': 'reschedule',
+        'completion': 'completion',
+      };
+      const mapped = categoryMap[category] || 'completion'; // Default to completion if unknown
+      if (mapped !== category) {
+        console.warn(`[step-8-notifications] Mapped category '${category}' to '${mapped}' for database compatibility`);
+      }
+      return mapped;
+    };
+
+    // Map frontend channel values to database enum values
+    // Database only supports 'email' and 'sms', not 'push'
+    const mapChannelToDatabase = (channel: string): 'email' | 'sms' => {
+      if (channel === 'push') {
+        console.warn(`[step-8-notifications] Channel 'push' not supported in database, mapping to 'sms'`);
+        return 'sms';
+      }
+      if (channel === 'email' || channel === 'sms') {
+        return channel;
+      }
+      // Default to email if unknown
+      console.warn(`[step-8-notifications] Unknown channel '${channel}', defaulting to 'email'`);
+      return 'email';
+    };
+
+    // Split templates into new (no valid UUID) and existing (has valid UUID)
+    // Split templates into new (no valid UUID) and existing (has valid UUID)
+    const templatesToUpdate: any[] = [];
+    const templatesToInsert: any[] = [];
+    
+    templates.forEach((template: NotificationTemplate) => {
+      const mappedChannel = mapChannelToDatabase(template.channel);
+      const mappedCategory = mapCategoryToDatabase(template.category);
+      const hasValidId = isValidUUID(template.id);
+      
+      // Base object with all required fields
+      const baseTemplate: any = {
+        user_id: userId,
+        business_id: businessId,
+        name: template.name,
+        channel: mappedChannel, // Map to valid database enum value ('email' | 'sms')
+        category: mappedCategory, // Map to valid database enum value
+        trigger: template.trigger,
+        subject: template.subject || null,
+        body_markdown: template.body,
+        is_enabled: template.enabled !== false, // Default to true
+        deleted_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      if (hasValidId) {
+        // Template has valid UUID - include id for upsert (update)
+        baseTemplate.id = template.id;
+        templatesToUpdate.push(baseTemplate);
+      } else {
+        // Template has no valid UUID - omit id for insert (database will generate it)
+        templatesToInsert.push(baseTemplate);
+      }
+    });
+
+    // Insert new templates (without ids - database will generate them)
+    let allInsertedTemplates: any[] = [];
+    
+    if (templatesToInsert.length > 0) {
+      const { data: insertedNew, error: insertError } = await supabase
+        .from('notification_templates')
+        .insert(templatesToInsert)
+        .select('id');
+      
+      if (insertError) {
+        console.error('[step-8-notifications] Error inserting new templates:', {
+          error: insertError,
+          message: insertError.message,
+          code: insertError.code,
+          count: templatesToInsert.length,
+        });
+        return NextResponse.json(
+          { error: 'Failed to save notification templates', details: insertError.message },
+          { status: 500 }
+        );
+      }
+      
+      allInsertedTemplates = insertedNew || [];
+      console.log('[step-8-notifications] Successfully inserted new templates:', {
+        count: allInsertedTemplates.length,
+        ids: allInsertedTemplates.map(t => t.id),
+      });
+    }
+    
+    // Upsert existing templates (with ids)
+    let updatedTemplates: any[] = [];
+    
+    if (templatesToUpdate.length > 0) {
+      const { data: updated, error: updateError } = await supabase
+        .from('notification_templates')
+        .upsert(templatesToUpdate, {
+          onConflict: 'id',
+          ignoreDuplicates: false,
+        })
+        .select('id');
+      
+      if (updateError) {
+        console.error('[step-8-notifications] Error upserting existing templates:', {
+          error: updateError,
+          message: updateError.message,
+          code: updateError.code,
+          count: templatesToUpdate.length,
+        });
+        return NextResponse.json(
+          { error: 'Failed to update notification templates', details: updateError.message },
+          { status: 500 }
+        );
+      }
+      
+      updatedTemplates = updated || [];
+      console.log('[step-8-notifications] Successfully upserted existing templates:', {
+        count: updatedTemplates.length,
+        ids: updatedTemplates.map(t => t.id),
+      });
+    }
+    
+    const insertedTemplates = [...allInsertedTemplates, ...updatedTemplates];
+
+    console.log('[step-8-notifications] Successfully saved all templates:', {
+      count: insertedTemplates.length,
+      newCount: allInsertedTemplates.length,
+      updatedCount: updatedTemplates.length,
+      ids: insertedTemplates.map(t => t.id),
+    });
+
+    const templateIds = insertedTemplates?.map(t => t.id) || [];
+
+    // Note: notifications_enabled was already updated earlier (before templates check)
+    // This ensures both Basic (no templates) and Pro (with templates) plans are saved correctly
 
     return NextResponse.json({
       success: true,

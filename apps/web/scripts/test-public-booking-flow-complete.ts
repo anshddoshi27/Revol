@@ -429,10 +429,10 @@ async function testStep4_BookingCreation(): Promise<TestResult> {
       'booking_id must be a valid UUID'
     );
 
-    // Validate booking_code format (TITHI-XXXXXXXX)
+    // Validate booking_code format (REVOL-XXXXXXXX)
     assert(
-      /^TITHI-[A-Z0-9]+$/.test(data.booking_code),
-      'booking_code must match format TITHI-XXXXXXXX'
+      /^REVOL-[A-Z0-9]+$/.test(data.booking_code),
+      'booking_code must match format REVOL-XXXXXXXX'
     );
 
     // Validate SetupIntent client_secret format

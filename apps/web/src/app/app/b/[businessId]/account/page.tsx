@@ -27,6 +27,7 @@ export default function AccountPage() {
     next_bill_at: string | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const supabase = createClientClient();
 
   // Fetch real business data to get notifications_enabled
@@ -131,9 +132,56 @@ export default function AccountPage() {
     });
   };
 
-  const deleteBusiness = () => {
-    clearBusiness();
-    router.replace("/onboarding");
+  const deleteBusiness = async () => {
+    if (!params.businessId || deleting) return;
+    
+    // Confirm deletion
+    const confirmed = window.confirm(
+      "Are you sure you want to delete your business? This action cannot be undone and will permanently delete all your data including services, staff, bookings, customers, and all related information."
+    );
+    
+    if (!confirmed) return;
+
+    setDeleting(true);
+
+    try {
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        alert("You must be logged in to delete your business.");
+        setDeleting(false);
+        return;
+      }
+
+      // Call the delete API endpoint
+      const response = await fetch(`/api/business/${params.businessId}/delete`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete business');
+      }
+
+      // Clear local state
+      clearBusiness();
+      
+      // Sign out the user
+      await supabase.auth.signOut();
+      
+      // Redirect to signup page
+      router.replace("/signup");
+    } catch (error) {
+      console.error('Error deleting business:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete business. Please try again.');
+      setDeleting(false);
+    }
   };
 
   return (
@@ -238,8 +286,9 @@ export default function AccountPage() {
           variant="outline"
           className="mt-4 border-rose-400/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
           onClick={deleteBusiness}
+          disabled={deleting}
         >
-          Delete business
+          {deleting ? 'Deleting...' : 'Delete business'}
         </Button>
       </section>
     </div>

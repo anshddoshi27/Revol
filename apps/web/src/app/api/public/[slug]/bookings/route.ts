@@ -1,14 +1,21 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/db';
 import { createOrGetCustomer, createSetupIntent, getPaymentMethodFromSetupIntent } from '@/lib/stripe';
 import { emitNotification } from '@/lib/notifications';
 import { createHash } from 'crypto';
+import { resolveTenantSlug } from '@/lib/tenant-resolution';
+import { addCorsHeaders, handleOptions } from '@/lib/cors';
 
 /**
  * POST /api/public/{slug}/bookings
  * 
  * Creates a new booking with card setup (no charge yet)
  * No authentication required - this is a public endpoint
+ * 
+ * Supports both:
+ * - Subdomain-based: {businessname}.main.tld → resolves from Host header
+ * - Path-based: /api/public/{slug}/bookings → resolves from URL parameter
  * 
  * Body: {
  *   service_id: string
@@ -20,12 +27,17 @@ import { createHash } from 'crypto';
  *   consent_user_agent?: string
  * }
  */
+export async function OPTIONS(request: NextRequest) {
+  return handleOptions(request) || new NextResponse(null, { status: 200 });
+}
+
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { slug: string } }
 ) {
   try {
-    const { slug } = params;
+    // Resolve tenant slug from Host header or URL parameter
+    const tenantSlug = resolveTenantSlug(request, params.slug);
     const body = await request.json();
     const {
       service_id,
@@ -41,26 +53,29 @@ export async function POST(
                       null;
     const consent_user_agent = request.headers.get('user-agent') || null;
 
-    if (!slug) {
-      return NextResponse.json(
+    if (!tenantSlug) {
+      const response = NextResponse.json(
         { error: 'Subdomain is required' },
         { status: 400 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Validate required fields
     if (!service_id || !staff_id || !start_at || !customer) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Missing required fields: service_id, staff_id, start_at, customer' },
         { status: 400 }
       );
+      return addCorsHeaders(response, request);
     }
 
     if (!customer.name || !customer.email) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Customer name and email are required' },
         { status: 400 }
       );
+      return addCorsHeaders(response, request);
     }
 
     const supabase = createAdminClient();
@@ -69,16 +84,17 @@ export async function POST(
     const { data: business, error: businessError } = await supabase
       .from('businesses')
       .select('*')
-      .eq('subdomain', slug.toLowerCase())
+      .eq('subdomain', tenantSlug)
       .in('subscription_status', ['active', 'trial'])
       .is('deleted_at', null)
       .single();
 
     if (businessError || !business) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Business not found' },
         { status: 404 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Get service details
@@ -92,10 +108,11 @@ export async function POST(
       .single();
 
     if (serviceError || !service) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Service not found' },
         { status: 404 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Validate slot is still available (check unique constraint)
@@ -113,10 +130,11 @@ export async function POST(
 
     if (bookingCheckError) {
       console.error('Error checking existing bookings:', bookingCheckError);
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to validate slot availability' },
         { status: 500 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Check if any existing booking overlaps with the requested slot
@@ -128,10 +146,11 @@ export async function POST(
     });
 
     if (hasOverlap) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'This time slot is no longer available' },
         { status: 409 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Validate gift card if provided
@@ -151,18 +170,20 @@ export async function POST(
         .single();
 
       if (giftCardError || !giftCard) {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Invalid gift card code' },
           { status: 400 }
         );
+        return addCorsHeaders(response, request);
       }
 
       // Check expiration
       if (giftCard.expires_at && new Date(giftCard.expires_at) < new Date()) {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Gift card has expired' },
           { status: 400 }
         );
+        return addCorsHeaders(response, request);
       }
 
       gift_card_id = giftCard.id;
@@ -188,10 +209,11 @@ export async function POST(
 
         // Check if there's any remaining balance
         if (remainingBalanceCents <= 0) {
-          return NextResponse.json(
+          const response = NextResponse.json(
             { error: 'Gift card has no remaining balance' },
             { status: 400 }
           );
+          return addCorsHeaders(response, request);
         }
 
         // Apply only the remaining balance (not the full current_balance_cents)
@@ -200,10 +222,11 @@ export async function POST(
       } else if (giftCard.discount_type === 'percent') {
         const percentOff = giftCard.percent_off || 0;
         if (percentOff <= 0 || percentOff > 100) {
-          return NextResponse.json(
+          const response = NextResponse.json(
             { error: 'Invalid gift card discount percentage' },
             { status: 400 }
           );
+          return addCorsHeaders(response, request);
         }
         gift_card_amount_applied_cents = Math.round((service.price_cents * percentOff) / 100);
         final_price_cents = service.price_cents - gift_card_amount_applied_cents;
@@ -227,17 +250,19 @@ export async function POST(
 
     if (policyError) {
       console.error('Error fetching business policies:', policyError);
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to fetch business policies', details: policyError.message },
         { status: 500 }
       );
+      return addCorsHeaders(response, request);
     }
 
     if (!policy) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Business policies not found' },
         { status: 500 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Create policy snapshot with all required fields
@@ -281,7 +306,32 @@ export async function POST(
         updated_at: new Date().toISOString(),
       };
       if (customer.phone) {
-        updateData.phone = customer.phone;
+        // Format phone number (E.164 format: +1 followed by 10 digits)
+        console.log('[booking-api] Updating existing customer phone:', customer.phone, 'length:', customer.phone.length);
+        const digits = customer.phone.replace(/\D/g, '');
+        console.log('[booking-api] Digits extracted for update:', digits, 'length:', digits.length);
+        
+        if (digits.length === 11 && digits.startsWith('1')) {
+          updateData.phone = `+${digits}`;
+        } else if (digits.length === 10) {
+          updateData.phone = `+1${digits}`;
+        } else if (customer.phone.startsWith('+')) {
+          const plusDigits = customer.phone.replace(/[^\d]/g, '');
+          if (plusDigits.length === 11 && plusDigits.startsWith('1')) {
+            updateData.phone = customer.phone;
+          } else if (plusDigits.length === 10) {
+            updateData.phone = `+1${plusDigits}`;
+          } else {
+            updateData.phone = customer.phone;
+          }
+        } else if (digits.length >= 10) {
+          const last10 = digits.slice(-10);
+          updateData.phone = `+1${last10}`;
+        } else {
+          updateData.phone = customer.phone;
+        }
+        
+        console.log('[booking-api] Formatted phone for update:', updateData.phone, 'length:', updateData.phone?.length);
       }
       
       await supabase
@@ -307,6 +357,49 @@ export async function POST(
         business_id: business.id,
       });
 
+      // Format phone number (E.164 format: +1 followed by 10 digits)
+      let formattedPhone: string | null = null;
+      if (customer.phone) {
+        // Log original phone for debugging
+        console.log('[booking-api] Original phone from request:', customer.phone, 'length:', customer.phone.length);
+        
+        // Remove all non-digits
+        const digits = customer.phone.replace(/\D/g, '');
+        console.log('[booking-api] Digits extracted:', digits, 'length:', digits.length);
+        
+        // If it starts with 1 and has 11 digits, add +
+        if (digits.length === 11 && digits.startsWith('1')) {
+          formattedPhone = `+${digits}`;
+        }
+        // If it has 10 digits, add +1
+        else if (digits.length === 10) {
+          formattedPhone = `+1${digits}`;
+        }
+        // If it already starts with +, validate and use as-is
+        else if (customer.phone.startsWith('+')) {
+          const plusDigits = customer.phone.replace(/[^\d]/g, '');
+          if (plusDigits.length === 11 && plusDigits.startsWith('1')) {
+            formattedPhone = customer.phone;
+          } else if (plusDigits.length === 10) {
+            formattedPhone = `+1${plusDigits}`;
+          } else {
+            // Invalid format, but save as-is for now
+            formattedPhone = customer.phone;
+          }
+        }
+        // Otherwise, try to format
+        else if (digits.length >= 10) {
+          // Take last 10 digits if more than 10
+          const last10 = digits.slice(-10);
+          formattedPhone = `+1${last10}`;
+        } else {
+          // Too short, save as-is (will fail validation later)
+          formattedPhone = customer.phone;
+        }
+        
+        console.log('[booking-api] Formatted phone:', formattedPhone, 'length:', formattedPhone?.length);
+      }
+
       // Create customer record
       const { data: newCustomer, error: customerError } = await supabase
         .from('customers')
@@ -315,7 +408,7 @@ export async function POST(
           business_id: business.id,
           name: customer.name,
           email: customer.email.toLowerCase().trim(),
-          phone: customer.phone || null,
+          phone: formattedPhone,
           stripe_customer_id: stripeCustomerId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -325,10 +418,11 @@ export async function POST(
 
       if (customerError || !newCustomer) {
         console.error('Error creating customer:', customerError);
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Failed to create customer', details: customerError?.message },
           { status: 500 }
         );
+        return addCorsHeaders(response, request);
       }
 
       customerId = newCustomer.id;
@@ -367,19 +461,21 @@ export async function POST(
 
     if (bookingError || !booking) {
       console.error('Error creating booking:', bookingError);
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to create booking', details: bookingError?.message },
         { status: 500 }
       );
+      return addCorsHeaders(response, request);
     }
 
     // Create SetupIntent to save card (must use Stripe Customer ID, not email)
     if (!stripeCustomerId) {
       console.error('No Stripe customer ID available for SetupIntent');
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to set up payment method' },
         { status: 500 }
       );
+      return addCorsHeaders(response, request);
     }
 
     const setupIntent = await createSetupIntent(
@@ -400,7 +496,7 @@ export async function POST(
         stripe_setup_intent_id: setupIntent.setupIntentId,
         amount_cents: final_price_cents,
         money_action: 'none',
-        status: 'pending', // Will be updated to 'card_saved' by webhook when SetupIntent succeeds
+        status: 'none', // Will be updated to 'card_saved' by webhook when SetupIntent succeeds
         currency: 'usd',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -411,16 +507,17 @@ export async function POST(
       // Continue anyway - payment can be updated later
     }
 
-    // Generate booking code (e.g., TITHI-1234)
-    const bookingCode = `TITHI-${booking.id.slice(0, 8).toUpperCase()}`;
+    // Generate booking code (e.g., REVOL-1234)
+    const bookingCode = `REVOL-${booking.id.slice(0, 8).toUpperCase()}`;
 
     // Emit booking_created notification (async, don't wait)
+    console.log(`[public-booking] Emitting booking_created notification for business ${business.id}, booking ${booking.id}, notifications_enabled: ${business.notifications_enabled}`);
     emitNotification(business.id, 'booking_created', booking.id, supabase).catch((err) => {
-      console.error('Error emitting booking_created notification:', err);
+      console.error('[public-booking] Error emitting booking_created notification:', err);
       // Don't fail the request if notification fails
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       booking_id: booking.id,
       booking_code: bookingCode,
       client_secret: setupIntent.clientSecret,
@@ -428,12 +525,14 @@ export async function POST(
       final_price_cents,
       message: 'Booking created successfully. Please complete payment setup.',
     });
+    return addCorsHeaders(response, request);
   } catch (error) {
     console.error('Error in public booking:', error);
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
+    return addCorsHeaders(response, request);
   }
 }
 

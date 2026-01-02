@@ -92,13 +92,93 @@ export async function GET(
       .is('deleted_at', null)
       .order('created_at', { ascending: true });
 
-    // Fetch gift card settings
-    const { data: giftCards, error: giftCardsError } = await supabase
-      .from('gift_card_programs')
-      .select('*')
+    // Fetch gift cards - use gift_cards table (not gift_card_programs)
+    // The onboarding step-10-gift-cards route saves to gift_cards table
+    const { data: giftCardsData, error: giftCardsError } = await supabase
+      .from('gift_cards')
+      .select('code, discount_type, initial_amount_cents, percent_off, expires_at, is_active')
+      .eq('business_id', businessId)
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    // Transform gift cards data to match expected format
+    let giftCards = null;
+    if (giftCardsData && giftCardsData.length > 0) {
+      const firstCard = giftCardsData[0];
+      const amountType = firstCard.discount_type === 'percent' ? 'percent' : 'amount';
+      const amountValue = amountType === 'amount' 
+        ? (firstCard.initial_amount_cents || 0) / 100
+        : (firstCard.percent_off || 0);
+      const expirationEnabled = giftCardsData.some(card => card.expires_at !== null);
+      
+      giftCards = {
+        enabled: true,
+        amount_type: amountType,
+        amount_value: amountValue,
+        expiration_enabled: expirationEnabled,
+        generated_codes: giftCardsData.map(card => card.code),
+      };
+    }
+
+    // Fetch bookings with related data
+    const { data: bookings, error: bookingsError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        status,
+        start_at,
+        end_at,
+        duration_min,
+        price_cents,
+        final_price_cents,
+        service_id,
+        staff_id,
+        customer_id,
+        gift_card_id,
+        gift_card_amount_applied_cents,
+        payment_status,
+        last_money_action,
+        created_at,
+        updated_at,
+        services:service_id (
+          id,
+          name,
+          category_id
+        ),
+        staff:staff_id (
+          id,
+          name,
+          color
+        ),
+        customers:customer_id (
+          id,
+          name,
+          email,
+          phone,
+          created_at
+        )
+      `)
       .eq('business_id', businessId)
       .is('deleted_at', null)
-      .maybeSingle();
+      .order('start_at', { ascending: false });
+
+    if (bookingsError) {
+      console.error('[business-api] Error fetching bookings:', bookingsError);
+    } else {
+      console.log(`[business-api] Fetched ${bookings?.length || 0} bookings for business ${businessId}`);
+    }
+
+    // Fetch booking payments
+    const bookingIds = (bookings || []).map((b: any) => b.id);
+    const { data: bookingPayments, error: paymentsError } = bookingIds.length > 0
+      ? await supabase
+          .from('booking_payments')
+          .select('*')
+          .in('booking_id', bookingIds)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: true })
+      : { data: [], error: null };
 
     // Build staff ID map for services
     const staffServiceMap: Record<string, string[]> = {};
@@ -148,6 +228,8 @@ export async function GET(
       policies: policies || null,
       notifications: notifications || [],
       giftCards: giftCards || null,
+      bookings: bookings || [],
+      bookingPayments: bookingPayments || [],
       location, // Include location data
       branding, // Include branding data
       website, // Include website config
@@ -160,6 +242,8 @@ export async function GET(
         policies: policiesError?.message,
         notifications: notificationsError?.message,
         giftCards: giftCardsError?.message,
+        bookings: bookingsError?.message,
+        payments: paymentsError?.message,
       }
     });
   } catch (error) {

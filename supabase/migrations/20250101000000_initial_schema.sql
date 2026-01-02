@@ -1,4 +1,4 @@
--- Tithi Database Schema - Initial Migration
+-- Revol Database Schema - Initial Migration
 -- This migration creates all tables, enums, indexes, and RLS policies
 -- Based on baseline-report.md and backend clarifications
 

@@ -54,3 +54,4 @@ SELECT
   ) as auth_users_table_exists;
 
 
+

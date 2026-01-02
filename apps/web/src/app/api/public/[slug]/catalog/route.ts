@@ -1,24 +1,37 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/db';
+import { resolveTenantSlug } from '@/lib/tenant-resolution';
+import { addCorsHeaders, handleOptions } from '@/lib/cors';
 
 /**
  * GET /api/public/{slug}/catalog
  * 
  * Returns business catalog (business info, categories, services, staff)
  * No authentication required - this is a public endpoint
+ * 
+ * Supports both:
+ * - Subdomain-based: {businessname}.main.tld → resolves from Host header
+ * - Path-based: /api/public/{slug}/catalog → resolves from URL parameter
  */
+export async function OPTIONS(request: NextRequest) {
+  return handleOptions(request) || new NextResponse(null, { status: 200 });
+}
+
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { slug: string } }
 ) {
   try {
-    const { slug } = params;
+    // Resolve tenant slug from Host header or URL parameter
+    const tenantSlug = resolveTenantSlug(request, params.slug);
 
-    if (!slug) {
-      return NextResponse.json(
+    if (!tenantSlug) {
+      const response = NextResponse.json(
         { error: 'Subdomain is required' },
         { status: 400 }
       );
+      return addCorsHeaders(response, request);
     }
 
     const supabase = createAdminClient(); // Use admin client for public read
@@ -27,7 +40,7 @@ export async function GET(
     const { data: business, error: businessError } = await supabase
       .from('businesses')
       .select('*')
-      .eq('subdomain', slug.toLowerCase())
+      .eq('subdomain', tenantSlug)
       .in('subscription_status', ['active', 'trial'])
       .is('deleted_at', null)
       .single();
@@ -92,6 +105,16 @@ export async function GET(
       console.log('[public-catalog] Could not fetch payment methods, using default (card)');
     }
 
+    // Get active business policies
+    const { data: policy } = await supabase
+      .from('business_policies')
+      .select('*')
+      .eq('business_id', business.id)
+      .eq('is_active', true)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     // Group services by category and attach staff
     const servicesByCategory = new Map<string, any[]>();
     services?.forEach(service => {
@@ -112,7 +135,7 @@ export async function GET(
       services: servicesByCategory.get(category.id) || [],
     })) || [];
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       business: {
         id: business.id,
         name: business.name,
@@ -128,13 +151,35 @@ export async function GET(
       categories: categoriesWithServices,
       staff: staff || [],
       acceptedPaymentMethods: acceptedMethods, // Include accepted payment methods
+      policies: policy ? {
+        cancellationPolicy: policy.cancellation_policy_text || '',
+        cancellationFeeType: policy.cancel_fee_type || 'flat',
+        cancellationFeeValue: policy.cancel_fee_amount_cents || policy.cancel_fee_percent || 0,
+        noShowPolicy: policy.no_show_policy_text || '',
+        noShowFeeType: policy.no_show_fee_type || 'flat',
+        noShowFeeValue: policy.no_show_fee_amount_cents || policy.no_show_fee_percent || 0,
+        refundPolicy: policy.refund_policy_text || '',
+        cashPolicy: policy.cash_policy_text || '',
+      } : {
+        cancellationPolicy: '',
+        cancellationFeeType: 'flat' as const,
+        cancellationFeeValue: 0,
+        noShowPolicy: '',
+        noShowFeeType: 'flat' as const,
+        noShowFeeValue: 0,
+        refundPolicy: '',
+        cashPolicy: '',
+      },
     });
+    
+    return addCorsHeaders(response, request);
   } catch (error) {
     console.error('Error in public catalog:', error);
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
+    return addCorsHeaders(response, request);
   }
 }
 

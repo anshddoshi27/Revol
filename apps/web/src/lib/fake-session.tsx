@@ -44,7 +44,7 @@ export function FakeSessionProvider({ children }: { children: React.ReactNode })
     login({
       id: "dev-user",
       name: "Dev Owner",
-      email: "owner@tithi.dev",
+      email: "owner@revol.dev",
       phone: "+1 (555) 010-0011"
     });
   }, [login]);

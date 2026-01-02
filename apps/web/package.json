@@ -1,7 +1,7 @@
 {
   "name": "web",
   "version": "1.0.0",
-  "description": "Tithi web frontend",
+  "description": "Revol web frontend",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {

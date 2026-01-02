@@ -103,8 +103,8 @@ export async function POST(
         ...customData.business,
       },
       booking_url: business?.subdomain
-        ? `https://${business.subdomain}.tithi.com/confirm/TITHI-12345678`
-        : 'https://test.tithi.com/confirm/TITHI-12345678',
+        ? `https://${business.subdomain}.main.tld/confirm/REVOL-12345678`
+        : 'https://test.main.tld/confirm/REVOL-12345678',
       ...customData,
     };
 

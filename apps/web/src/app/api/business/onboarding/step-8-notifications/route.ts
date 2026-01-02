@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/db';
 import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { NotificationTemplate } from '@/lib/onboarding-types';
+import { getEffectiveNotificationsEnabled } from '@/lib/feature-flags';
 
 /**
  * GET /api/business/onboarding/step-8-notifications
@@ -123,7 +124,15 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
-    const { templates, notifications_enabled } = body;
+    let { templates, notifications_enabled } = body;
+
+    // If notifications feature is disabled, force Basic Plan (notifications_enabled = false)
+    const notificationsFeatureEnabled = getEffectiveNotificationsEnabled();
+    if (!notificationsFeatureEnabled) {
+      console.log('[step-8-notifications] Notifications feature disabled - forcing Basic Plan');
+      notifications_enabled = false;
+      templates = []; // Clear any templates if feature is disabled
+    }
 
     // Log the received value for debugging
     console.log('[step-8-notifications] Received request body:', {
@@ -131,6 +140,7 @@ export async function PUT(request: Request) {
       notifications_enabled_type: typeof notifications_enabled,
       templates_count: Array.isArray(templates) ? templates.length : 'not an array',
       planType: notifications_enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      featureEnabled: notificationsFeatureEnabled,
     });
 
     if (!Array.isArray(templates)) {

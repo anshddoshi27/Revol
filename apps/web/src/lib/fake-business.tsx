@@ -452,7 +452,7 @@ export function FakeBusinessProvider({ children }: { children: React.ReactNode }
       overrides?: Partial<FakeBusiness>
     ) => {
       const slug = (overrides?.slug ?? seed.website.subdomain ?? "preview").toLowerCase();
-      const bookingUrl = overrides?.bookingUrl ?? `https://${slug}.tithi.com`;
+      const bookingUrl = overrides?.bookingUrl ?? `https://${slug}.main.tld`;
       const previewUrl = overrides?.previewUrl ?? `/public/${slug}`;
       const businessPayload: FakeBusiness = {
         id: overrides?.id ?? `biz_${slug}`,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -316,7 +317,7 @@ export function PublicBookingExperience({
       if (selectedService && selectedSlot) {
         const booking: FakeBooking = {
           id: createdBookingId,
-          code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+          code: createdBookingCode || `REVOL-${createdBookingId.slice(0, 8).toUpperCase()}`,
           status: 'pending',
           serviceId: selectedService.id,
           serviceName: selectedService.name,
@@ -395,23 +396,52 @@ export function PublicBookingExperience({
     setCreatedBooking(null);
   };
 
+  // Get branding from workspace
+  const branding = workspace.identity.branding;
+  const primaryColor = branding?.primaryColor || "#5B64FF";
+  const logoUrl = branding?.logoUrl;
+
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-black via-slate-950 to-[#0b0d1a] text-white">
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(91,100,255,0.25),_transparent_60%)]" />
+      <div 
+        className="absolute inset-0 -z-10"
+        style={{ background: `radial-gradient(circle at top, ${primaryColor}25, transparent 60%)` }}
+      />
       {step === "confirmation" ? <ConfettiOverlay /> : null}
       <header className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-4">
+            {/* Logo and Business Name */}
+            <div className="flex items-center gap-4">
+              {logoUrl ? (
+                <div
+                  className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/10"
+                  style={{ boxShadow: `0 8px 16px -8px ${primaryColor}55` }}
+                >
+                  <Image
+                    src={logoUrl}
+                    alt={`${workspace.identity.business.businessName} logo`}
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              ) : null}
+              <div className="flex-1">
+                <h1 className="font-display text-4xl sm:text-5xl">
+                  {workspace.identity.business.businessName}
+                </h1>
+                <p className="mt-1 text-sm text-white/60">
+                  {workspace.identity.business.description || "booking app for local businesses"}
+                </p>
+              </div>
+            </div>
             <Badge intent="info" className="w-fit">
               Manual capture — no charge at booking
             </Badge>
             <div>
-              <h1 className="font-display text-4xl sm:text-5xl">
-                Book {workspace.identity.business.businessName}
-              </h1>
               <p className="mt-2 max-w-2xl text-base text-white/70">
-                {workspace.identity.business.description ||
-                  "Select a service, choose the best time, and secure your appointment. Your card is stored securely and only charged after the visit or if a policy fee applies."}
+                Select a service, choose the best time, and secure your appointment. Your card is stored securely and only charged after the visit or if a policy fee applies.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-white/60">
@@ -456,13 +486,13 @@ export function PublicBookingExperience({
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-16 sm:px-6 lg:px-8">
-        <StepIndicator currentStep={step} onReset={handleResetFlow} />
+        <StepIndicator currentStep={step} onReset={handleResetFlow} primaryColor={primaryColor} />
 
         {step === "catalog" ? (
           <CatalogStep
             catalog={workspace.catalog}
             onSelectService={handleSelectService}
-            timezone={timezone}
+            primaryColor={primaryColor}
           />
         ) : null}
 
@@ -478,6 +508,7 @@ export function PublicBookingExperience({
             timezone={timezone}
             supportEmail={workspace.identity.location.supportEmail}
             isLoading={isLoadingAvailability}
+            primaryColor={primaryColor}
             error={availabilityError}
           />
         ) : null}
@@ -530,6 +561,7 @@ export function PublicBookingExperience({
             onSubmit={handleSubmitCheckout}
             onOpenPolicies={() => setIsPolicyModalOpen(true)}
             business={business}
+            primaryColor={primaryColor}
           />
         ) : null}
 
@@ -558,11 +590,12 @@ export function PublicBookingExperience({
 
 function CatalogStep({
   catalog,
-  onSelectService
+  onSelectService,
+  primaryColor
 }: {
   catalog: FakeBusinessWorkspace["catalog"];
   onSelectService: (serviceId: string) => void;
-  timezone: string;
+  primaryColor: string;
 }) {
   return (
     <section className="space-y-12">
@@ -599,7 +632,10 @@ function CatalogStep({
                   <span className="text-white/60">
                     Starting at <strong className="text-white">{formatCurrency(service.priceCents)}</strong>
                   </span>
-                  <span className="inline-flex items-center gap-2 text-primary group-hover:translate-x-1 transition">
+                  <span 
+                    className="inline-flex items-center gap-2 group-hover:translate-x-1 transition"
+                    style={{ color: primaryColor }}
+                  >
                     Select <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </span>
                 </div>
@@ -623,7 +659,8 @@ function AvailabilityStep({
   timezone,
   supportEmail,
   isLoading,
-  error
+  error,
+  primaryColor
 }: {
   service: {
     id: string;
@@ -643,6 +680,7 @@ function AvailabilityStep({
   supportEmail?: string;
   isLoading?: boolean;
   error?: string | null;
+  primaryColor: string;
 }) {
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
@@ -768,8 +806,8 @@ function AvailabilityStep({
           <p className="text-base">No availability found in the next two weeks.</p>
           <p className="mt-2 text-sm">
             Try selecting a different staff member or contact us at{" "}
-            <a href={`mailto:${supportEmail ?? "support@tithi.com"}`} className="underline">
-              {supportEmail ?? "support@tithi.com"}
+            <a href={`mailto:${supportEmail ?? "support@revol.com"}`} className="underline">
+              {supportEmail ?? "support@revol.com"}
             </a>
             .
           </p>
@@ -842,10 +880,20 @@ function AvailabilityStep({
                                       key={slot.id}
                                       type="button"
                                       onClick={() => onSelectSlot(slot)}
-                                      className="w-full rounded-lg border border-primary/40 bg-primary/20 px-2 py-1.5 text-left transition hover:border-primary/60 hover:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+                                      className="w-full rounded-lg px-2 py-1.5 text-left transition focus-visible:outline-none focus-visible:ring-2"
                                       style={{
-                                        borderColor: staffMember?.color ? `${staffMember.color}80` : undefined,
-                                        backgroundColor: staffMember?.color ? `${staffMember.color}20` : undefined,
+                                        borderColor: staffMember?.color ? `${staffMember.color}80` : `${primaryColor}66`,
+                                        backgroundColor: staffMember?.color ? `${staffMember.color}20` : `${primaryColor}20`,
+                                        borderWidth: '1px',
+                                        '--tw-ring-color': primaryColor,
+                                      } as React.CSSProperties}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.borderColor = staffMember?.color ? `${staffMember.color}99` : `${primaryColor}99`;
+                                        e.currentTarget.style.backgroundColor = staffMember?.color ? `${staffMember.color}30` : `${primaryColor}30`;
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.borderColor = staffMember?.color ? `${staffMember.color}80` : `${primaryColor}66`;
+                                        e.currentTarget.style.backgroundColor = staffMember?.color ? `${staffMember.color}20` : `${primaryColor}20`;
                                       }}
                                     >
                                       <p className="text-xs font-semibold text-white">
@@ -937,6 +985,7 @@ function CheckoutStep(props: {
   onSubmit: () => void;
   onOpenPolicies: () => void;
   business: FakeBusiness;
+  primaryColor: string;
 }) {
   const {
     service,
@@ -977,7 +1026,8 @@ function CheckoutStep(props: {
     isSubmitting,
     onSubmit,
     onOpenPolicies,
-    business
+    business,
+    primaryColor
   } = props;
 
   // Create SetupIntent when user has filled required fields so payment form appears immediately
@@ -1135,7 +1185,7 @@ function CheckoutStep(props: {
                   appearance: {
                     theme: 'night',
                     variables: {
-                      colorPrimary: '#5B64FF',
+                      colorPrimary: primaryColor,
                       colorBackground: '#000000',
                       colorText: '#ffffff',
                       colorDanger: '#ef4444',
@@ -1154,7 +1204,7 @@ function CheckoutStep(props: {
                     if (selectedService && selectedSlot && createdBookingId) {
                       const booking: FakeBooking = {
                         id: createdBookingId,
-                        code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+                        code: createdBookingCode || `REVOL-${createdBookingId.slice(0, 8).toUpperCase()}`,
                         status: 'pending',
                         serviceId: selectedService.id,
                         serviceName: selectedService.name,
@@ -1211,7 +1261,7 @@ function CheckoutStep(props: {
             </div>
           )}
           <HelperText className="mt-2">
-            You're authorizing a card on file. Per Tithi's manual capture rules, nothing is charged until
+            You're authorizing a card on file. Per Revol's manual capture rules, nothing is charged until
             your appointment is completed or a policy fee applies.
           </HelperText>
         </div>
@@ -1223,7 +1273,11 @@ function CheckoutStep(props: {
               type="checkbox"
               checked={consentChecked}
               onChange={(event) => setConsentChecked(event.target.checked)}
-              className="mt-1 h-5 w-5 rounded border-white/20 bg-black text-primary focus:ring-primary"
+              className="mt-1 h-5 w-5 rounded border-white/20 bg-black focus:ring-2"
+              style={{ 
+                accentColor: primaryColor,
+                '--tw-ring-color': primaryColor,
+              } as React.CSSProperties}
             />
             <label htmlFor="policy-consent" className="text-sm text-white/70">
               I agree to the cancellation, no-show, refund, and cash policies. My card is saved via Stripe
@@ -1231,7 +1285,8 @@ function CheckoutStep(props: {
               <button
                 type="button"
                 onClick={onOpenPolicies}
-                className="text-primary underline-offset-2 hover:underline"
+                className="underline-offset-2 hover:underline"
+                style={{ color: primaryColor }}
               >
                 View policies
               </button>
@@ -1393,12 +1448,16 @@ function ConfirmationStep({
         </div>
         <div className="rounded-3xl border border-emerald-400/40 bg-black/40 p-6 text-sm">
           <p className="text-emerald-200/90">Policies snapshot</p>
-          <ul className="mt-3 space-y-2 text-emerald-100/80">
-            <li>{policies.cancellationPolicy}</li>
-            <li>{policies.noShowPolicy}</li>
-            <li>{policies.refundPolicy}</li>
-            <li>{policies.cashPolicy}</li>
-          </ul>
+          {policies.cancellationPolicy || policies.noShowPolicy || policies.refundPolicy || policies.cashPolicy ? (
+            <ul className="mt-3 space-y-2 text-emerald-100/80">
+              {policies.cancellationPolicy ? <li>{policies.cancellationPolicy}</li> : null}
+              {policies.noShowPolicy ? <li>{policies.noShowPolicy}</li> : null}
+              {policies.refundPolicy ? <li>{policies.refundPolicy}</li> : null}
+              {policies.cashPolicy ? <li>{policies.cashPolicy}</li> : null}
+            </ul>
+          ) : (
+            <p className="mt-3 text-emerald-100/60">No policies configured for this business.</p>
+          )}
         </div>
       </div>
 
@@ -1465,7 +1524,7 @@ function PolicyModal({
   );
 }
 
-function StepIndicator({ currentStep, onReset }: { currentStep: Step; onReset: () => void }) {
+function StepIndicator({ currentStep, onReset, primaryColor }: { currentStep: Step; onReset: () => void; primaryColor: string }) {
   const steps: Array<{ id: Step; label: string }> = [
     { id: "catalog", label: "Service" },
     { id: "availability", label: "Time" },
@@ -1481,9 +1540,13 @@ function StepIndicator({ currentStep, onReset }: { currentStep: Step; onReset: (
               className={cn(
                 "inline-flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold",
                 currentStep === step.id
-                  ? "border-primary bg-primary/30 text-white"
+                  ? "text-white"
                   : "border-white/20 bg-white/10 text-white/50"
               )}
+              style={currentStep === step.id ? {
+                borderColor: primaryColor,
+                backgroundColor: `${primaryColor}30`,
+              } : undefined}
             >
               {index + 1}
             </span>
@@ -1763,7 +1826,7 @@ function StripePaymentForm({
         if (selectedService && selectedSlot && createdBookingId) {
           const booking: FakeBooking = {
             id: createdBookingId,
-            code: createdBookingCode || `TITHI-${createdBookingId.slice(0, 8).toUpperCase()}`,
+            code: createdBookingCode || `REVOL-${createdBookingId.slice(0, 8).toUpperCase()}`,
             status: 'pending',
             serviceId: selectedService.id,
             serviceName: selectedService.name,

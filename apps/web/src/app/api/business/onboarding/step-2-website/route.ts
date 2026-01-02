@@ -157,7 +157,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    const bookingUrl = `https://${normalizedSubdomain}.tithi.com`;
+    const bookingUrl = `https://${normalizedSubdomain}.main.tld`;
 
     return NextResponse.json({
       success: true,

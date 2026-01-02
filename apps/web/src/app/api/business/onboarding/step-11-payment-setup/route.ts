@@ -221,9 +221,9 @@ async function handlePaymentSetup(request: Request) {
               const { createServerClient } = await import('@/lib/db');
               const supabaseClient = await createServerClient();
               const { data: { user } } = await supabaseClient.auth.getUser();
-              userEmail = user?.email || `user-${userId}@tithi.com`;
+              userEmail = user?.email || `user-${userId}@revol.com`;
             } catch {
-              userEmail = `user-${userId}@tithi.com`;
+              userEmail = `user-${userId}@revol.com`;
             }
             
             const { error: createUserError } = await adminSupabase
@@ -350,13 +350,13 @@ async function handlePaymentSetup(request: Request) {
         } else {
           console.warn('[step-11-payment-setup] Could not get email from auth.getUser(), error:', userError);
           // Use a default email format as fallback (shouldn't happen in production)
-          userEmail = `user-${userId}@tithi.com`;
+          userEmail = `user-${userId}@revol.com`;
           console.log('[step-11-payment-setup] Using fallback email:', userEmail);
         }
       } catch (error) {
         console.error('[step-11-payment-setup] Error getting email:', error);
         // Use a default email format as fallback
-        userEmail = `user-${userId}@tithi.com`;
+        userEmail = `user-${userId}@revol.com`;
         console.log('[step-11-payment-setup] Using fallback email after error:', userEmail);
       }
     }

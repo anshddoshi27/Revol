@@ -426,7 +426,7 @@ export default function CalendarPage() {
         const newBooking: FakeBooking = {
           ...editingBooking,
           id: apiResponse.booking_id,
-          code: apiResponse.booking_code || `TITHI-${apiResponse.booking_id.slice(0, 8).toUpperCase()}`,
+          code: apiResponse.booking_code || `REVOL-${apiResponse.booking_id.slice(0, 8).toUpperCase()}`,
         };
 
         updateWorkspace((w) => ({

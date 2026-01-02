@@ -495,7 +495,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     const id = `biz_${crypto.randomUUID()}`;
     const fallbackSlug = createSubdomainFromName(business.businessName);
     const slug = normalizeSubdomain(website.subdomain, fallbackSlug);
-    const bookingUrl = `https://${slug}.tithi.com`;
+    const bookingUrl = `https://${slug}.main.tld`;
     const previewUrl = `/public/${slug}`;
     return {
       id,

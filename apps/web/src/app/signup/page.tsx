@@ -8,7 +8,7 @@ export default function SignupPage() {
       <header className="absolute left-1/2 top-10 w-full max-w-5xl -translate-x-1/2 px-6 sm:px-10">
         <nav className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5/50 px-6 py-4 backdrop-blur-lg">
           <Link href="/" className="font-display text-2xl text-white">
-            Tithi
+            Revol
           </Link>
           <Link
             href="/login"
@@ -22,7 +22,7 @@ export default function SignupPage() {
       <SignupForm />
 
       <footer className="mt-12 text-center text-xs text-white/40">
-        <p>© {new Date().getFullYear()} Tithi Corporation. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} Revol Corporation. All rights reserved.</p>
       </footer>
     </main>
   );

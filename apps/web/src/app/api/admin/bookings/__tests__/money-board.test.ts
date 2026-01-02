@@ -199,7 +199,7 @@ describe('Admin Past Bookings API', () => {
       expect(data.items).toHaveLength(1);
       expect(data.items[0]).toMatchObject({
         id: mockBookingId,
-        code: expect.stringMatching(/^TITHI-/),
+        code: expect.stringMatching(/^REVOL-/),
         status: 'pending',
         service: {
           name: 'Haircut',

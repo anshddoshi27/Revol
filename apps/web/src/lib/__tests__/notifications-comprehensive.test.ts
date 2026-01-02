@@ -1,5 +1,5 @@
 /**
- * Comprehensive unit tests for Tithi's notification system
+ * Comprehensive unit tests for Revol's notification system
  * 
  * Covers:
  * - Template engine (placeholder rendering, validation)
@@ -98,7 +98,7 @@ describe('Notification System - Comprehensive Tests', () => {
         subdomain: 'testsalon',
         timezone: 'America/New_York',
       },
-      booking_url: 'https://testsalon.tithi.com/confirm/TITHI-12345678',
+      booking_url: 'https://testsalon.revol.com/confirm/REVOL-12345678',
     };
 
     it('should replace all supported placeholders correctly', () => {
@@ -127,8 +127,8 @@ describe('Notification System - Comprehensive Tests', () => {
       expect(rendered).toContain('Test Salon');
       expect(rendered).toContain('+0987654321');
       expect(rendered).toContain('support@testsalon.com');
-      expect(rendered).toContain('TITHI-12345678');
-      expect(rendered).toContain('https://testsalon.tithi.com/confirm/TITHI-12345678');
+      expect(rendered).toContain('REVOL-12345678');
+      expect(rendered).toContain('https://testsalon.revol.com/confirm/REVOL-12345678');
 
       // Verify no placeholders remain
       expect(rendered).not.toMatch(/\$\{[^}]+\}/);
@@ -903,7 +903,7 @@ describe('Notification System - Comprehensive Tests', () => {
 
       expect(renderedBody).toContain('Jane Doe');
       expect(renderedBody).toContain('Haircut');
-      expect(renderedSubject).toContain('TITHI-BOOKING'); // Booking code is generated from booking.id
+      expect(renderedSubject).toContain('REVOL-BOOKING'); // Booking code is generated from booking.id
     });
 
     it('should handle preview with custom sample data', () => {

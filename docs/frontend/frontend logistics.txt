@@ -54,7 +54,7 @@ And then you finish filling in the availability for that service and you go to t
 And you have to do it for all of the services that are listed.
 And once you do that, then you go to the next step, which is notification templates.
 And this is where you create notifications.
-You create a template, you do the template name, a channel, which will be email, SMS or push.
+You create a template, you do the template name, a channel, which will be email (SMS and push will be added in future versions - v1.0 is email only).
 And then email subject, if it is an email, and then category, which will either be confirmation, reminder, follow up, cancellation or reschedule.
 And then.
 And then.
@@ -191,7 +191,7 @@ This selection sets the `notifications_enabled` flag in the businesses table, wh
 3. Whether the Notifications page is visible in the admin navigation (disabled/not visible for Basic plan users)
 
 If Pro Plan selected: make templates.
-pick channel (email, SMS, push), template name, category (confirmation, reminder, follow-up, cancellation, reschedule, completion), subject (if email), and the trigger (Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Rescheduled, Completed).
+pick channel (email only in v1.0 - SMS and push will be added in future versions), template name, category (confirmation, reminder, follow-up, cancellation, reschedule, completion), subject (if email), and the trigger (Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Rescheduled, Completed).
 
 we give you placeholders you can drop into the content: Customer Name, Service Name, Service Duration, Price, Booking Date, Booking Time, Business Name, Booking URL.
 these are dynamic at send time and always resolve to the correct data.
@@ -437,7 +437,7 @@ cache slot lists; invalidate on changes or new bookings.
 
 8) notifications (template logistics)
 
-channels: email, SMS, (push later).
+channels: email (v1.0), SMS and push will be added in future versions.
 
 triggers we support: Booking Created, Confirmed, 24h, 1h, Cancelled, Rescheduled, Completed, Fee Charged, Refunded, Payment Issue.
 
@@ -552,7 +552,7 @@ Update chip; disable button; toast success
 If action_required → show “Send Pay Link”
 
 Notifications
-Backend emits event → matches templates → merges placeholders → sends (email/SMS)
+Backend emits event → matches templates → merges placeholders → sends (email only in v1.0 - SMS will be added in future versions)
 frontend just gives you the editor + preview + enable/disable.
 
 tiny final gaps now closed
@@ -663,7 +663,7 @@ Redis for queues/cache.
 * **Queues/Jobs**: Celery/RQ (Python) or BullMQ (Node).
 Cron via service scheduler.
 
-* **Notifications**: SendGrid (email) + Twilio (SMS) adapters behind an internal interface.
+* **Notifications**: SendGrid (email) - SMS via Twilio will be added in future versions (v1.0 is email only).
 
 * **Infra**: Monorepo; Docker; Fly.
 io/Render/Heroku or k8s.
@@ -952,7 +952,7 @@ payments: Array<{ id: string; status: string; amount_authorized_cents?: number; 
 
 * Jobs: send notifications; update payment/booking state; collapse retries with exponential backoff.
 
-* **Reminders**: T‑24h email/SMS reminder; T‑2h SMS optional; daily digest to staff.
+* **Reminders**: T‑24h email reminder (SMS reminders will be added in future versions); daily digest to staff.
 
 * **Auth expiry**: Sweep `authorized` PIs near expiry; notify admin to mark complete or re‑authorize (policy: auto‑capture at end time if toggle on and service occurred).
 

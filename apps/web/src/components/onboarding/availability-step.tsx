@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, CalendarCheck2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CalendarCheck2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { HelperText } from "@/components/ui/helper-text";
@@ -57,11 +57,6 @@ export function AvailabilityStep({
     date: Date;
     hour: number;
   }>>([]);
-  const [addingAvailability, setAddingAvailability] = useState<{
-    date: Date;
-    hour: number;
-    minute: number;
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Get all services for dropdown
@@ -243,127 +238,80 @@ export function AvailabilityStep({
       return;
     }
     
-    // If a specific staff member is selected, add to pending directly
-    if (selectedStaffId !== "any") {
-      // Check if this slot is already pending
-      const alreadyPending = pendingAvailabilityAdditions.some(
+    const selectedService = allServices.find(s => s.id === selectedServiceId);
+    if (!selectedService) {
+      setError('Service not found');
+      return;
+    }
+    
+    // Get staff members assigned to this service
+    const serviceStaff = staff.filter(member => {
+      if (member.active === false) return false;
+      return selectedService.staffIds.includes(member.id);
+    });
+    
+    if (serviceStaff.length === 0) {
+      setError('No staff members assigned to this service');
+      return;
+    }
+    
+    // Determine which staff members to add/remove availability for
+    const staffToProcess = selectedStaffId !== "any" 
+      ? [serviceStaff.find(m => m.id === selectedStaffId)].filter(Boolean)
+      : serviceStaff;
+    
+    if (staffToProcess.length === 0) {
+      return;
+    }
+    
+    // Check if ALL selected staff already have this slot pending
+    const allPending = staffToProcess.every(member => 
+      pendingAvailabilityAdditions.some(
         (pending) =>
-          pending.staffId === selectedStaffId &&
+          pending.staffId === member.id &&
           pending.date.toDateString() === day.toDateString() &&
           pending.hour === hour
+      )
+    );
+    
+    if (allPending) {
+      // Remove for all selected staff (toggle off)
+      setPendingAvailabilityAdditions((prev) =>
+        prev.filter(
+          (pending) => {
+            const isSelectedStaff = staffToProcess.some(m => m.id === pending.staffId);
+            return !(isSelectedStaff &&
+              pending.date.toDateString() === day.toDateString() &&
+              pending.hour === hour);
+          }
+        )
       );
-      
-      if (alreadyPending) {
-        // Remove it if clicking again (toggle)
-        setPendingAvailabilityAdditions((prev) =>
-          prev.filter(
-            (pending) =>
-              !(pending.staffId === selectedStaffId &&
-                pending.date.toDateString() === day.toDateString() &&
-                pending.hour === hour)
-          )
-        );
-      } else {
-        // Add to pending
-        setPendingAvailabilityAdditions((prev) => [
-          ...prev,
-          { staffId: selectedStaffId, date: day, hour }
-        ]);
-      }
     } else {
-      // If "All Staff" is selected, check if there's only one staff member
-      const selectedService = allServices.find(s => s.id === selectedServiceId);
-      if (!selectedService) {
-        setError('Service not found');
-        return;
-      }
-      
-      // Get staff members assigned to this service
-      const serviceStaff = staff.filter(member => {
-        if (member.active === false) return false;
-        return selectedService.staffIds.includes(member.id);
-      });
-      
-      // If only one staff member, automatically add for that person
-      if (serviceStaff.length === 1) {
-        const singleStaffId = serviceStaff[0].id;
-        // Check if this slot is already pending
-        const alreadyPending = pendingAvailabilityAdditions.some(
-          (pending) =>
-            pending.staffId === singleStaffId &&
-            pending.date.toDateString() === day.toDateString() &&
-            pending.hour === hour
-        );
-        
-        if (alreadyPending) {
-          // Remove it if clicking again (toggle)
-          setPendingAvailabilityAdditions((prev) =>
-            prev.filter(
-              (pending) =>
-                !(pending.staffId === singleStaffId &&
-                  pending.date.toDateString() === day.toDateString() &&
-                  pending.hour === hour)
-            )
+      // Add for all selected staff (or just the one selected)
+      const newAdditions = staffToProcess
+        .filter(member => {
+          // Only add if not already pending
+          return !pendingAvailabilityAdditions.some(
+            (pending) =>
+              pending.staffId === member.id &&
+              pending.date.toDateString() === day.toDateString() &&
+              pending.hour === hour
           );
-        } else {
-          // Add to pending
-          setPendingAvailabilityAdditions((prev) => [
-            ...prev,
-            { staffId: singleStaffId, date: day, hour }
-          ]);
-        }
-      } else if (serviceStaff.length > 1) {
-        // Multiple staff members, show modal to pick
-        setAddingAvailability({ date: day, hour, minute: 0 });
-      } else {
-        // No staff members assigned to this service
-        setError('No staff members assigned to this service');
+        })
+        .map(member => ({
+          staffId: member.id,
+          date: day,
+          hour
+        }));
+      
+      if (newAdditions.length > 0) {
+        setPendingAvailabilityAdditions((prev) => [...prev, ...newAdditions]);
       }
     }
     
     setError(null);
   };
 
-  const handleAddAvailabilityForStaff = (staffId: string, date?: Date, hour?: number) => {
-    if (!selectedServiceId) return;
-    
-    // Use provided date/hour or from addingAvailability state
-    const targetDate = date || addingAvailability?.date;
-    const targetHour = hour !== undefined ? hour : addingAvailability?.hour;
-    
-    if (!targetDate || targetHour === undefined) return;
-
-    // Check if this slot is already pending
-    const alreadyPending = pendingAvailabilityAdditions.some(
-      (pending) =>
-        pending.staffId === staffId &&
-        pending.date.toDateString() === targetDate.toDateString() &&
-        pending.hour === targetHour
-    );
-    
-    if (alreadyPending) {
-      // Remove it if clicking again (toggle)
-      setPendingAvailabilityAdditions((prev) =>
-        prev.filter(
-          (pending) =>
-            !(pending.staffId === staffId &&
-              pending.date.toDateString() === targetDate.toDateString() &&
-              pending.hour === targetHour)
-        )
-      );
-    } else {
-      // Add to pending
-      setPendingAvailabilityAdditions((prev) => [
-        ...prev,
-        { staffId, date: targetDate, hour: targetHour }
-      ]);
-    }
-
-    // Close modal if it was open
-    if (addingAvailability) {
-      setAddingAvailability(null);
-    }
-  };
 
   const handleSaveAvailability = async (): Promise<boolean> => {
     if (!selectedServiceId || pendingAvailabilityAdditions.length === 0) return true;
@@ -935,157 +883,8 @@ export function AvailabilityStep({
         <TestDataButton onClick={handleFillTestData} />
       </div>
 
-      {/* Add Availability Modal */}
-      {addingAvailability && (
-        <AddAvailabilityModal
-          date={addingAvailability.date}
-          hour={addingAvailability.hour}
-          service={selectedService}
-          staff={staff.filter(member => {
-            if (member.active === false) return false;
-            // Only show staff assigned to this service
-            if (selectedService) {
-              return selectedService.staffIds.includes(member.id);
-            }
-            return true;
-          })}
-          onSelectStaff={handleAddAvailabilityForStaff}
-          onCancel={() => setAddingAvailability(null)}
-          isSaving={isSavingAvailability}
-          timezone={timezone}
-        />
-      )}
 
       <StepActions onBack={onBack} onNext={handleContinue} />
-    </div>
-  );
-}
-
-function AddAvailabilityModal({
-  date,
-  hour,
-  service,
-  staff,
-  onSelectStaff,
-  onCancel,
-  isSaving,
-  timezone
-}: {
-  date: Date;
-  hour: number;
-  service: { id: string; name: string; durationMinutes: number; categoryName?: string } | undefined;
-  staff: StaffMember[];
-  onSelectStaff: (staffId: string) => void;
-  onCancel: () => void;
-  isSaving: boolean;
-  timezone: string;
-}) {
-  if (!service) return null;
-
-  // Calculate end time
-  const startMinutes = hour * 60;
-  const endMinutes = startMinutes + service.durationMinutes;
-  const endHour = Math.floor(endMinutes / 60);
-  const endMin = endMinutes % 60;
-  const startTimeStr = `${String(hour).padStart(2, '0')}:00`;
-  const endTimeStr = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-8">
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-black/90 p-8 shadow-[0_60px_160px_rgba(4,12,35,0.7)]">
-        <button
-          type="button"
-          className="absolute right-6 top-6 rounded-full border border-white/20 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 transition hover:text-white"
-          onClick={onCancel}
-          disabled={isSaving}
-        >
-          <X className="h-4 w-4" />
-        </button>
-
-        <header className="space-y-2 pr-16">
-          <h2 className="font-display text-3xl text-white">Add Availability</h2>
-          <p className="text-sm text-white/60">
-            Select a staff member to add availability for this time slot.
-          </p>
-        </header>
-
-        <div className="mt-8 space-y-6">
-          {/* Service Info */}
-          <div className="rounded-2xl border border-white/10 bg-black/70 p-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-white/50 mb-4">
-              Service
-            </h3>
-            <div className="space-y-2">
-              <p className="text-white font-semibold">{service.name}</p>
-              <p className="text-sm text-white/70">{service.durationMinutes} minutes</p>
-            </div>
-          </div>
-
-          {/* Time Slot Info */}
-          <div className="rounded-2xl border border-white/10 bg-black/70 p-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-white/50 mb-4">
-              Time Slot
-            </h3>
-            <div className="space-y-2">
-              <p className="text-white">
-                {formatInTimeZone(date, timezone, {
-                  weekday: "long",
-                  month: "short",
-                  day: "numeric"
-                })}
-              </p>
-              <p className="text-white">
-                {startTimeStr} - {endTimeStr}
-              </p>
-            </div>
-          </div>
-
-          {/* Staff Selection */}
-          <div>
-            <Label className="text-white/70 mb-2 block">Select Staff Member</Label>
-            <div className="space-y-2">
-              {staff.length === 0 ? (
-                <p className="text-sm text-white/60">No staff members available</p>
-              ) : (
-                staff.map((member) => (
-                  <button
-                    key={member.id}
-                    type="button"
-                    onClick={() => onSelectStaff(member.id)}
-                    disabled={isSaving}
-                    className="w-full rounded-2xl border border-white/15 bg-[#050F2C]/60 px-4 py-3 text-left transition hover:border-primary hover:bg-primary/10 focus:border-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{
-                      borderColor: member.color ? `${member.color}80` : undefined,
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      {member.color && (
-                        <div
-                          className="h-4 w-4 rounded-full"
-                          style={{ backgroundColor: member.color }}
-                        />
-                      )}
-                      <div>
-                        <p className="text-sm font-semibold text-white">{member.name}</p>
-                        {member.role && (
-                          <p className="text-xs text-white/60">{member.role}</p>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="mt-8 flex items-center justify-end gap-3">
-          <Button variant="ghost" onClick={onCancel} disabled={isSaving}>
-            Cancel
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

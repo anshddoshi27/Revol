@@ -14,7 +14,7 @@ config({ path: resolve(__dirname, '../.env.local') });
 import { createAdminClient } from '../src/lib/db';
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || 'test@tithi.dev';
+const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || 'test@revol.dev';
 const TEST_USER_PASSWORD = process.env.TEST_USER_PASSWORD || 'testpassword123';
 
 interface TestResult {

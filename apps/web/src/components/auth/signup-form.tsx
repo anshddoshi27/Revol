@@ -171,7 +171,7 @@ export function SignupForm() {
           Step 0 · Account setup
         </Badge>
         <h1 className="font-display text-4xl text-white">
-          Create your Tithi owner account
+          Create your Revol owner account
         </h1>
         <p className="text-base text-white/60">
           This sets up your admin access. You’ll configure your business, services, and
@@ -453,7 +453,7 @@ export function SignupForm() {
       </form>
 
       <div className="mt-8 flex items-center justify-between text-sm text-white/60">
-        <span>By continuing you agree to the Tithi Terms & Privacy.</span>
+        <span>By continuing you agree to the Revol Terms & Privacy.</span>
         <button
           type="button"
           onClick={() => router.push("/login")}

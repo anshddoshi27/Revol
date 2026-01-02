@@ -60,7 +60,7 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
     // Trigger validation by setting status
     setTimeout(() => {
       setStatus("reserved");
-      setMessage(`Great! ${testData.subdomain}.tithi.com is available and held for the next session.`);
+      setMessage(`Great! ${testData.subdomain}.main.tld is available and held for the next session.`);
     }, 100);
   };
 
@@ -85,7 +85,7 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
         setMessage("This subdomain is reserved. Try another option.");
       } else {
         setStatus("reserved");
-        setMessage(`Great! ${normalized}.tithi.com is available and held for the next session.`);
+        setMessage(`Great! ${normalized}.main.tld is available and held for the next session.`);
       }
       setIsChecking(false);
     }, 650);
@@ -97,8 +97,8 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
   }, [subdomain]);
 
   const bookingPreview = useMemo(() => {
-    if (!subdomain) return "https://yourbusiness.tithi.com";
-    return `https://${subdomain.toLowerCase()}.tithi.com`;
+    if (!subdomain) return "https://yourbusiness.main.tld";
+    return `https://${subdomain.toLowerCase()}.main.tld`;
   }, [subdomain]);
 
   const handleContinue = (values: WebsiteFormValues) => {
@@ -155,7 +155,7 @@ export function WebsiteStep({ defaultValues, onNext, onBack }: WebsiteStepProps)
               />
             </div>
             <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
-              .tithi.com
+              .main.tld
             </span>
           </div>
           <HelperText

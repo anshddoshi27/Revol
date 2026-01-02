@@ -15,8 +15,8 @@ import { createClientClient } from "@/lib/supabase-client";
 import { loginSchema, type LoginFormValues } from "@/lib/validators";
 
 const passwordHint = "Use 8+ characters and include at least one special character.";
-const DEV_EMAIL = "owner@tithi.dev";
-const DEV_PASSWORD = "Ready4Tithi!";
+const DEV_EMAIL = "owner@revol.dev";
+const DEV_PASSWORD = "Ready4Revol!";
 
 export function LoginForm() {
   const router = useRouter();
@@ -256,7 +256,7 @@ export function LoginForm() {
           Owner Access
         </Badge>
         <h1 className="font-display text-4xl tracking-tight text-white">
-          Welcome back to Tithi
+          Welcome back to Revol
         </h1>
         <p className="mt-3 text-base text-white/60">
           Log in to manage your businesses, update onboarding steps, and control how payments

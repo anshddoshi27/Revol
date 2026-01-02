@@ -71,7 +71,7 @@ describe('Notification Template Engine', () => {
         subdomain: 'testsalon',
         timezone: 'America/New_York',
       },
-      booking_url: 'https://testsalon.tithi.com/confirm/TITHI-12345678',
+      booking_url: 'https://testsalon.revol.com/confirm/REVOL-12345678',
     };
 
     it('should replace customer placeholders', () => {
@@ -103,8 +103,8 @@ describe('Notification Template Engine', () => {
       const template = 'Booking ${booking.code} on ${booking.date} at ${booking.time} for ${booking.amount}';
       const rendered = renderTemplate(template, mockData, 'America/New_York');
 
-      // Booking code is generated from booking.id (first 8 chars) - 'booking-123' -> 'TITHI-BOOKING'
-      expect(rendered).toContain('TITHI-BOOKING');
+      // Booking code is generated from booking.id (first 8 chars) - 'booking-123' -> 'REVOL-BOOKING'
+      expect(rendered).toContain('REVOL-BOOKING');
       expect(rendered).toContain('$80.00'); // Uses final_price_cents
     });
 
@@ -121,7 +121,7 @@ describe('Notification Template Engine', () => {
       const template = 'View booking: ${booking.url}';
       const rendered = renderTemplate(template, mockData);
 
-      expect(rendered).toContain('https://testsalon.tithi.com/confirm/TITHI-12345678');
+      expect(rendered).toContain('https://testsalon.revol.com/confirm/REVOL-12345678');
     });
 
     it('should generate booking URL if not provided', () => {
@@ -132,7 +132,7 @@ describe('Notification Template Engine', () => {
       const rendered = renderTemplate(template, dataWithoutUrl);
 
       // URL is generated from booking.id (first 8 chars) - actual format may vary
-      expect(rendered).toContain('https://testsalon.tithi.com/confirm/TITHI-');
+      expect(rendered).toContain('https://testsalon.revol.com/confirm/REVOL-');
     });
 
     it('should handle multiple occurrences of same placeholder', () => {

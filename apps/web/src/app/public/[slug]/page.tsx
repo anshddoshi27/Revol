@@ -31,6 +31,16 @@ interface CatalogData {
   categories: any[];
   staff: any[];
   acceptedPaymentMethods?: string[];
+  policies?: {
+    cancellationPolicy: string;
+    cancellationFeeType: 'flat' | 'percent';
+    cancellationFeeValue: number;
+    noShowPolicy: string;
+    noShowFeeType: 'flat' | 'percent';
+    noShowFeeValue: number;
+    refundPolicy: string;
+    cashPolicy: string;
+  };
 }
 
 export default function PublicBookingPage({ params }: PublicBookingPageProps) {
@@ -171,7 +181,7 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
         country: "",
       },
       branding: {
-        primaryColor: catalogData.business.brand_primary_color || "#000000",
+        primaryColor: catalogData.business.brand_primary_color || "#5B64FF",
         logoUrl: catalogData.business.logo_url,
         logoName: undefined,
         recommendedDimensions: {
@@ -189,7 +199,7 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
     availability: [],
     availabilityTemplates: [],
     notifications: [],
-    policies: {
+    policies: catalogData.policies || {
       cancellationPolicy: "",
       cancellationFeeType: "flat" as const,
       cancellationFeeValue: 0,
@@ -281,7 +291,7 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
       // Transform API response to match FakeBooking format expected by frontend
       return {
         id: apiResponse.booking_id,
-        code: apiResponse.booking_code || `TITHI-${apiResponse.booking_id?.slice(0, 8).toUpperCase()}`,
+        code: apiResponse.booking_code || `REVOL-${apiResponse.booking_id?.slice(0, 8).toUpperCase()}`,
         status: 'pending',
         serviceId: payload.serviceId,
         serviceName: '', // Will be set by frontend from selectedService
@@ -346,7 +356,7 @@ function StatusScreen({
         <p className="mt-3 text-sm text-white/60">{description}</p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Button asChild variant="outline" className="border-white/20 text-white/70 hover:text-white">
-            <Link href="/">Return to Tithi</Link>
+            <Link href="/">Return to Revol</Link>
           </Button>
         </div>
       </div>

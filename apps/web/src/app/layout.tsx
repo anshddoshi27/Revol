@@ -7,22 +7,22 @@ import { fontDisplay, fontSans } from "@/styles/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tithi — Transform Your Booking Experience",
+  title: "Revol — Transform Your Booking Experience",
   description:
-    "Tithi modernizes booking operations for service businesses with precise control, seamless scheduling, and Stripe-ready payments.",
+    "Revol modernizes booking operations for service businesses with precise control, seamless scheduling, and Stripe-ready payments.",
   icons: {
     icon: "/icons/favicon.svg"
   },
   openGraph: {
-    title: "Tithi",
+    title: "Revol",
     description:
       "Transform your booking process with our revolutionary platform.",
-    url: "https://tithi.com",
-    siteName: "Tithi"
+    url: "https://revol.com",
+    siteName: "Revol"
   },
   twitter: {
     card: "summary_large_image",
-    title: "Tithi",
+    title: "Revol",
     description:
       "Transform your booking process with our revolutionary platform."
   }

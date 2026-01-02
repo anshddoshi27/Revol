@@ -55,7 +55,7 @@ export default function PastBookingsPage() {
           <div className="rounded-3xl border border-white/15 bg-white/5 px-6 py-4 text-sm text-white/70">
             <p className="font-semibold text-white">Manual capture rule</p>
             <p className="mt-1">
-              Tithi never charges at booking time. Money moves only after you press one of the four
+              Revol never charges at booking time. Money moves only after you press one of the four
               buttons. Every action is idempotent and writes to the ledger for audit parity once the
               backend is wired.
             </p>
@@ -76,7 +76,7 @@ export default function PastBookingsPage() {
               <h2 className="text-xl font-semibold text-white">Live bookings ledger</h2>
               <p className="text-sm text-white/60">
                 Buttons align with Stripe Connect flows — capture the original authorization, charge
-                policy fees, or issue refunds. Tithi auto-calculates the 1% platform fee and Stripe
+                policy fees, or issue refunds. Revol auto-calculates the 1% platform fee and Stripe
                 estimate so you always know the net payout.
               </p>
             </div>

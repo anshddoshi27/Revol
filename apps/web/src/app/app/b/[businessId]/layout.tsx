@@ -25,6 +25,7 @@ import { deriveCustomersFromBookings, recomputeAnalytics, type FakeBooking, type
 import type { ServiceCategory, StaffMember } from "@/lib/onboarding-types";
 // Removed DEV_WORKSPACE_SEED import - we use ONLY user data, no seed data
 import type { User } from "@supabase/supabase-js";
+import { isNotificationsEnabled } from "@/lib/feature-flags";
 
 const NAV_ITEMS = [
   {
@@ -105,6 +106,228 @@ export default function AdminBusinessLayout({
   const [error, setError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const supabase = createClientClient();
+
+  // Function to refresh bookings only (for auto-refresh polling)
+  const refreshBookingsOnly = async () => {
+    if (!realBusiness?.id || !user || !workspace) return;
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const response = await fetch(`/api/business/${realBusiness.id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const apiData = await response.json();
+        const bookings = apiData.bookings || [];
+        const bookingPayments = apiData.bookingPayments || [];
+        const catalog = workspace?.catalog || [];
+        const staff = workspace?.staff || [];
+
+        // Always update, even if bookings array is empty
+        const transformedBookings = transformBookingsFromAPI(
+          bookings,
+          bookingPayments,
+          catalog,
+          staff
+        );
+
+        // Update workspace with fresh bookings
+        updateWorkspace((existing) => {
+          const updatedCustomers = deriveCustomersFromBookings(transformedBookings);
+          const updatedAnalytics = recomputeAnalytics(transformedBookings);
+          
+          console.log('[layout] Auto-refreshed bookings:', {
+            bookingsCount: transformedBookings.length,
+            customersCount: updatedCustomers.length,
+          });
+          
+          return {
+            ...existing,
+            bookings: transformedBookings,
+            customers: updatedCustomers,
+            analytics: updatedAnalytics,
+          };
+        });
+      }
+    } catch (error) {
+      console.error('[layout] Error refreshing bookings:', error);
+    }
+  };
+
+  // Function to load business data (extracted for reuse) - NOT USED, kept for reference
+  const loadBusinessData_UNUSED = async (businessData: any, currentUser: User) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('No session token');
+      }
+
+      const response = await fetch(`/api/business/${businessData.id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const apiData = await response.json();
+        console.log('[layout] Real business data loaded from database:', {
+          business: apiData.business?.name,
+          businessId: apiData.business?.id,
+          services: apiData.services?.length || 0,
+          bookings: apiData.bookings?.length || 0,
+          staff: apiData.staff?.length || 0,
+        });
+
+        // Transform and populate workspace (same logic as before)
+        if (!apiData.business) {
+          console.error('[layout] No business data in API response:', apiData);
+          throw new Error('Business data not found in API response');
+        }
+
+        if (apiData.business) {
+          // Create business object
+          const transformedBusiness = {
+            id: apiData.business.id,
+            name: apiData.business.name,
+            slug: apiData.business.subdomain || apiData.business.id,
+            bookingUrl: `https://${apiData.business.subdomain}.main.tld`,
+            previewUrl: `/public/${apiData.business.subdomain}`,
+            status: (apiData.business.subscription_status as "trial" | "active" | "paused" | "canceled") || "trial",
+            createdAt: apiData.business.created_at,
+            trialEndsAt: apiData.business.trial_ends_at,
+            nextBillDate: apiData.business.next_bill_at,
+          };
+
+          // Transform services into catalog format
+          const categoriesMap = new Map();
+          if (apiData.categories && apiData.categories.length > 0) {
+            apiData.categories.forEach((cat: any) => {
+              categoriesMap.set(cat.id, {
+                id: cat.id,
+                name: cat.name,
+                description: cat.description || '',
+                color: cat.color || '#5B64FF',
+                services: [],
+              });
+            });
+          }
+
+          // Group services by category
+          (apiData.services || []).forEach((service: any) => {
+            const categoryId = service.category_id || 'uncategorized';
+            if (!categoriesMap.has(categoryId)) {
+              categoriesMap.set(categoryId, {
+                id: categoryId,
+                name: 'Uncategorized',
+                description: '',
+                color: '#5B64FF',
+                services: [],
+              });
+            }
+            const staffIds = apiData.staffServiceMap?.[service.id] || [];
+            categoriesMap.get(categoryId).services.push({
+              id: service.id,
+              name: service.name,
+              description: service.description || '',
+              durationMin: service.duration_min || 60,
+              priceCents: service.price_cents || 0,
+              staffIds: staffIds,
+            });
+          });
+
+          const catalog = Array.from(categoriesMap.values());
+
+          // Transform staff
+          const staff = (apiData.staff || []).map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            email: s.email || '',
+            phone: s.phone || '',
+            color: s.color || '#5B64FF',
+            role: s.role || 'staff',
+          }));
+
+          // Transform bookings
+          const bookings: FakeBooking[] = (apiData.bookings || []).map((b: any) => ({
+            id: b.id,
+            serviceId: b.service_id,
+            staffId: b.staff_id,
+            customerId: b.customer_id,
+            startAt: b.start_at,
+            endAt: b.end_at,
+            status: b.status || 'confirmed',
+            priceCents: b.price_cents || 0,
+            finalPriceCents: b.final_price_cents || b.price_cents || 0,
+            createdAt: b.created_at,
+          }));
+
+          // Transform customers
+          const customers: FakeCustomer[] = (apiData.customers || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone || '',
+            createdAt: c.created_at,
+          }));
+
+          // Transform payments
+          const payments: FakePayment[] = (apiData.bookingPayments || []).map((p: any) => ({
+            id: p.id,
+            bookingId: p.booking_id,
+            amountCents: p.amount_cents || 0,
+            moneyAction: p.money_action || 'charge',
+            createdAt: p.created_at,
+          }));
+
+          // Update workspace with fresh data
+          updateWorkspace((existing) => ({
+            ...existing,
+            business: transformedBusiness,
+            catalog,
+            staff,
+            bookings,
+            customers,
+            payments,
+            availability: apiData.availability || [],
+            policies: apiData.policies || null,
+            giftCards: apiData.giftCards || [],
+            notificationTemplates: (apiData.notifications || []).map((nt: any) => ({
+              id: nt.id || `notif_${Date.now()}`,
+              name: nt.name || '',
+              channel: (nt.channel || 'email') as 'email' | 'sms',
+              category: nt.category || 'confirmation',
+              trigger: nt.trigger || 'booking_created',
+              subject: nt.subject || '',
+              body: nt.body_markdown || nt.body || '',
+              enabled: nt.is_enabled !== false,
+            })),
+          }));
+
+          setLoading(false);
+          setError(null);
+        }
+      } else {
+        const errorText = await response.text();
+        throw new Error(`Failed to load business data: ${response.status} ${errorText}`);
+      }
+    } catch (error: any) {
+      console.error('[layout] Error loading business data:', error);
+      const errorMessage = error?.message || 'Unknown error';
+      setError(`Error loading business data: ${errorMessage}. Please try refreshing the page.`);
+      setLoading(false);
+    }
+  };
 
   // Check authentication and fetch business
   useEffect(() => {
@@ -273,7 +496,7 @@ export default function AdminBusinessLayout({
                 id: apiData.business.id,
                 name: apiData.business.name,
                 slug: apiData.business.subdomain || apiData.business.id,
-                bookingUrl: `https://${apiData.business.subdomain}.tithi.com`,
+                bookingUrl: `https://${apiData.business.subdomain}.main.tld`,
                 previewUrl: `/public/${apiData.business.subdomain}`,
                 status: (apiData.business.subscription_status as "trial" | "active" | "paused" | "canceled") || "trial",
                 createdAt: apiData.business.created_at,
@@ -592,6 +815,10 @@ export default function AdminBusinessLayout({
                   } else {
                     console.log('[layout] No bookings found in API response');
                   }
+                  
+                  // Set loading to false after workspace is successfully created
+                  setLoading(false);
+                  setError(null);
                 } else {
                   console.warn('[layout] Workspace creation returned undefined');
                   throw new Error('Workspace creation returned undefined');
@@ -627,8 +854,6 @@ export default function AdminBusinessLayout({
           setLoading(false);
           return;
         }
-        
-        setLoading(false);
       } catch (error) {
         if (cancelled) return;
         console.error('Auth check error:', error);
@@ -682,11 +907,100 @@ export default function AdminBusinessLayout({
     }
   }, [realBusiness?.id, supabase]);
 
+  // Auto-refresh bookings data (polling every 15 seconds and on window focus)
+  useEffect(() => {
+    if (!realBusiness?.id || !user || !workspace) return;
+
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const refreshBookings = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        const response = await fetch(`/api/business/${realBusiness.id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const apiData = await response.json();
+          const bookings = apiData.bookings || [];
+          const bookingPayments = apiData.bookingPayments || [];
+          const catalog = workspace?.catalog || [];
+          const staff = workspace?.staff || [];
+
+          // Always update, even if bookings array is empty
+          const transformedBookings = transformBookingsFromAPI(
+            bookings,
+            bookingPayments,
+            catalog,
+            staff
+          );
+
+          // Update workspace with fresh bookings
+          updateWorkspace((existing) => {
+            const updatedCustomers = deriveCustomersFromBookings(transformedBookings);
+            const updatedAnalytics = recomputeAnalytics(transformedBookings);
+            
+            console.log('[layout] Auto-refreshed bookings:', {
+              bookingsCount: transformedBookings.length,
+              customersCount: updatedCustomers.length,
+            });
+            
+            return {
+              ...existing,
+              bookings: transformedBookings,
+              customers: updatedCustomers,
+              analytics: updatedAnalytics,
+            };
+          });
+        }
+      } catch (error) {
+        console.error('[layout] Error refreshing bookings:', error);
+      }
+    };
+
+    // Poll every 15 seconds for new bookings
+    intervalId = setInterval(() => {
+      console.log('[layout] Auto-refreshing bookings...');
+      refreshBookingsOnly();
+    }, 15000);
+
+    // Also refresh when window regains focus
+    const handleFocus = () => {
+      console.log('[layout] Window focused, refreshing bookings...');
+      refreshBookingsOnly();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [realBusiness?.id, user, workspace, supabase, updateWorkspace]);
+
   const visibleNavItems = useMemo(() => {
-    // Hide notifications page for Basic Plan (notifications_enabled = false)
+    // Always show notifications page (it will show "Coming Soon" when disabled)
+    // Only hide if Basic Plan AND feature is enabled (Pro Plan users see it)
+    const notificationsFeatureEnabled = isNotificationsEnabled();
+    
     return NAV_ITEMS.filter(item => {
-      if (item.segment === "notifications" && notificationsEnabled === false) {
-        return false;
+      if (item.segment === "notifications") {
+        // If feature is disabled, always show (will display "Coming Soon")
+        if (!notificationsFeatureEnabled) {
+          return true; // Show page with "Coming Soon" message
+        }
+        // If feature is enabled, hide for Basic Plan users only
+        if (notificationsEnabled === false) {
+          return false; // Hide for Basic Plan when feature is enabled
+        }
       }
       return true;
     });
@@ -696,7 +1010,7 @@ export default function AdminBusinessLayout({
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="space-y-4 text-center text-white/60">
-          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
+          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Revol Admin</p>
           <p className="font-display text-2xl text-white">Preparing your workspace…</p>
         </div>
       </div>
@@ -707,7 +1021,7 @@ export default function AdminBusinessLayout({
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="space-y-4 text-center text-white/60">
-          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
+          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Revol Admin</p>
           <p className="font-display text-2xl text-white">Error loading business</p>
           <p className="text-sm text-rose-400">{error}</p>
           <Button onClick={() => router.push("/login")} variant="outline" className="mt-4">
@@ -730,7 +1044,7 @@ export default function AdminBusinessLayout({
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="space-y-4 text-center text-white/60">
-          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Tithi Admin</p>
+          <p className="text-sm uppercase tracking-[0.35em] text-white/40">Revol Admin</p>
           <p className="font-display text-2xl text-white">Loading workspace data…</p>
           <p className="text-sm text-white/40">Business: {realBusiness.name}</p>
         </div>
@@ -740,7 +1054,7 @@ export default function AdminBusinessLayout({
 
   const displayBookingUrl =
     workspace.identity.website.subdomain.length > 0
-      ? `https://${workspace.identity.website.subdomain}.tithi.com`
+      ? `https://${workspace.identity.website.subdomain}.main.tld`
       : business.bookingUrl;
   const previewUrl = business.previewUrl ?? `/public/${business.slug}`;
 
@@ -756,7 +1070,7 @@ export default function AdminBusinessLayout({
     <div className="flex min-h-screen bg-black text-white">
       <aside className="hidden min-w-[260px] border-r border-white/10 bg-black/80 backdrop-blur lg:flex lg:flex-col">
         <header className="border-b border-white/10 px-6 py-6">
-          <p className="text-xs uppercase tracking-[0.3em] text-white/40">Tithi Admin</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/40">Revol Admin</p>
           <h1 className="mt-2 font-display text-xl text-white">{workspace.identity.business.businessName}</h1>
           <p className="mt-2 text-xs text-white/50">
             Manual capture only. Money moves when you press the buttons.
@@ -809,7 +1123,7 @@ export default function AdminBusinessLayout({
           <div className="flex items-center justify-between px-4 py-4 sm:px-8">
             <div className="flex items-center gap-4">
               <div className="lg:hidden">
-                <p className="text-xs uppercase tracking-[0.3em] text-white/40">Tithi Admin</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-white/40">Revol Admin</p>
                 <h1 className="font-display text-lg text-white">
                   {workspace.identity.business.businessName}
                 </h1>
@@ -933,7 +1247,7 @@ function transformBookingsFromAPI(
     const netPayoutCents = Math.max(capturedAmount - platformFeeCents - stripeFeeEstimateCents, 0);
 
     // Generate booking code
-    const bookingCode = `TITHI-${booking.id.slice(0, 8).toUpperCase()}`;
+    const bookingCode = `REVOL-${booking.id.slice(0, 8).toUpperCase()}`;
 
     // Determine booking status
     let status: FakeBooking['status'] = 'pending';

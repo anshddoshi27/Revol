@@ -29,7 +29,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
 // Test user credentials (will be created)
-const TEST_USER_EMAIL = `test-${Date.now()}@tithi-test.com`;
+const TEST_USER_EMAIL = `test-${Date.now()}@revol-test.com`;
 const TEST_USER_PASSWORD = 'TestPassword123!';
 const TEST_USER_NAME = 'Test User';
 const TEST_BUSINESS_NAME = `Test Business ${Date.now()}`;

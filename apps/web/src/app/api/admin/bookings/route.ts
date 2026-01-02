@@ -118,8 +118,8 @@ export async function GET(request: Request) {
 
     // Transform for response - matches spec from backend clarifications
     const transformedItems = items.map((booking: any) => {
-      // Generate booking code (format: TITHI-{first8chars})
-      const bookingCode = `TITHI-${booking.id.slice(0, 8).toUpperCase()}`;
+      // Generate booking code (format: REVOL-{first8chars})
+      const bookingCode = `REVOL-${booking.id.slice(0, 8).toUpperCase()}`;
 
       return {
         id: booking.id,

@@ -8,7 +8,7 @@
  *   npx tsx scripts/fix-business-user.ts <user-email>
  * 
  * Example:
- *   npx tsx scripts/fix-business-user.ts demo@tithi.dev
+ *   npx tsx scripts/fix-business-user.ts demo@revol.dev
  */
 
 // Load environment variables
@@ -101,7 +101,7 @@ const email = process.argv[2];
 
 if (!email) {
   console.error('Usage: npx tsx scripts/fix-business-user.ts <user-email>');
-  console.error('Example: npx tsx scripts/fix-business-user.ts demo@tithi.dev');
+  console.error('Example: npx tsx scripts/fix-business-user.ts demo@revol.dev');
   process.exit(1);
 }
 

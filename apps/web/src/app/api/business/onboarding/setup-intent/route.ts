@@ -51,10 +51,10 @@ export async function POST(request: Request) {
       if (!userError && user?.email) {
         userEmail = user.email;
       } else {
-        userEmail = `user-${userId}@tithi.com`;
+        userEmail = `user-${userId}@revol.com`;
       }
     } catch (error) {
-      userEmail = `user-${userId}@tithi.com`;
+      userEmail = `user-${userId}@revol.com`;
     }
 
     // Create or get Stripe Customer for subscription

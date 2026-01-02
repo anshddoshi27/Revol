@@ -467,7 +467,7 @@ export function PaymentSetupStep({ defaultValues, business, onNext, onBack }: Pa
 
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-xs text-white/60">
         <p>
-          Stripe fees are deducted automatically. Tithi takes a 1% platform fee on capture,
+          Stripe fees are deducted automatically. Revol takes a 1% platform fee on capture,
           no-show, and cancellation charges. Manual capture remains the default—money only moves
           when you click the buttons in admin.
         </p>

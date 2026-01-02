@@ -314,7 +314,7 @@ export async function POST(request: Request) {
       planType: business.notifications_enabled ? 'Pro' : 'Basic',
     });
 
-    const bookingUrl = `https://${business.subdomain}.tithi.com`;
+    const bookingUrl = `https://${business.subdomain}.main.tld`;
 
     return NextResponse.json({
       success: true,

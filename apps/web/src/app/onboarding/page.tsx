@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { CheckCircle2 } from "lucide-react";
 
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
 import { BusinessStep } from "@/components/onboarding/business-step";
@@ -33,7 +34,10 @@ function sanitizeSubdomain(value: string) {
     .slice(0, 63);
 }
 
-const STEP_SEQUENCE: OnboardingStepId[] = [
+import { isNotificationsEnabled } from "@/lib/feature-flags";
+
+// Build step sequence based on feature flags
+const BASE_STEPS: OnboardingStepId[] = [
   "business",
   "website",
   "location",
@@ -41,11 +45,18 @@ const STEP_SEQUENCE: OnboardingStepId[] = [
   "branding",
   "services",
   "availability",
-  "notifications",
+  // "notifications" - conditionally included below
   "policies",
   "giftCards",
   "paymentSetup",
   "goLive"
+];
+
+// Always include notifications step (shows "Coming Soon" when disabled)
+const STEP_SEQUENCE: OnboardingStepId[] = [
+      ...BASE_STEPS.slice(0, 7), // business through availability
+  "notifications", // Always include - shows "Coming Soon" when disabled
+      ...BASE_STEPS.slice(7), // policies through goLive
 ];
 
 export default function OnboardingPage() {
@@ -66,6 +77,9 @@ export default function OnboardingPage() {
 
   const previousStep = currentIndex > 0 ? STEP_SEQUENCE[currentIndex - 1] : undefined;
   const nextStep = currentIndex < STEP_SEQUENCE.length - 1 ? STEP_SEQUENCE[currentIndex + 1] : undefined;
+
+  // Note: Notifications step is always shown but displays "Coming Soon" when feature is disabled
+  // No need to auto-skip - the step component handles the "coming soon" state
 
   // Helper function to create a business if one doesn't exist
   const ensureBusinessExists = async (accessToken: string) => {
@@ -245,8 +259,12 @@ export default function OnboardingPage() {
           if (data.availability) {
             onboarding.saveAvailability(data.availability);
           }
-          if (data.notifications) {
+          // Only load notifications if feature is enabled
+          if (isNotificationsEnabled() && data.notifications) {
             onboarding.saveNotifications(data.notifications);
+          } else if (!isNotificationsEnabled()) {
+            // If feature is disabled, set notifications to empty and disabled
+            onboarding.saveNotifications({ templates: [], enabled: false });
           }
           if (data.policies) {
             onboarding.savePolicies(data.policies);
@@ -601,7 +619,7 @@ export default function OnboardingPage() {
     }
     
     if (values.status === "reserved") {
-      const url = `https://${normalizedSubdomain}.tithi.com`;
+      const url = `https://${normalizedSubdomain}.main.tld`;
       onboarding.setBookingUrl(url);
     }
     onboarding.completeStep("website");
@@ -881,7 +899,8 @@ export default function OnboardingPage() {
       { id: "branding", title: "Branding", subtitle: "Logo + theme" },
       { id: "services", title: "Services & categories", subtitle: "Catalog structure" },
       { id: "availability", title: "Availability", subtitle: "Slots per staff" },
-      { id: "notifications", title: "Notifications", subtitle: "Templates + placeholders" },
+      // Always include notifications step (shows "Coming Soon" when disabled)
+      { id: "notifications" as const, title: "Notifications", subtitle: isNotificationsEnabled() ? "Templates + placeholders" : "Coming soon" },
       { id: "policies", title: "Policies", subtitle: "Fees & legal copy" },
       { id: "giftCards", title: "Gift cards", subtitle: "Optional promos" },
       { id: "paymentSetup", title: "Payment setup", subtitle: "Stripe Connect + subscription" },
@@ -961,14 +980,58 @@ export default function OnboardingPage() {
       );
       break;
     case "notifications":
-      content = (
-        <NotificationsStep
-          defaultValues={onboarding.notifications}
-          notificationsEnabled={onboarding.notificationsEnabled}
-          onNext={handleNotificationsNext}
-          onBack={goBack}
-        />
-      );
+      // If notifications feature is disabled, show coming soon message
+      if (!isNotificationsEnabled()) {
+        content = (
+          <div className="space-y-8">
+            <header className="space-y-4">
+              <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-primary/90">
+                Step 8 · Notifications
+              </span>
+              <h2 className="font-display text-3xl text-white">Coming Soon</h2>
+              <p className="max-w-3xl text-base text-white/70">
+                Email and SMS notifications are coming soon! For now, your booking system will work perfectly without automated notifications.
+              </p>
+            </header>
+            <div className="rounded-3xl border border-primary/30 bg-primary/10 p-8 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-primary/50 bg-primary/10 mb-4">
+                <CheckCircle2 className="h-8 w-8 text-primary" />
+              </div>
+              <p className="text-lg font-semibold text-white">Notifications Feature Coming Soon</p>
+              <p className="mt-2 text-sm text-white/70">
+                We're working on bringing you automated email and SMS notifications. 
+                Your booking system is fully functional - customers can book appointments and you can manage them in the admin.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={goBack}
+                className="rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/10"
+              >
+                Back
+              </button>
+              <button
+                onClick={async () => {
+                  // Save Basic Plan (notifications disabled) and continue
+                  await handleNotificationsNext([], false);
+                }}
+                className="rounded-full border border-primary/50 bg-primary/10 px-6 py-3 text-sm font-semibold text-white transition hover:border-primary/70 hover:bg-primary/15"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        );
+      } else {
+        content = (
+          <NotificationsStep
+            defaultValues={onboarding.notifications}
+            notificationsEnabled={onboarding.notificationsEnabled}
+            onNext={handleNotificationsNext}
+            onBack={goBack}
+          />
+        );
+      }
       break;
     case "policies":
       content = (
@@ -1007,7 +1070,7 @@ export default function OnboardingPage() {
           categories={onboarding.services}
           bookingUrl={
             onboarding.bookingUrl ??
-            `https://${sanitizeSubdomain(onboarding.website.subdomain || onboarding.business.businessName || "yourbusiness")}.tithi.com`
+            `https://${sanitizeSubdomain(onboarding.website.subdomain || onboarding.business.businessName || "yourbusiness")}.main.tld`
           }
           previewUrl={`/public/${sanitizeSubdomain(
             onboarding.website.subdomain || onboarding.business.businessName || "yourbusiness"

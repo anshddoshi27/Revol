@@ -83,7 +83,6 @@ export async function GET(request: Request) {
           .update({
             status: 'in_progress',
             attempt_count: (job.attempt_count || 0) + 1,
-            updated_at: new Date().toISOString(),
           })
           .eq('id', job.id);
 
@@ -123,13 +122,11 @@ export async function GET(request: Request) {
 
         if (sent) {
           // Mark job as sent
+          // Note: provider_message_id and sent_at are stored in notification_events, not notification_jobs
           const { error: updateError } = await supabase
             .from('notification_jobs')
             .update({
               status: 'sent',
-              provider_message_id: providerMessageId,
-              sent_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
             })
             .eq('id', job.id);
 
@@ -181,7 +178,6 @@ export async function GET(request: Request) {
               attempt_count: attemptCount,
               next_retry_at: isDead ? null : nextRetryAt.toISOString(),
               scheduled_at: isDead ? job.scheduled_at : nextRetryAt.toISOString(),
-              updated_at: new Date().toISOString(),
             })
             .eq('id', job.id);
 
@@ -205,7 +201,6 @@ export async function GET(request: Request) {
             attempt_count: attemptCount,
             next_retry_at: isDead ? null : nextRetryAt.toISOString(),
             scheduled_at: isDead ? job.scheduled_at : nextRetryAt.toISOString(),
-            updated_at: new Date().toISOString(),
           })
           .eq('id', job.id);
 

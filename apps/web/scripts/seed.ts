@@ -1,5 +1,5 @@
 /**
- * Seed script for Tithi development and testing
+ * Seed script for Revol development and testing
  * 
  * Creates a complete demo business with:
  * - One demo owner user
@@ -26,8 +26,8 @@ config({ path: resolve(__dirname, '../.env') });
 import { createAdminClient } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
 
-const DEMO_OWNER_EMAIL = 'demo@tithi.com'; // Changed from .dev to .com for Supabase email validation
-const DEMO_OWNER_PASSWORD = 'Tithi2025$Demo'; // Meets Supabase requirements: uppercase, lowercase, number, special char, unique
+const DEMO_OWNER_EMAIL = 'demo@revol.com'; // Changed from .dev to .com for Supabase email validation
+const DEMO_OWNER_PASSWORD = 'Revol2025$Demo'; // Meets Supabase requirements: uppercase, lowercase, number, special char, unique
 const DEMO_OWNER_NAME = 'Demo Owner';
 const DEMO_BUSINESS_NAME = 'Demo Salon';
 const DEMO_SUBDOMAIN = 'demo';
@@ -64,7 +64,7 @@ async function seed() {
     // Check if user already exists (by new email or old email)
     const { data: existingUsers } = await authClient.auth.admin.listUsers();
     const foundUserByNewEmail = existingUsers?.users.find(u => u.email === DEMO_OWNER_EMAIL);
-    const foundUserByOldEmail = existingUsers?.users.find(u => u.email === 'demo@tithi.dev');
+    const foundUserByOldEmail = existingUsers?.users.find(u => u.email === 'demo@revol.dev');
 
     // Prefer the new email user, but also check for old email user
     let foundUser = foundUserByNewEmail || foundUserByOldEmail;
@@ -74,7 +74,7 @@ async function seed() {
       userId = foundUser.id;
       
       // Update email if it's the old email
-      if (foundUser.email === 'demo@tithi.dev') {
+      if (foundUser.email === 'demo@revol.dev') {
         console.log(`   🔄 Updating email from ${foundUser.email} to ${DEMO_OWNER_EMAIL}...`);
         const { error: emailError } = await authClient.auth.admin.updateUserById(userId, {
           email: DEMO_OWNER_EMAIL,
@@ -819,7 +819,7 @@ async function seed() {
     console.log('\n✅ Seed completed successfully!');
     console.log('\n📋 Summary:');
     console.log(`   - Owner: ${DEMO_OWNER_EMAIL} / ${DEMO_OWNER_PASSWORD}`);
-    console.log(`   - Business: ${DEMO_BUSINESS_NAME} (${DEMO_SUBDOMAIN}.tithi.com)`);
+    console.log(`   - Business: ${DEMO_BUSINESS_NAME} (${DEMO_SUBDOMAIN}.revol.com)`);
     console.log(`   - Categories: ${categoryIds.length}`);
     console.log(`   - Services: ${serviceIds.length}`);
     console.log(`   - Staff: ${staffIds.length}`);
@@ -832,7 +832,7 @@ async function seed() {
     console.log('\n🔗 Login URL: http://localhost:3000/login');
     console.log(`   Email: ${DEMO_OWNER_EMAIL}`);
     console.log(`   Password: ${DEMO_OWNER_PASSWORD}`);
-    console.log(`\n🔗 Booking URL: https://${DEMO_SUBDOMAIN}.tithi.com`);
+    console.log(`\n🔗 Booking URL: https://${DEMO_SUBDOMAIN}.revol.com`);
 
   } catch (error) {
     console.error('\n❌ Seed failed:', error);

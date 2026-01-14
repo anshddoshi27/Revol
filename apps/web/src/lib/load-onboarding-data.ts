@@ -160,13 +160,18 @@ export async function loadOnboardingDataFromBackend(): Promise<OnboardingData> {
         const brandingData = await brandingResponse.json();
         if (brandingData.branding) {
           data.branding = {
-            primaryColor: brandingData.branding.primaryColor || '',
-            secondaryColor: brandingData.branding.secondaryColor || undefined,
+            primaryColor: brandingData.branding.primaryColor || '#5B64FF',
+            secondaryColor: brandingData.branding.secondaryColor || '#1a1a2e',
             logoUrl: brandingData.branding.logoUrl || undefined,
             logoName: brandingData.branding.logoName || undefined,
+            fontFamily: brandingData.branding.fontFamily || 'Inter',
+            buttonShape: brandingData.branding.buttonShape || 'rounded',
+            heroImageUrl: brandingData.branding.heroImageUrl || undefined,
+            heroImageName: brandingData.branding.heroImageName || undefined,
+            bookingPageDescription: brandingData.branding.bookingPageDescription || undefined,
             recommendedDimensions: brandingData.branding.recommendedDimensions || {
-              width: 960,
-              height: 1280
+              width: 200,
+              height: 200
             },
           };
         }
@@ -194,19 +199,81 @@ export async function loadOnboardingDataFromBackend(): Promise<OnboardingData> {
 
     // Load availability data
     try {
+      console.log('[loadOnboardingData] Fetching availability data from API...');
       const availabilityResponse = await fetch('/api/business/onboarding/step-7-availability', {
         method: 'GET',
         headers,
         credentials: 'include',
       });
+      
+      console.log('[loadOnboardingData] Availability API response status:', availabilityResponse.status);
+      
       if (availabilityResponse.ok) {
         const availabilityData = await availabilityResponse.json();
+        console.log('[loadOnboardingData] Availability API response data:', {
+          hasAvailability: !!availabilityData.availability,
+          isArray: Array.isArray(availabilityData.availability),
+          length: availabilityData.availability?.length || 0,
+          rawData: JSON.stringify(availabilityData, null, 2)
+        });
+        
         if (availabilityData.availability && Array.isArray(availabilityData.availability)) {
-          data.availability = availabilityData.availability;
+          // Log raw data first
+          console.log('[loadOnboardingData] Raw API response:', {
+            length: availabilityData.availability.length,
+            rawData: JSON.stringify(availabilityData.availability, null, 2).substring(0, 2000)
+          });
+          
+          // Clean the availability data to ensure it only contains staffId and slots (not full staff objects)
+          data.availability = availabilityData.availability.map((serviceAvail: any) => ({
+            serviceId: serviceAvail.serviceId,
+            staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+              staffId: staffAvail.staffId,
+              slots: staffAvail.slots || []
+            }))
+          }));
+          
+          // Calculate detailed statistics
+          const totalStaffEntries = data.availability.reduce((sum: number, a: any) => sum + (a.staff?.length || 0), 0);
+          const totalSlots = data.availability.reduce((sum: number, a: any) => 
+            sum + (a.staff?.reduce((staffSum: number, st: any) => staffSum + (st.slots?.length || 0), 0) || 0), 0
+          );
+          
+          console.log('[loadOnboardingData] ✅ Loaded availability data:', {
+            count: data.availability.length,
+            services: data.availability.map((a: any) => a.serviceId),
+            totalStaffEntries: totalStaffEntries,
+            totalSlots: totalSlots,
+            servicesDetail: data.availability.map((a: any) => ({
+              serviceId: a.serviceId,
+              staffCount: a.staff?.length || 0,
+              slotsCount: a.staff?.reduce((sum: number, st: any) => sum + (st.slots?.length || 0), 0) || 0
+            })),
+            fullData: JSON.stringify(data.availability, null, 2)
+          });
+        } else {
+          console.warn('[loadOnboardingData] ⚠️ No availability data in response (not an array or missing):', {
+            availabilityData: availabilityData,
+            hasAvailability: !!availabilityData.availability,
+            type: typeof availabilityData.availability
+          });
+          // Set empty array to ensure data structure is consistent
+          data.availability = [];
         }
+      } else {
+        const errorText = await availabilityResponse.text().catch(() => 'Unable to read error');
+        console.warn('[loadOnboardingData] ⚠️ Availability API returned error:', {
+          status: availabilityResponse.status,
+          statusText: availabilityResponse.statusText,
+          error: errorText
+        });
+        // Set empty array on error to ensure data structure is consistent
+        data.availability = [];
       }
     } catch (error) {
-      console.error('Error loading availability data:', error);
+      console.error('[loadOnboardingData] ❌ Error loading availability data:', error);
+      // Set empty array on error to ensure data structure is consistent
+      data.availability = [];
     }
 
     // Load notifications data

@@ -37,7 +37,7 @@ import { formatInTimeZone } from "@/lib/timezone";
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
-type Step = "catalog" | "availability" | "checkout" | "confirmation";
+type Step = "catalog" | "staff" | "availability" | "checkout" | "confirmation";
 
 interface PublicBookingExperienceProps {
   business: FakeBusiness;
@@ -59,7 +59,7 @@ export function PublicBookingExperience({
   const toast = useToast();
   const [step, setStep] = useState<Step>("catalog");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
-  const [selectedStaffId, setSelectedStaffId] = useState<string>("any");
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<ExpandedAvailabilitySlot | null>(null);
   const [giftCardState, setGiftCardState] = useState<GiftCardState | null>(null);
   const [giftCardInput, setGiftCardInput] = useState("");
@@ -121,20 +121,29 @@ export function PublicBookingExperience({
           const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
           
           try {
-            const response = await fetch(
-              `/api/public/${business.slug}/availability?service_id=${selectedService.id}&date=${dateStr}`
-            );
+            const url = `/api/public/${business.slug}/availability?service_id=${selectedService.id}&date=${dateStr}`;
+            console.log(`[booking-flow] Fetching availability from: ${url}`);
+            
+            const response = await fetch(url);
             
             if (!response.ok) {
-              console.warn(`Failed to fetch availability for ${dateStr}:`, response.status);
+              const errorText = await response.text();
+              console.warn(`[booking-flow] Failed to fetch availability for ${dateStr}:`, {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText,
+                serviceId: selectedService.id,
+                date: dateStr
+              });
               continue;
             }
             
             const data = await response.json();
-            console.log(`[booking-flow] Fetched availability for ${dateStr}:`, {
+            console.log(`[booking-flow] Fetched availability for ${dateStr} (service: ${selectedService.id}):`, {
               slotsCount: data.slots?.length || 0,
               hasSlots: Array.isArray(data.slots),
               sampleSlot: data.slots?.[0],
+              fullResponse: data
             });
             
             if (data.slots && Array.isArray(data.slots)) {
@@ -185,11 +194,8 @@ export function PublicBookingExperience({
   }, [fetchedSlots]);
 
   const groupedSlots = useMemo(() => {
-    if (!selectedService) return {};
-    const filtered =
-      selectedStaffId === "any"
-        ? serviceAvailability
-        : serviceAvailability.filter((slot) => slot.staffId === selectedStaffId);
+    if (!selectedService || !selectedStaffId) return {};
+    const filtered = serviceAvailability.filter((slot) => slot.staffId === selectedStaffId);
     return groupSlotsByDay(filtered, workspace.identity.location.timezone || "UTC");
   }, [
     serviceAvailability,
@@ -214,9 +220,18 @@ export function PublicBookingExperience({
 
   const handleSelectService = (serviceId: string) => {
     setSelectedServiceId(serviceId);
-    setSelectedStaffId("any");
+    setSelectedStaffId(null); // Clear staff selection
     setSelectedSlot(null);
-    setStep("availability");
+    setStep("staff"); // Go to staff selection step
+    setGiftCardState(null);
+    setGiftCardInput("");
+    setGiftCardError(null);
+  };
+
+  const handleSelectStaff = (staffId: string) => {
+    setSelectedStaffId(staffId);
+    setSelectedSlot(null);
+    setStep("availability"); // Go to availability step
     setGiftCardState(null);
     setGiftCardInput("");
     setGiftCardError(null);
@@ -399,72 +414,158 @@ export function PublicBookingExperience({
   // Get branding from workspace
   const branding = workspace.identity.branding;
   const primaryColor = branding?.primaryColor || "#5B64FF";
+  const secondaryColor = branding?.secondaryColor || "#1a1a2e";
+  const useGradient = branding?.useGradient ?? true; // Default to true if not specified
   const logoUrl = branding?.logoUrl;
+  const fontFamily = branding?.fontFamily || "Inter";
+  const buttonShape = branding?.buttonShape || "rounded";
+  const bookingPageDescription = branding?.bookingPageDescription || workspace.identity.business.description;
+  
+  // Get button radius class based on shape
+  const getButtonRadius = () => {
+    switch (buttonShape) {
+      case 'rounded': return 'rounded-full';
+      case 'slightly-rounded': return 'rounded-lg';
+      case 'square': return 'rounded-none';
+      default: return 'rounded-full';
+    }
+  };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-black via-slate-950 to-[#0b0d1a] text-white">
-      <div 
-        className="absolute inset-0 -z-10"
-        style={{ background: `radial-gradient(circle at top, ${primaryColor}25, transparent 60%)` }}
-      />
+    <div 
+      className="relative min-h-screen"
+      style={{ 
+        color: primaryColor,
+        fontFamily: `"${fontFamily}", system-ui, sans-serif`,
+        background: useGradient
+          ? `linear-gradient(135deg, ${secondaryColor} 0%, ${primaryColor}15 50%, ${secondaryColor} 100%)`
+          : secondaryColor
+      }}
+    >
+      {/* Gradient overlay */}
+      {useGradient && (
+        <div 
+          className="absolute inset-0 -z-10"
+          style={{ background: `radial-gradient(ellipse at top right, ${primaryColor}30, transparent 70%)` }}
+        />
+      )}
+      
       {step === "confirmation" ? <ConfettiOverlay /> : null}
-      <header className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-4">
-            {/* Logo and Business Name */}
-            <div className="flex items-center gap-4">
-              {logoUrl ? (
-                <div
-                  className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/10"
-                  style={{ boxShadow: `0 8px 16px -8px ${primaryColor}55` }}
-                >
-                  <Image
-                    src={logoUrl}
-                    alt={`${workspace.identity.business.businessName} logo`}
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
-                </div>
-              ) : null}
-              <div className="flex-1">
-                <h1 className="font-display text-4xl sm:text-5xl">
-                  {workspace.identity.business.businessName}
-                </h1>
-                <p className="mt-1 text-sm text-white/60">
-                  {workspace.identity.business.description || "booking app for local businesses"}
+      
+      {/* Logo in top-right corner - positioned absolutely relative to viewport */}
+      {logoUrl && (
+        <div
+          className="fixed top-6 right-6 sm:top-8 sm:right-8 z-30"
+          style={{
+            filter: 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15))',
+          }}
+        >
+          <div
+            className="relative h-24 w-24 sm:h-28 sm:w-28 overflow-hidden transition-all hover:scale-105"
+            style={{
+              boxShadow: `0 8px 24px rgba(0, 0, 0, 0.2), 0 4px 12px ${primaryColor}15`,
+            }}
+          >
+            {/* Use img for blob URLs, Image for regular URLs */}
+            {logoUrl.startsWith('blob:') || logoUrl.startsWith('data:') ? (
+              <img
+                src={logoUrl}
+                alt={`${workspace.identity.business.businessName} logo`}
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  console.error('Failed to load logo:', logoUrl);
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                }}
+              />
+            ) : (
+              <Image
+                src={logoUrl}
+                alt={`${workspace.identity.business.businessName} logo`}
+                width={112}
+                height={112}
+                className="h-full w-full object-cover"
+                unoptimized
+                onError={() => console.error('Failed to load logo:', logoUrl)}
+              />
+            )}
+          </div>
+        </div>
+      )}
+      
+      <header className="relative z-20 mx-auto max-w-5xl px-4 pt-16 pb-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+          <div className="flex-1 space-y-8">
+            {/* Business Name - Much Larger and More Prominent */}
+            <div className="space-y-6">
+              <h1 
+                className="text-5xl font-extrabold leading-tight tracking-tight sm:text-6xl md:text-7xl"
+                style={{ 
+                  color: primaryColor,
+                  textShadow: `0 2px 20px ${primaryColor}40`,
+                  letterSpacing: '-0.02em'
+                }}
+              >
+                {workspace.identity.business.businessName}
+              </h1>
+              {bookingPageDescription && (
+                <p className="mt-4 max-w-2xl text-lg leading-relaxed sm:text-xl" style={{ color: `${primaryColor}CC` }}>
+                  {bookingPageDescription}
                 </p>
+              )}
+            </div>
+            
+            {/* Informational Section - Better Spaced */}
+            <div className="space-y-6">
+              {/* Info Pills Above Line - Address, Timezone, Card Saved */}
+              <div className="flex flex-nowrap items-center gap-3 overflow-x-auto">
+                <span 
+                  className="inline-flex items-center gap-2.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0" 
+                  style={{ 
+                    borderColor: primaryColor,
+                    backgroundColor: `${primaryColor}10`,
+                    color: primaryColor 
+                  }}
+                >
+                  <MapPin className="h-4 w-4 flex-shrink-0" aria-hidden="true" style={{ color: primaryColor }} />
+                  <span>{formatAddress(workspace.identity.location)}</span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-2.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0" 
+                  style={{ 
+                    borderColor: primaryColor,
+                    backgroundColor: `${primaryColor}08`,
+                    color: `${primaryColor}CC` 
+                  }}
+                >
+                  <Clock className="h-4 w-4 flex-shrink-0" aria-hidden="true" style={{ color: `${primaryColor}CC` }} />
+                  <span>All times shown in {timezone}</span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-2.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0" 
+                  style={{ 
+                    borderColor: primaryColor,
+                    backgroundColor: `${primaryColor}10`,
+                    color: primaryColor 
+                  }}
+                >
+                  <ShieldCheck className="h-4 w-4 flex-shrink-0" aria-hidden="true" style={{ color: primaryColor }} />
+                  <span>Card saved securely — capture happens later</span>
+                </span>
               </div>
-            </div>
-            <Badge intent="info" className="w-fit">
-              Manual capture — no charge at booking
-            </Badge>
-            <div>
-              <p className="mt-2 max-w-2xl text-base text-white/70">
-                Select a service, choose the best time, and secure your appointment. Your card is stored securely and only charged after the visit or if a policy fee applies.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-white/60">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                <MapPin className="h-4 w-4" aria-hidden="true" />
-                {formatAddress(workspace.identity.location)}
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                <Clock className="h-4 w-4" aria-hidden="true" />
-                All times shown in {timezone}
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                Card saved securely — capture happens later
-              </span>
+              
+              {/* Horizontal Line */}
+              <div className="border-t" style={{ borderColor: primaryColor }}></div>
             </div>
           </div>
+          
+          {/* Confirmation Card */}
           {createdBooking ? (
             <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-6 text-emerald-100 shadow-[0_0_40px_rgba(52,211,153,0.25)]">
               <p className="text-sm uppercase tracking-[0.35em] text-emerald-200/70">
                 Confirmation
               </p>
-              <p className="mt-2 font-display text-2xl">
+              <p className="mt-2 text-2xl font-bold">
                 {selectedService?.name ?? createdBooking.serviceName}
               </p>
               <p className="mt-2 text-sm text-emerald-100/80">
@@ -485,30 +586,53 @@ export function PublicBookingExperience({
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 pb-16 sm:px-6 lg:px-8">
-        <StepIndicator currentStep={step} onReset={handleResetFlow} primaryColor={primaryColor} />
+      <main className="relative z-20 mx-auto max-w-5xl px-4 pb-16 sm:px-6 lg:px-8">
+        <div className="mt-8 mb-12">
+          <StepIndicator currentStep={step} onReset={handleResetFlow} primaryColor={primaryColor} />
+        </div>
 
         {step === "catalog" ? (
           <CatalogStep
             catalog={workspace.catalog}
             onSelectService={handleSelectService}
             primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            useGradient={useGradient}
+            buttonRadius={getButtonRadius()}
+            fontFamily={fontFamily}
           />
         ) : null}
 
-        {step === "availability" && selectedService ? (
+        {step === "staff" && selectedService ? (
+          <StaffSelectionStep
+            service={selectedService}
+            staff={workspace.staff}
+            onSelectStaff={handleSelectStaff}
+            onBack={() => setStep("catalog")}
+            primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            useGradient={useGradient}
+            buttonRadius={getButtonRadius()}
+            fontFamily={fontFamily}
+          />
+        ) : null}
+
+        {step === "availability" && selectedService && selectedStaffId ? (
           <AvailabilityStep
             service={selectedService}
             slotsByDay={groupedSlots}
             selectedStaffId={selectedStaffId}
             setSelectedStaffId={setSelectedStaffId}
-            onBack={() => setStep("catalog")}
+            onBack={() => setStep("staff")}
             onSelectSlot={handleSelectSlot}
             staff={workspace.staff}
             timezone={timezone}
             supportEmail={workspace.identity.location.supportEmail}
             isLoading={isLoadingAvailability}
             primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            buttonRadius={getButtonRadius()}
+            fontFamily={fontFamily}
             error={availabilityError}
           />
         ) : null}
@@ -562,6 +686,9 @@ export function PublicBookingExperience({
             onOpenPolicies={() => setIsPolicyModalOpen(true)}
             business={business}
             primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            buttonRadius={getButtonRadius()}
+            fontFamily={fontFamily}
           />
         ) : null}
 
@@ -573,6 +700,10 @@ export function PublicBookingExperience({
             policies={policies}
             timezone={timezone}
             onBookAnother={handleResetFlow}
+            primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            buttonRadius={getButtonRadius()}
+            fontFamily={fontFamily}
           />
         ) : null}
       </main>
@@ -591,59 +722,375 @@ export function PublicBookingExperience({
 function CatalogStep({
   catalog,
   onSelectService,
-  primaryColor
+  primaryColor,
+  secondaryColor,
+  useGradient,
+  buttonRadius,
+  fontFamily
 }: {
   catalog: FakeBusinessWorkspace["catalog"];
   onSelectService: (serviceId: string) => void;
   primaryColor: string;
+  secondaryColor: string;
+  useGradient: boolean;
+  buttonRadius: string;
+  fontFamily: string;
 }) {
   return (
-    <section className="space-y-12">
+    <section className="space-y-16">
       {catalog.map((category) => (
-        <div key={category.id} className="space-y-5">
-          <header>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-white/55">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+        <div key={category.id} className="space-y-8">
+          <header className="space-y-4">
+            <div 
+              className="inline-flex items-center gap-2.5 rounded-full border-2 px-5 py-2 text-xs font-bold uppercase tracking-[0.35em]"
+              style={{ 
+                borderColor: primaryColor,
+                backgroundColor: `${primaryColor}15`,
+                color: primaryColor
+              }}
+            >
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
               {category.name}
             </div>
-            <p className="mt-3 text-base text-white/70 max-w-2xl">{category.description}</p>
+            <p className="text-lg max-w-2xl leading-relaxed" style={{ color: `${primaryColor}CC` }}>{category.description}</p>
           </header>
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {category.services.map((service) => (
               <button
                 key={service.id}
                 type="button"
                 onClick={() => onSelectService(service.id)}
-                className="group flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-white/25 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                className={cn(
+                  "group flex flex-col overflow-hidden border bg-white/5 text-left transition hover:bg-white/10 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                  "w-full",
+                  buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+                )}
+                style={{ 
+                  '--tw-ring-color': primaryColor,
+                  backgroundColor: `${secondaryColor}20`,
+                  borderColor: primaryColor
+                } as React.CSSProperties}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="font-display text-2xl text-white">{service.name}</h2>
-                    <p className="mt-2 text-sm text-white/60">{service.description}</p>
+                {/* Image Section - Top 45-50% */}
+                <div className="relative aspect-[4/3] w-full overflow-hidden">
+                  {service.imageUrl ? (
+                    <>
+                      {service.imageUrl.startsWith('blob:') || service.imageUrl.startsWith('data:') ? (
+                        <img
+                          src={service.imageUrl}
+                          alt={service.name}
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          onError={(e) => {
+                            console.error('Failed to load service image:', service.imageUrl);
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <Image
+                          src={service.imageUrl}
+                          alt={service.name}
+                          fill
+                          className="object-cover transition-transform duration-500 group-hover:scale-105"
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          unoptimized
+                          onError={() => console.error('Failed to load service image:', service.imageUrl)}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: useGradient
+                          ? `linear-gradient(135deg, ${secondaryColor}99, ${primaryColor}66, ${secondaryColor}99)`
+                          : secondaryColor
+                      }}
+                    />
+                  )}
+                  
+                  {/* Category Tag - Top Left */}
+                  <div className="absolute top-3 left-3">
+                    <span 
+                      className="rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm"
+                      style={{ 
+                        backgroundColor: `${primaryColor}CC`,
+                        color: secondaryColor
+                      }}
+                    >
+                      {category.name}
+                    </span>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-white/60">
-                    {formatDuration(service.durationMinutes)}
-                  </span>
                 </div>
-                {service.instructions ? (
-                  <p className="text-sm text-white/40">{service.instructions}</p>
-                ) : null}
-                <div className="mt-auto flex items-center justify-between text-sm">
-                  <span className="text-white/60">
-                    Starting at <strong className="text-white">{formatCurrency(service.priceCents)}</strong>
-                  </span>
-                  <span 
-                    className="inline-flex items-center gap-2 group-hover:translate-x-1 transition"
-                    style={{ color: primaryColor }}
-                  >
-                    Select <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </span>
+
+                {/* Content Section - Bottom 50-55% */}
+                <div 
+                  className="flex flex-1 flex-col p-6"
+                  style={{ backgroundColor: `${secondaryColor}40` }}
+                >
+                  {/* Title and Description Section */}
+                  <div className="mb-4 pb-4 border-b" style={{ borderColor: primaryColor }}>
+                    <h2 
+                      className="text-xl font-bold mb-2"
+                      style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+                    >
+                      {service.name}
+                    </h2>
+                    {service.description && (
+                      <p className="text-sm leading-relaxed" style={{ color: `${primaryColor}B3` }}>
+                        {service.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Price, Duration, and Book Button */}
+                  <div className="mt-auto flex items-end justify-between gap-4 pt-4 border-t" style={{ borderColor: primaryColor }}>
+                    <div className="flex flex-col gap-2">
+                      <div className="text-2xl font-bold" style={{ color: primaryColor }}>
+                        {formatCurrency(service.priceCents)}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-sm" style={{ color: `${primaryColor}99` }}>
+                        <Clock className="h-4 w-4" aria-hidden="true" style={{ color: `${primaryColor}99` }} />
+                        <span>{formatDuration(service.durationMinutes)}</span>
+                      </div>
+                    </div>
+                    <span 
+                      className={cn(
+                        "shrink-0 px-4 py-2 text-sm font-semibold transition cursor-pointer",
+                        buttonRadius === 'rounded-full' ? 'rounded-full' : buttonRadius === 'rounded-lg' ? 'rounded-lg' : 'rounded-none'
+                      )}
+                      style={{ 
+                        backgroundColor: primaryColor,
+                        color: secondaryColor
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '0.9';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                      }}
+                    >
+                      Book
+                    </span>
+                  </div>
+
+                  {/* Instructions (if present) */}
+                  {service.instructions && (
+                    <div className="mt-4 pt-4 border-t" style={{ borderColor: primaryColor }}>
+                      <p className="text-xs leading-relaxed" style={{ color: `${primaryColor}80` }}>
+                        {service.instructions}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </button>
             ))}
           </div>
         </div>
       ))}
+    </section>
+  );
+}
+
+function StaffSelectionStep({
+  service,
+  staff,
+  onSelectStaff,
+  onBack,
+  primaryColor,
+  secondaryColor,
+  useGradient,
+  buttonRadius,
+  fontFamily
+}: {
+  service: {
+    id: string;
+    name: string;
+    durationMinutes: number;
+    priceCents: number;
+    categoryName: string;
+    staffIds: string[];
+  };
+  staff: FakeBusinessWorkspace["staff"];
+  onSelectStaff: (staffId: string) => void;
+  onBack: () => void;
+  primaryColor: string;
+  secondaryColor: string;
+  useGradient: boolean;
+  buttonRadius: string;
+  fontFamily: string;
+}) {
+  // Filter staff to only show those assigned to this service
+  const availableStaff = useMemo(() => {
+    const staffArray = Array.isArray(staff) ? staff : [];
+    if (!service.staffIds || service.staffIds.length === 0) {
+      return staffArray;
+    }
+    return staffArray.filter((member) => service.staffIds.includes(member.id));
+  }, [service.staffIds, staff]);
+
+  return (
+    <section className="space-y-8">
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.35em]" style={{ color: `${primaryColor}66` }}>Step 2 · Choose your staff</p>
+          <h2 
+            className="mt-2 text-3xl font-bold"
+            style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+          >
+            {service.name}
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: `${primaryColor}99` }}>
+            Select a staff member for this service
+          </p>
+        </div>
+        <Button variant="ghost" onClick={onBack} className="inline-flex items-center gap-2" style={{ color: `${primaryColor}B3` }}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" style={{ color: `${primaryColor}B3` }} />
+          Back to services
+        </Button>
+      </header>
+
+      {availableStaff.length === 0 ? (
+        <div 
+          className={cn(
+            "border p-8 text-center",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ borderColor: primaryColor, backgroundColor: `${secondaryColor}cc`, color: `${primaryColor}99` }}
+        >
+          <p className="text-base">No staff members available for this service. Please contact us for booking assistance.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {availableStaff.map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => onSelectStaff(member.id)}
+              className={cn(
+                "group flex flex-col overflow-hidden border bg-white/5 text-left transition hover:bg-white/10 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                "w-full",
+                buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+              )}
+              style={{ 
+                '--tw-ring-color': primaryColor,
+                backgroundColor: `${secondaryColor}20`,
+                borderColor: primaryColor
+              } as React.CSSProperties}
+            >
+              {/* Image Section - Top 45-50% */}
+              <div className="relative aspect-[4/3] w-full overflow-hidden">
+                {member.imageUrl ? (
+                  <>
+                    {member.imageUrl.startsWith('blob:') || member.imageUrl.startsWith('data:') ? (
+                      <img
+                        src={member.imageUrl}
+                        alt={member.name}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={(e) => {
+                          console.error('Failed to load staff image:', member.imageUrl);
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <Image
+                        src={member.imageUrl}
+                        alt={member.name}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="(max-width: 768px) 100vw, 50vw"
+                        unoptimized
+                        onError={() => console.error('Failed to load staff image:', member.imageUrl)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center"
+                    style={{
+                      background: useGradient
+                        ? `linear-gradient(135deg, ${secondaryColor}99, ${primaryColor}66, ${secondaryColor}99)`
+                        : secondaryColor
+                    }}
+                  >
+                    <Users className="h-16 w-16" style={{ color: `${primaryColor}80` }} />
+                  </div>
+                )}
+              </div>
+
+              {/* Content Section - Bottom 50-55% */}
+              <div 
+                className="flex flex-1 flex-col p-6"
+                style={{ backgroundColor: `${secondaryColor}40` }}
+              >
+                {/* Name and Role Section */}
+                <div className="mb-4 pb-4 border-b" style={{ borderColor: primaryColor }}>
+                  <h2 
+                    className="text-xl font-bold mb-1"
+                    style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+                  >
+                    {member.name}
+                  </h2>
+                  {member.role && (
+                    <p className="text-sm font-medium" style={{ color: `${primaryColor}99` }}>
+                      {member.role}
+                    </p>
+                  )}
+                </div>
+
+                {/* Second border line before description */}
+                <div className="mb-4 pb-4 border-b" style={{ borderColor: primaryColor }}></div>
+
+                {/* Description Section */}
+                {member.description && (
+                  <div className="mb-4 pb-4">
+                    <p className="text-sm leading-relaxed" style={{ color: `${primaryColor}B3` }}>
+                      {member.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Review Section */}
+                {member.review && (
+                  <div className="mb-4 pb-4">
+                    <p className="text-xs italic leading-relaxed mb-2" style={{ color: `${primaryColor}99` }}>
+                      "{member.review}"
+                    </p>
+                    {member.reviewerName && (
+                      <p className="text-xs font-semibold" style={{ color: `${primaryColor}80` }}>
+                        — {member.reviewerName}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Select Button */}
+                <div className="mt-auto flex items-end justify-end pt-4 border-t" style={{ borderColor: primaryColor }}>
+                  <span 
+                    className={cn(
+                      "shrink-0 px-4 py-2 text-sm font-semibold transition cursor-pointer",
+                      buttonRadius === 'rounded-full' ? 'rounded-full' : buttonRadius === 'rounded-lg' ? 'rounded-lg' : 'rounded-none'
+                    )}
+                    style={{ 
+                      backgroundColor: primaryColor,
+                      color: secondaryColor
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '0.9';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                    }}
+                  >
+                    Select
+                  </span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -660,7 +1107,10 @@ function AvailabilityStep({
   supportEmail,
   isLoading,
   error,
-  primaryColor
+  primaryColor,
+  secondaryColor,
+  buttonRadius,
+  fontFamily
 }: {
   service: {
     id: string;
@@ -671,8 +1121,8 @@ function AvailabilityStep({
     staffIds: string[];
   };
   slotsByDay: Record<string, ExpandedAvailabilitySlot[]>;
-  selectedStaffId: string;
-  setSelectedStaffId: (value: string) => void;
+  selectedStaffId: string | null;
+  setSelectedStaffId: (value: string | null) => void; // Keep for compatibility but won't be used
   onBack: () => void;
   onSelectSlot: (slot: ExpandedAvailabilitySlot) => void;
   staff: FakeBusinessWorkspace["staff"];
@@ -681,6 +1131,9 @@ function AvailabilityStep({
   isLoading?: boolean;
   error?: string | null;
   primaryColor: string;
+  secondaryColor: string;
+  buttonRadius: string;
+  fontFamily: string;
 }) {
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
@@ -690,12 +1143,61 @@ function AvailabilityStep({
     sunday.setHours(0, 0, 0, 0);
     return sunday;
   });
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0); // For mobile day navigation
 
-  const staffOptions = staff.filter((member) => service.staffIds.includes(member.id));
+  // Get staff options - if service has no staffIds, show all staff; otherwise filter
+  const staffOptions = useMemo(() => {
+    // Safety check: ensure staff is an array
+    const staffArray = Array.isArray(staff) ? staff : [];
+    
+    console.log('[AvailabilityStep] Calculating staff options:', {
+      staffCount: staffArray.length,
+      serviceStaffIds: service.staffIds,
+      allStaffIds: staffArray.map(s => s.id),
+      staffIsArray: Array.isArray(staff),
+    });
+    
+    if (staffArray.length === 0) {
+      console.warn('[AvailabilityStep] No staff members available in workspace');
+      return [];
+    }
+    
+    if (!service.staffIds || service.staffIds.length === 0) {
+      // If service has no staff assigned, show all staff
+      console.log('[AvailabilityStep] Service has no staffIds, showing all staff');
+      return staffArray;
+    }
+    
+    const filtered = staffArray.filter((member) => service.staffIds.includes(member.id));
+    console.log('[AvailabilityStep] Filtered staff:', {
+      filteredCount: filtered.length,
+      filtered: filtered.map(s => ({ id: s.id, name: s.name })),
+      missingIds: service.staffIds.filter(id => !staffArray.find(s => s.id === id))
+    });
+    
+    // If no staff match, show all staff as fallback
+    if (filtered.length === 0) {
+      console.log('[AvailabilityStep] No staff match service.staffIds, showing all staff as fallback');
+      return staffArray;
+    }
+    
+    return filtered;
+  }, [service.staffIds, staff]);
+  
   const totalSlots = Object.values(slotsByDay).reduce((sum, entries) => sum + entries.length, 0);
 
   // Generate hours from 8 AM to 8 PM
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8 AM to 8 PM
+
+  // Generate 30-minute time segments for each hour
+  const timeSegments = useMemo(() => {
+    const segments: Array<{ hour: number; minute: number }> = [];
+    hours.forEach(hour => {
+      segments.push({ hour, minute: 0 });
+      segments.push({ hour, minute: 30 });
+    });
+    return segments;
+  }, [hours]);
 
   // Generate days of the week
   const weekDays = useMemo(() => {
@@ -708,18 +1210,64 @@ function AvailabilityStep({
     return days;
   }, [currentWeekStart]);
 
-  // Group slots by day and hour, removing duplicates
-  const slotsByDayAndHour = useMemo(() => {
-    const grouped: Record<string, Record<number, ExpandedAvailabilitySlot[]>> = {};
+  // Auto-navigate to the earliest week that has slots if current week has none
+  useEffect(() => {
+    if (Object.keys(slotsByDay).length === 0) return; // No slots yet
+    
+    // Find the earliest date with slots
+    const allSlots = Object.values(slotsByDay).flat();
+    if (allSlots.length === 0) return; // No slots at all
+    
+    const earliestSlot = allSlots.reduce((earliest, slot) => {
+      const slotDate = new Date(slot.startDateTime);
+      return slotDate < earliest ? slotDate : earliest;
+    }, new Date(allSlots[0].startDateTime));
+    
+    // Check if current week contains any slots
+    const earliestSlotDateKey = formatInTimeZone(earliestSlot, timezone, "yyyy-MM-dd");
+    const currentWeekHasSlots = weekDays.some(day => {
+      const dayKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+      const dayHasSlots = allSlots.some(slot => {
+        const slotDate = new Date(slot.startDateTime);
+        const slotDateKey = formatInTimeZone(slotDate, timezone, "yyyy-MM-dd");
+        return slotDateKey === dayKey;
+      });
+      return dayHasSlots;
+    });
+    
+    // If current week has no slots, navigate to the week containing the earliest slot
+    if (!currentWeekHasSlots) {
+      const earliestSlotDate = new Date(earliestSlot);
+      earliestSlotDate.setHours(0, 0, 0, 0);
+      const dayOfWeek = earliestSlotDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const targetSunday = new Date(earliestSlotDate);
+      targetSunday.setDate(earliestSlotDate.getDate() - dayOfWeek); // Go back to Sunday
+      targetSunday.setHours(0, 0, 0, 0);
+      
+      // Only update if it's different from current week
+      if (targetSunday.getTime() !== currentWeekStart.getTime()) {
+        setCurrentWeekStart(targetSunday);
+        console.log(`[booking-flow] Auto-navigating to week starting ${targetSunday.toISOString().split('T')[0]} (earliest slot: ${earliestSlotDateKey})`);
+      }
+    }
+  }, [slotsByDay, weekDays, currentWeekStart, timezone]);
+
+  // Group slots by day and time segment (30-minute blocks)
+  const slotsByDayAndTime = useMemo(() => {
+    const grouped: Record<string, Record<string, ExpandedAvailabilitySlot[]>> = {};
     
     // Flatten all slots from all days
+    // slotsByDay uses formatted date strings like "Monday, Jan 12" from groupSlotsByDay
     const allSlots = Object.values(slotsByDay).flat();
+    
+    console.log(`[booking-flow] Processing ${allSlots.length} total slots from slotsByDay keys:`, Object.keys(slotsByDay));
+    console.log(`[booking-flow] Current week days:`, weekDays.map(d => formatInTimeZone(d, timezone, "yyyy-MM-dd")));
     
     allSlots.forEach(slot => {
       const slotDate = new Date(slot.startDateTime);
       const dateKey = formatInTimeZone(slotDate, timezone, "yyyy-MM-dd");
-      const hour = formatInTimeZone(slotDate, timezone, { hour: "numeric", hour12: false });
-      const hourNum = parseInt(hour, 10);
+      const slotHour = parseInt(formatInTimeZone(slotDate, timezone, { hour: "numeric", hour12: false }), 10);
+      const slotMinute = parseInt(formatInTimeZone(slotDate, timezone, { minute: "numeric" }), 10);
       
       // Only include slots that are in the current week
       const isInCurrentWeek = weekDays.some(day => {
@@ -727,25 +1275,71 @@ function AvailabilityStep({
         return dayKey === dateKey;
       });
       
-      if (!isInCurrentWeek) return;
+      if (!isInCurrentWeek) {
+        return;
+      }
       
       if (!grouped[dateKey]) {
         grouped[dateKey] = {};
       }
       
-      if (!grouped[dateKey][hourNum]) {
-        grouped[dateKey][hourNum] = [];
-      }
+      // Calculate slot start and end in minutes using actual slot times
+      const slotStart = new Date(slot.startDateTime);
+      const slotEnd = new Date(slot.endDateTime);
+      // Use actual minutes from slot, not rounded
+      const slotStartMinutes = slotHour * 60 + slotMinute;
+      const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
       
-      // Check for duplicates (same hour, same staff, same date)
-      const isDuplicate = grouped[dateKey][hourNum].some(
-        existing => existing.staffId === slot.staffId
+      // Add this slot only to time segments it actually overlaps with
+      let currentSegmentMinutes = slotStartMinutes;
+      while (currentSegmentMinutes < slotEndMinutes) {
+        const segmentHour = Math.floor(currentSegmentMinutes / 60);
+        const segmentMinute = currentSegmentMinutes % 60;
+        const roundedSegmentMinute = Math.floor(segmentMinute / 30) * 30;
+        const segmentStartMinutes = segmentHour * 60 + roundedSegmentMinute;
+        const segmentEndMinutes = segmentStartMinutes + 30;
+        
+        // Check if slot overlaps with this segment
+        if (slotStartMinutes < segmentEndMinutes && slotEndMinutes > segmentStartMinutes) {
+          const timeKey = `${segmentHour}:${roundedSegmentMinute.toString().padStart(2, '0')}`;
+          
+          if (!grouped[dateKey][timeKey]) {
+            grouped[dateKey][timeKey] = [];
+          }
+          
+          // Check for duplicates (same slot ID)
+          const isDuplicate = grouped[dateKey][timeKey].some(
+            existing => existing.id === slot.id
       );
       
       if (!isDuplicate) {
-        grouped[dateKey][hourNum].push(slot);
+            grouped[dateKey][timeKey].push(slot);
+          }
+        }
+        
+        // Move to next 30-minute segment
+        currentSegmentMinutes = segmentStartMinutes + 30;
+        
+        // Prevent infinite loop
+        if (currentSegmentMinutes >= slotEndMinutes + 30) {
+          break;
+        }
       }
     });
+    
+    // Debug: Log grouped slots summary
+    const totalGrouped = Object.values(grouped).reduce((sum, daySlots) => 
+      sum + Object.values(daySlots).reduce((daySum, timeSlots) => daySum + timeSlots.length, 0), 0
+    );
+    console.log(`[booking-flow] Grouped ${totalGrouped} slots into time segments across ${Object.keys(grouped).length} days`);
+    if (totalGrouped > 0) {
+      console.log(`[booking-flow] Sample grouped slots:`, {
+        dates: Object.keys(grouped).slice(0, 3),
+        firstDateTimes: Object.keys(grouped).slice(0, 1).map(d => 
+          grouped[d] ? Object.keys(grouped[d]).slice(0, 3) : []
+        )
+      });
+    }
     
     return grouped;
   }, [slotsByDay, weekDays, timezone]);
@@ -759,42 +1353,44 @@ function AvailabilityStep({
   const monthYear = formatInTimeZone(weekDays[0], timezone, { month: "long", year: "numeric" });
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-8 shadow-[0_0_60px_rgba(91,100,255,0.15)]">
+    <section 
+      className={cn(
+        "border bg-white/5 p-8",
+        buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+      )}
+      style={{ borderColor: primaryColor, boxShadow: `0 0 60px ${primaryColor}20` }}
+    >
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-white/40">Step 2 · Choose your time</p>
-          <h2 className="mt-2 font-display text-3xl text-white">{service.name}</h2>
-          <p className="mt-1 text-sm text-white/60">
+          <p className="text-xs uppercase tracking-[0.35em]" style={{ color: `${primaryColor}66` }}>Step 3 · Choose your time</p>
+          <h2 
+            className="mt-2 text-3xl font-bold"
+            style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+          >
+            {service.name}
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: `${primaryColor}99` }}>
             {formatCurrency(service.priceCents)} · {formatDuration(service.durationMinutes)} — All slots
             shown in {timezone}
           </p>
         </div>
-        <Button variant="ghost" onClick={onBack} className="inline-flex items-center gap-2 text-white/70">
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Back to services
+        <Button variant="ghost" onClick={onBack} className="inline-flex items-center gap-2" style={{ color: `${primaryColor}B3` }}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" style={{ color: `${primaryColor}B3` }} />
+          Back to staff
         </Button>
       </header>
 
-      <div className="mt-8 flex flex-wrap items-center gap-3">
-        <StaffPill
-          label="I don't mind"
-          active={selectedStaffId === "any"}
-          onClick={() => setSelectedStaffId("any")}
-        />
-        {staffOptions.map((member) => (
-          <StaffPill
-            key={member.id}
-            label={member.name}
-            color={member.color}
-            active={selectedStaffId === member.id}
-            onClick={() => setSelectedStaffId(member.id)}
-          />
-        ))}
-      </div>
-
+      {/* Staff is already selected, just show calendar */}
       {isLoading ? (
-        <div className="mt-10 rounded-3xl border border-white/10 bg-black/60 p-8 text-center text-white/60">
-          <Loader2 className="mx-auto h-8 w-8 animate-spin text-white/40" aria-hidden="true" />
+        <div 
+          className={cn(
+            "mt-10 border p-8 text-center",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ borderColor: primaryColor }}
+          style={{ backgroundColor: `${secondaryColor}cc`, color: `${primaryColor}99` }}
+        >
+          <Loader2 className="mx-auto h-8 w-8 animate-spin" aria-hidden="true" style={{ color: `${primaryColor}66` }} />
           <p className="mt-4 text-base">Loading availability...</p>
         </div>
       ) : error ? (
@@ -802,8 +1398,15 @@ function AvailabilityStep({
           <p className="text-base">{error}</p>
         </div>
       ) : totalSlots === 0 ? (
-        <div className="mt-10 rounded-3xl border border-white/10 bg-black/60 p-8 text-center text-white/60">
-          <p className="text-base">No availability found in the next two weeks.</p>
+        <div 
+          className={cn(
+            "mt-10 border p-8 text-center",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ borderColor: primaryColor }}
+          style={{ backgroundColor: `${secondaryColor}cc`, color: `${primaryColor}99` }}
+        >
+          <p className="text-base">No availability found for this staff member in the next two weeks.</p>
           <p className="mt-2 text-sm">
             Try selecting a different staff member or contact us at{" "}
             <a href={`mailto:${supportEmail ?? "support@revol.com"}`} className="underline">
@@ -819,96 +1422,276 @@ function AvailabilityStep({
             <Button
               variant="ghost"
               onClick={() => navigateWeek('prev')}
-              className="text-white/70 hover:text-white"
+              style={{ color: `${primaryColor}B3` }}
+              onMouseEnter={(e) => e.currentTarget.style.color = primaryColor}
+              onMouseLeave={(e) => e.currentTarget.style.color = `${primaryColor}B3`}
             >
               <ChevronLeft className="h-5 w-5" />
             </Button>
             <div className="text-center">
-              <h3 className="text-lg font-semibold text-white">{monthYear}</h3>
+              <h3 className="text-lg font-semibold" style={{ color: primaryColor }}>{monthYear}</h3>
             </div>
             <Button
               variant="ghost"
               onClick={() => navigateWeek('next')}
-              className="text-white/70 hover:text-white"
+              style={{ color: `${primaryColor}B3` }}
+              onMouseEnter={(e) => e.currentTarget.style.color = primaryColor}
+              onMouseLeave={(e) => e.currentTarget.style.color = `${primaryColor}B3`}
             >
               <ChevronRight className="h-5 w-5" />
             </Button>
           </div>
 
-          {/* Calendar Grid */}
-          <div className="overflow-x-auto">
-            <div className="min-w-full">
-              {/* Day Headers */}
-              <div className="grid grid-cols-8 gap-2 border-b border-white/10 pb-2">
-                <div className="text-xs font-semibold text-white/60">Time</div>
-                {weekDays.map((day, idx) => (
-                  <div key={idx} className="text-center">
-                    <p className="text-xs font-semibold text-white/60">
+          {/* Mobile: Day Selector */}
+          <div className="mb-6 md:hidden">
+            <div 
+              className="flex items-center gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden" 
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {weekDays.map((day, idx) => {
+                const dateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+                const daySlots = slotsByDayAndTime[dateKey] || {};
+                const hasSlots = Object.values(daySlots).some(slots => 
+                  slots.some(slot => slot.staffId === selectedStaffId)
+                );
+                const isSelected = selectedDayIndex === idx;
+                
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedDayIndex(idx)}
+                    className={cn(
+                      "flex-shrink-0 rounded-lg border px-4 py-3 text-center transition-all",
+                      isSelected ? "font-semibold" : "opacity-60"
+                    )}
+                    style={{
+                      borderColor: isSelected ? primaryColor : `${primaryColor}40`,
+                      backgroundColor: isSelected ? `${primaryColor}15` : `${secondaryColor}40`,
+                      color: primaryColor,
+                      minWidth: '80px'
+                    }}
+                  >
+                    <p className="text-xs" style={{ color: `${primaryColor}99` }}>
                       {formatInTimeZone(day, timezone, { weekday: "short" })}
                     </p>
-                    <p className="text-sm font-semibold text-white">
+                    <p className="text-base font-bold">
+                      {formatInTimeZone(day, timezone, { day: "numeric" })}
+                    </p>
+                    {!hasSlots && (
+                      <p className="mt-1 text-[10px]" style={{ color: `${primaryColor}66` }}>No slots</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Desktop Calendar Grid */}
+          <div className="hidden md:block overflow-x-auto">
+            <div className="min-w-full">
+              {/* Day Headers */}
+              <div className="grid grid-cols-8 gap-2 border-b pb-3 mb-1" style={{ borderBottomColor: primaryColor }}>
+                <div className="text-xs font-semibold" style={{ color: `${primaryColor}99` }}>Time</div>
+                {weekDays.map((day, idx) => (
+                  <div key={idx} className="text-center">
+                    <p className="text-xs font-semibold" style={{ color: `${primaryColor}99` }}>
+                      {formatInTimeZone(day, timezone, { weekday: "short" })}
+                    </p>
+                    <p className="text-sm font-semibold" style={{ color: primaryColor }}>
                       {formatInTimeZone(day, timezone, { day: "numeric" })}
                     </p>
                   </div>
                 ))}
               </div>
 
-              {/* Hour Rows */}
-              <div className="mt-2 space-y-1">
-                {hours.map((hour) => {
-                  const hourLabel = hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`;
+              {/* Desktop Time Segment Rows - 30-minute blocks */}
+              <div className="mt-2 space-y-0.5">
+                {timeSegments.map((segment) => {
+                  const timeKey = `${segment.hour}:${segment.minute.toString().padStart(2, '0')}`;
+                  const timeLabel = segment.minute === 0 
+                    ? (segment.hour === 12 ? "12 PM" : segment.hour > 12 ? `${segment.hour - 12} PM` : `${segment.hour} AM`)
+                    : `${segment.minute}`;
+                  
                   return (
-                    <div key={hour} className="grid grid-cols-8 gap-2">
-                      <div className="flex items-center text-xs text-white/60 py-2">
-                        {hourLabel}
+                    <div key={timeKey} className="grid grid-cols-8 gap-2">
+                      <div className="flex items-center text-xs py-2" style={{ color: `${primaryColor}80` }}>
+                        {segment.minute === 0 ? (
+                          <span className="font-medium" style={{ color: `${primaryColor}80` }}>{segment.hour === 12 ? "12 PM" : segment.hour > 12 ? `${segment.hour - 12} PM` : `${segment.hour} AM`}</span>
+                        ) : (
+                          <span className="text-[10px]" style={{ color: `${primaryColor}4D` }}>{segment.minute}</span>
+                        )}
                       </div>
                       {weekDays.map((day, dayIdx) => {
                         const dateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
-                        const slotsForHour = slotsByDayAndHour[dateKey]?.[hour] || [];
-                        const filteredSlots = selectedStaffId === "any"
-                          ? slotsForHour
-                          : slotsForHour.filter(slot => slot.staffId === selectedStaffId);
+                        const slotsForSegment = slotsByDayAndTime[dateKey]?.[timeKey] || [];
+                        
+                        // Filter out duplicate slots (same slot ID)
+                        const uniqueSlots = slotsForSegment.filter((slot, index, self) => 
+                          index === self.findIndex(s => s.id === slot.id)
+                        );
+                        
+                        // Group slots by their exact start time - slots that start together should be rendered as one continuous block
+                        const slotsByStartTime = new Map<string, typeof uniqueSlots>();
+                        uniqueSlots.forEach(slot => {
+                          const slotStart = new Date(slot.startDateTime);
+                          const slotHour = parseInt(formatInTimeZone(slotStart, timezone, { hour: "numeric", hour12: false }), 10);
+                          const slotMinute = parseInt(formatInTimeZone(slotStart, timezone, { minute: "numeric" }), 10);
+                          const slotRoundedMinute = Math.floor(slotMinute / 30) * 30;
+                          const startKey = `${slotHour}:${slotRoundedMinute.toString().padStart(2, '0')}`;
+                          
+                          if (!slotsByStartTime.has(startKey)) {
+                            slotsByStartTime.set(startKey, []);
+                          }
+                          slotsByStartTime.get(startKey)!.push(slot);
+                        });
+                        
+                        // Determine if this is the starting block for each slot group
+                        const slotGroups = Array.from(slotsByStartTime.entries()).map(([startKey, slots]) => {
+                          const [hour, minute] = startKey.split(':').map(Number);
+                          const isStartingBlock = hour === segment.hour && minute === segment.minute;
+                          
+                          // Check if any slot in this group should appear in this segment (even if not starting)
+                          const segmentStartMinutes = segment.hour * 60 + segment.minute;
+                          const segmentEndMinutes = segmentStartMinutes + 30;
+                          
+                          const shouldAppear = isStartingBlock || slots.some(slot => {
+                            const slotStart = new Date(slot.startDateTime);
+                            const slotEnd = new Date(slot.endDateTime);
+                            const slotStartMinutes = hour * 60 + minute;
+                            const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                            
+                            // Slot appears in this segment if it overlaps
+                            return slotStartMinutes < segmentEndMinutes && slotEndMinutes > segmentStartMinutes;
+                          });
+                          
+                          return { startKey, slots, isStartingBlock, shouldAppear };
+                        }).filter(({ shouldAppear }) => shouldAppear);
+                        
+                        // Filter by selected staff (required, so no "any" option)
+                        const filteredSlotGroups = slotGroups
+                          .map(group => ({
+                            ...group,
+                            slots: group.slots.filter(slot => slot.staffId === selectedStaffId)
+                          }))
+                          .filter(group => group.slots.length > 0);
+                        
+                        // Since only one staff member is selected, no need to split by multiple staff
+                        const blockMinHeightRem = 2.5;
+                        const blockPaddingRem = 0.25;
+                        const firstBlockHeight = blockMinHeightRem + blockPaddingRem;
 
                         return (
-                          <div key={dayIdx} className="py-1">
-                            {filteredSlots.length > 0 ? (
-                              <div className="space-y-1">
-                                {filteredSlots.map((slot) => {
-                                  const staffMember = staff.find(s => s.id === slot.staffId);
+                          <div key={dayIdx} className="relative py-0.5 min-h-[2.75rem]">
+                            {filteredSlotGroups.map(({ startKey, slots: groupSlots, isStartingBlock }) => {
+                              // Only one slot since we're filtering by selected staff
+                              const slot = groupSlots[0];
+                              if (!slot) return null;
+                              
+                              // Calculate how many 30-minute blocks this slot spans
+                              const slotStart = new Date(slot.startDateTime);
+                              const slotEnd = new Date(slot.endDateTime);
+                              const slotDurationMinutes = (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                              const slotBlocksSpanned = Math.ceil(slotDurationMinutes / 30);
+                              
+                              if (isStartingBlock) {
+                                  // Helper to convert hex to rgba with opacity
+                                  const hexToRgba = (hex: string, alpha: number) => {
+                                    const r = parseInt(hex.slice(1, 3), 16);
+                                    const g = parseInt(hex.slice(3, 5), 16);
+                                    const b = parseInt(hex.slice(5, 7), 16);
+                                    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                                  };
+                                  
                                   return (
                                     <button
                                       key={slot.id}
                                       type="button"
                                       onClick={() => onSelectSlot(slot)}
-                                      className="w-full rounded-lg px-2 py-1.5 text-left transition focus-visible:outline-none focus-visible:ring-2"
+                                    className="absolute left-0 right-0 w-full flex items-center justify-center transition-all rounded-lg hover:scale-[1.02]"
                                       style={{
-                                        borderColor: staffMember?.color ? `${staffMember.color}80` : `${primaryColor}66`,
-                                        backgroundColor: staffMember?.color ? `${staffMember.color}20` : `${primaryColor}20`,
-                                        borderWidth: '1px',
-                                        '--tw-ring-color': primaryColor,
+                                      height: `${firstBlockHeight}rem`,
+                                      minHeight: `${firstBlockHeight}rem`,
+                                      top: '0',
+                                      zIndex: 100,
+                                      position: 'absolute',
+                                      borderRadius: '0.5rem',
+                                      // Beautiful available slot styling with primary color
+                                      border: `1.5px solid ${hexToRgba(primaryColor, 0.4)}`,
+                                      backgroundColor: hexToRgba(primaryColor, 0.12),
+                                      boxShadow: `0 2px 8px ${hexToRgba(primaryColor, 0.15)}, inset 0 1px 0 ${hexToRgba(primaryColor, 0.1)}`,
+                                      '--tw-ring-color': primaryColor,
                                       } as React.CSSProperties}
                                       onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = staffMember?.color ? `${staffMember.color}99` : `${primaryColor}99`;
-                                        e.currentTarget.style.backgroundColor = staffMember?.color ? `${staffMember.color}30` : `${primaryColor}30`;
+                                      e.currentTarget.style.borderColor = hexToRgba(primaryColor, 0.6);
+                                      e.currentTarget.style.backgroundColor = hexToRgba(primaryColor, 0.2);
+                                      e.currentTarget.style.boxShadow = `0 4px 12px ${hexToRgba(primaryColor, 0.25)}, inset 0 1px 0 ${hexToRgba(primaryColor, 0.15)}`;
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = staffMember?.color ? `${staffMember.color}80` : `${primaryColor}66`;
-                                        e.currentTarget.style.backgroundColor = staffMember?.color ? `${staffMember.color}20` : `${primaryColor}20`;
+                                        e.currentTarget.style.borderColor = hexToRgba(primaryColor, 0.4);
+                                        e.currentTarget.style.backgroundColor = hexToRgba(primaryColor, 0.12);
+                                        e.currentTarget.style.boxShadow = `0 2px 8px ${hexToRgba(primaryColor, 0.15)}, inset 0 1px 0 ${hexToRgba(primaryColor, 0.1)}`;
                                       }}
+                                    title={`${formatInTimeZone(new Date(slot.startDateTime), timezone, { hour: "numeric", minute: "2-digit" })} - ${slot.staffName}`}
                                     >
-                                      <p className="text-xs font-semibold text-white">
+                                    {/* Show time with beautiful styling */}
+                                    <span className="text-xs font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]" style={{ color: primaryColor }}>
                                         {formatInTimeZone(new Date(slot.startDateTime), timezone, { hour: "numeric", minute: "2-digit" })}
-                                      </p>
-                                      <p className="text-[10px] text-white/70 mt-0.5 truncate">
-                                        {slot.staffName}
-                                      </p>
+                                    </span>
                                     </button>
                                   );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="h-full rounded-lg bg-white/5 border border-white/5 py-1.5">
-                                <p className="text-[10px] text-white/20 text-center">—</p>
+                              } else {
+                                // Continuation block for single staff member - also rounded to match
+                                const [startHour, startMinute] = startKey.split(':').map(Number);
+                                const segmentStartMinutes = segment.hour * 60 + segment.minute;
+                                const segmentEndMinutes = segmentStartMinutes + 30;
+                                
+                                const slotStart = new Date(slot.startDateTime);
+                                const slotEnd = new Date(slot.endDateTime);
+                                const slotStartMinutes = startHour * 60 + startMinute;
+                                const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                                
+                                // Only render continuation if slot actually overlaps with this segment
+                                if (slotStartMinutes >= segmentEndMinutes || slotEndMinutes <= segmentStartMinutes) {
+                                  return null;
+                                }
+                                
+                                // Helper to convert hex to rgba with opacity
+                                const hexToRgba = (hex: string, alpha: number) => {
+                                  const r = parseInt(hex.slice(1, 3), 16);
+                                  const g = parseInt(hex.slice(3, 5), 16);
+                                  const b = parseInt(hex.slice(5, 7), 16);
+                                  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                                };
+                                
+                                return (
+                                  <div
+                                    key={`${slot.id}-continuation`}
+                                    className="absolute left-0 right-0 pointer-events-none rounded-lg"
+                                    style={{
+                                      height: `${firstBlockHeight}rem`,
+                                      top: '0',
+                                      zIndex: 99,
+                                      position: 'absolute',
+                                      // Continuation blocks - match the starting block styling
+                                      borderLeft: `1.5px solid ${hexToRgba(primaryColor, 0.4)}`,
+                                      borderRight: `1.5px solid ${hexToRgba(primaryColor, 0.4)}`,
+                                      backgroundColor: hexToRgba(primaryColor, 0.12),
+                                      boxShadow: `inset 0 1px 0 ${hexToRgba(primaryColor, 0.1)}`,
+                                      borderTop: 'none',
+                                      borderBottom: 'none',
+                                      // Always use rounded corners to match empty slots
+                                      borderRadius: '0.5rem',
+                                      marginTop: '-1px',
+                                    }}
+                                  />
+                                );
+                              }
+                            })}
+                            
+                            {/* Show empty state if no slots - subtle empty cell with rounded-lg to match slot style */}
+                            {filteredSlotGroups.length === 0 && (
+                              <div className="h-full rounded-lg bg-white/[0.02] border py-0.5 min-h-[2.75rem] transition-colors hover:bg-white/[0.04]" style={{ borderColor: primaryColor }}>
+                                {/* Empty - no content */}
                               </div>
                             )}
                           </div>
@@ -919,6 +1702,89 @@ function AvailabilityStep({
                 })}
               </div>
             </div>
+          </div>
+
+          {/* Mobile: Vertical Time Slots List */}
+          <div className="md:hidden">
+            {(() => {
+              const selectedDay = weekDays[selectedDayIndex];
+              const dateKey = formatInTimeZone(selectedDay, timezone, "yyyy-MM-dd");
+              const daySlots = slotsByDayAndTime[dateKey] || {};
+              
+              // Collect all unique slots for this day
+              const allDaySlots: ExpandedAvailabilitySlot[] = [];
+              Object.values(daySlots).forEach(timeSlotArray => {
+                timeSlotArray.forEach(slot => {
+                  if (slot.staffId === selectedStaffId && !allDaySlots.find(s => s.id === slot.id)) {
+                    allDaySlots.push(slot);
+                  }
+                });
+              });
+              
+              // Sort slots by start time
+              allDaySlots.sort((a, b) => 
+                new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime()
+              );
+
+              if (allDaySlots.length === 0) {
+                return (
+                  <div className="rounded-lg border p-8 text-center" style={{ borderColor: `${primaryColor}40`, backgroundColor: `${secondaryColor}40` }}>
+                    <p className="text-sm" style={{ color: `${primaryColor}99` }}>
+                      No available slots for {formatInTimeZone(selectedDay, timezone, { weekday: "long", month: "short", day: "numeric" })}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {allDaySlots.map((slot) => {
+                    const slotStart = new Date(slot.startDateTime);
+                    const slotEnd = new Date(slot.endDateTime);
+                    const hexToRgba = (hex: string, alpha: number) => {
+                      const r = parseInt(hex.slice(1, 3), 16);
+                      const g = parseInt(hex.slice(3, 5), 16);
+                      const b = parseInt(hex.slice(5, 7), 16);
+                      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                    };
+                    
+                    return (
+                      <button
+                        key={slot.id}
+                        type="button"
+                        onClick={() => onSelectSlot(slot)}
+                        className="w-full rounded-lg border p-4 text-left transition-all active:scale-[0.98]"
+                        style={{
+                          borderColor: hexToRgba(primaryColor, 0.4),
+                          backgroundColor: hexToRgba(primaryColor, 0.12),
+                          boxShadow: `0 2px 8px ${hexToRgba(primaryColor, 0.15)}`,
+                        }}
+                        onTouchStart={(e) => {
+                          e.currentTarget.style.borderColor = hexToRgba(primaryColor, 0.6);
+                          e.currentTarget.style.backgroundColor = hexToRgba(primaryColor, 0.2);
+                        }}
+                        onTouchEnd={(e) => {
+                          e.currentTarget.style.borderColor = hexToRgba(primaryColor, 0.4);
+                          e.currentTarget.style.backgroundColor = hexToRgba(primaryColor, 0.12);
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-bold" style={{ color: primaryColor }}>
+                              {formatInTimeZone(slotStart, timezone, { hour: "numeric", minute: "2-digit" })}
+                            </p>
+                            <p className="mt-1 text-xs" style={{ color: `${primaryColor}99` }}>
+                              {formatDuration((slotEnd.getTime() - slotStart.getTime()) / (1000 * 60))} · {slot.staffName}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-5 w-5" style={{ color: `${primaryColor}80` }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -986,6 +1852,9 @@ function CheckoutStep(props: {
   onOpenPolicies: () => void;
   business: FakeBusiness;
   primaryColor: string;
+  secondaryColor: string;
+  buttonRadius: string;
+  fontFamily: string;
 }) {
   const {
     service,
@@ -1027,7 +1896,10 @@ function CheckoutStep(props: {
     onSubmit,
     onOpenPolicies,
     business,
-    primaryColor
+    primaryColor,
+    secondaryColor,
+    buttonRadius,
+    fontFamily
   } = props;
 
   // Create SetupIntent when user has filled required fields so payment form appears immediately
@@ -1094,58 +1966,85 @@ function CheckoutStep(props: {
   }, [setupIntentClientSecret, selectedService, selectedSlot, customerName, customerEmail, customerPhone, business.slug, giftCardState, setSetupIntentClientSecret, setCreatedBookingId, setCreatedBookingCode]);
 
   return (
-    <section className="grid gap-8 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-[0_0_60px_rgba(91,100,255,0.2)] md:grid-cols-[1.4fr_1fr]">
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+    <section 
+      className={cn(
+        "flex flex-col gap-6 border bg-white/5 p-4 md:grid md:grid-cols-[1.4fr_1fr] md:gap-8 md:p-8",
+        buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+      )}
+      style={{ borderColor: primaryColor, boxShadow: `0 0 60px ${primaryColor}25` }}
+    >
+      <div className="flex flex-col space-y-6 md:space-y-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-white/40">Step 3 · Checkout</p>
-            <h2 className="mt-2 font-display text-3xl text-white">{service.name}</h2>
-            <p className="mt-1 text-sm text-white/60">
+            <p className="text-xs uppercase tracking-[0.35em]" style={{ color: primaryColor }}>Step 3 · Checkout</p>
+            <h2 
+              className="mt-2 text-2xl md:text-3xl font-bold"
+              style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+            >
+              {service.name}
+            </h2>
+            <p className="mt-1 text-sm" style={{ color: primaryColor }}>
             {formatDuration(service.durationMinutes)} · {formatCurrency(listPriceCents)} — with{" "}
               {slot.staffName}
             </p>
           </div>
-          <Button variant="ghost" onClick={onBack} className="inline-flex items-center gap-2 text-white/70">
+          <Button 
+            variant="ghost" 
+            onClick={onBack} 
+            className="inline-flex items-center gap-2 self-start md:self-auto" 
+            style={{ color: primaryColor }}
+          >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Pick another slot
+            <span className="text-sm md:text-base">Pick another slot</span>
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Full name">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Full name" primaryColor={primaryColor}>
             <Input
               value={customerName}
               onChange={(event) => setCustomerName(event.target.value)}
               placeholder="Jordan Blake"
               autoComplete="name"
+              textColor={primaryColor}
+              borderColor={primaryColor}
+              className="text-base md:text-sm"
             />
           </Field>
-          <Field label="Email">
+          <Field label="Email" primaryColor={primaryColor}>
             <Input
               type="email"
               value={customerEmail}
               onChange={(event) => setCustomerEmail(event.target.value)}
               placeholder="you@example.com"
               autoComplete="email"
+              textColor={primaryColor}
+              borderColor={primaryColor}
+              className="text-base md:text-sm"
             />
           </Field>
-          <Field label="Phone">
+          <Field label="Phone" primaryColor={primaryColor}>
             <Input
               type="tel"
               value={customerPhone}
               onChange={(event) => setCustomerPhone(event.target.value)}
               placeholder="+1 555 010 2030"
               autoComplete="tel"
+              textColor={primaryColor}
+              borderColor={primaryColor}
+              className="text-base md:text-sm"
             />
           </Field>
-          <Field label="Gift card or code" helper="Optional — amount or percent off will apply immediately.">
+          <Field label="Gift card or code" helper="Optional — amount or percent off will apply immediately." primaryColor={primaryColor}>
             <div className="flex gap-2">
               <Input
                 value={giftCardInput}
                 onChange={(event) => setGiftCardInput(event.target.value)}
                 placeholder="WELCOME120"
-                className="flex-1 uppercase"
+                className="flex-1 text-base md:text-sm uppercase"
                 autoCapitalize="characters"
+                textColor={primaryColor}
+                borderColor={primaryColor}
               />
               <Button type="button" variant="outline" onClick={onApplyGiftCard}>
                 Apply
@@ -1165,12 +2064,22 @@ function CheckoutStep(props: {
           </Field>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-black/60 p-6">
-          <p className="flex items-center gap-2 text-sm font-semibold text-white">
-            <CreditCard className="h-4 w-4" aria-hidden="true" />
-            Payment method — card saved now, charged later
+        <div 
+          className={cn(
+            "border p-4 md:p-6",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ 
+            borderColor: primaryColor,
+            backgroundColor: `${secondaryColor}cc`,
+            color: primaryColor
+          }}
+        >
+          <p className="flex items-center gap-2 text-sm font-semibold" style={{ color: primaryColor }}>
+            <CreditCard className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <span className="text-xs md:text-sm">Payment method — card saved now, charged later</span>
           </p>
-          <p className="mt-1 text-xs text-white/50">
+          <p className="mt-2 text-xs leading-relaxed" style={{ color: primaryColor }}>
             {acceptedMethods.length > 0 
               ? `${describeAcceptedMethods(acceptedMethods)}. ` 
               : ''}A credit card is required for all bookings. Even if you plan to pay with cash, we store a card
@@ -1186,12 +2095,12 @@ function CheckoutStep(props: {
                     theme: 'night',
                     variables: {
                       colorPrimary: primaryColor,
-                      colorBackground: '#000000',
-                      colorText: '#ffffff',
+                      colorBackground: secondaryColor,
+                      colorText: primaryColor,
                       colorDanger: '#ef4444',
-                      fontFamily: 'system-ui, sans-serif',
+                      fontFamily: `"${fontFamily}", system-ui, sans-serif`,
                       spacingUnit: '4px',
-                      borderRadius: '8px',
+                      borderRadius: buttonRadius === 'rounded-full' ? '9999px' : buttonRadius === 'rounded-lg' ? '8px' : '0px',
                     },
                   },
                 }}
@@ -1255,31 +2164,43 @@ function CheckoutStep(props: {
             </div>
           ) : (
             <div className="mt-4">
-              <HelperText className="text-white/60">
+              <HelperText style={{ color: primaryColor }}>
                 Click "Confirm booking" below to set up your payment method. Your card will be saved securely but not charged.
               </HelperText>
             </div>
           )}
-          <HelperText className="mt-2">
+          <HelperText className="mt-2" style={{ color: primaryColor }}>
             You're authorizing a card on file. Per Revol's manual capture rules, nothing is charged until
             your appointment is completed or a policy fee applies.
           </HelperText>
         </div>
 
-        <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-black/60 p-6">
+        <div 
+          className={cn(
+            "flex flex-col gap-4 border p-4 md:p-6",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ 
+            borderColor: primaryColor,
+            backgroundColor: `${secondaryColor}cc`,
+            color: primaryColor
+          }}
+        >
           <div className="flex items-start gap-3">
             <input
               id="policy-consent"
               type="checkbox"
               checked={consentChecked}
               onChange={(event) => setConsentChecked(event.target.checked)}
-              className="mt-1 h-5 w-5 rounded border-white/20 bg-black focus:ring-2"
+              className="mt-1 h-5 w-5 flex-shrink-0 rounded focus:ring-2"
+              style={{ borderColor: primaryColor }}
               style={{ 
                 accentColor: primaryColor,
+                backgroundColor: `${secondaryColor}80`,
                 '--tw-ring-color': primaryColor,
               } as React.CSSProperties}
             />
-            <label htmlFor="policy-consent" className="text-sm text-white/70">
+            <label htmlFor="policy-consent" className="text-xs md:text-sm leading-relaxed" style={{ color: primaryColor }}>
               I agree to the cancellation, no-show, refund, and cash policies. My card is saved via Stripe
               for manual capture later.{" "}
               <button
@@ -1299,10 +2220,25 @@ function CheckoutStep(props: {
               onClick={onSubmit}
               isLoading={isSubmitting}
               disabled={isSubmitting || !!setupIntentClientSecret}
-              className="inline-flex items-center justify-center gap-2 text-base"
+              className="w-full md:w-auto inline-flex items-center justify-center gap-2 text-sm md:text-base"
+              style={{ backgroundColor: primaryColor }}
+              onMouseEnter={(e) => {
+                if (!isSubmitting && !setupIntentClientSecret) {
+                  const hexToRgba = (hex: string, alpha: number) => {
+                    const r = parseInt(hex.slice(1, 3), 16);
+                    const g = parseInt(hex.slice(3, 5), 16);
+                    const b = parseInt(hex.slice(5, 7), 16);
+                    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                  };
+                  e.currentTarget.style.backgroundColor = hexToRgba(primaryColor, 0.85);
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = primaryColor;
+              }}
             >
               <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-              {setupIntentClientSecret ? 'Complete payment setup below' : 'Confirm booking — no charge today'}
+              <span className="text-sm md:text-base">{setupIntentClientSecret ? 'Complete payment setup below' : 'Confirm booking — no charge today'}</span>
             </Button>
           ) : (
             <HelperText intent="success" className="text-emerald-200">
@@ -1312,35 +2248,50 @@ function CheckoutStep(props: {
         </div>
       </div>
 
-      <aside className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-black/60 p-6">
+      <aside 
+        className={cn(
+          "order-first md:order-last flex flex-col gap-4 border p-4 md:p-6",
+          buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+        )}
+        style={{ 
+          borderColor: primaryColor,
+          backgroundColor: `${secondaryColor}cc`,
+          color: primaryColor
+        }}
+      >
         <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-white/40">Summary</p>
-          <h3 className="mt-2 font-display text-2xl text-white">{service.name}</h3>
-          <p className="mt-2 flex items-center gap-2 text-sm text-white/60">
-            <CalendarDays className="h-4 w-4" aria-hidden="true" />
+          <p className="text-xs uppercase tracking-[0.35em]" style={{ color: primaryColor }}>Summary</p>
+          <h3 
+            className="mt-2 text-2xl font-bold"
+            style={{ fontFamily: `"${fontFamily}", sans-serif`, color: primaryColor }}
+          >
+            {service.name}
+          </h3>
+          <p className="mt-2 flex items-center gap-2 text-sm" style={{ color: primaryColor }}>
+            <CalendarDays className="h-4 w-4" aria-hidden="true" style={{ color: primaryColor }} />
             {formatInTimeZone(slot.startDateTime, timezone, {
               weekday: "long",
               month: "short",
               day: "numeric"
             })}
           </p>
-          <p className="mt-1 flex items-center gap-2 text-sm text-white/60">
-            <Clock className="h-4 w-4" aria-hidden="true" />
+          <p className="mt-1 flex items-center gap-2 text-sm" style={{ color: primaryColor }}>
+            <Clock className="h-4 w-4" aria-hidden="true" style={{ color: primaryColor }} />
             {formatInTimeZone(slot.startDateTime, timezone, {
               hour: "numeric",
               minute: "2-digit"
             })}{" "}
             — {formatDuration(service.durationMinutes)}
           </p>
-          <p className="mt-1 flex items-center gap-2 text-sm text-white/60">
-            <Users className="h-4 w-4" aria-hidden="true" />
+          <p className="mt-1 flex items-center gap-2 text-sm" style={{ color: primaryColor }}>
+            <Users className="h-4 w-4" aria-hidden="true" style={{ color: primaryColor }} />
             {slot.staffName}
           </p>
         </div>
-        <div className="border-t border-white/10 pt-4 text-sm text-white/60">
+        <div className="border-t pt-4 text-sm" style={{ color: primaryColor, borderTopColor: primaryColor }}>
           <div className="flex items-center justify-between">
             <span>Service price</span>
-            <span className="text-white">{formatCurrency(listPriceCents)}</span>
+            <span style={{ color: primaryColor }}>{formatCurrency(listPriceCents)}</span>
           </div>
           {giftCardState ? (
             <div className="mt-2 flex items-center justify-between text-emerald-200">
@@ -1348,11 +2299,11 @@ function CheckoutStep(props: {
               <span>-{formatCurrency(giftCardState.amountCents)}</span>
             </div>
           ) : null}
-          <div className="mt-4 flex items-center justify-between text-base font-semibold text-white">
+          <div className="mt-4 flex items-center justify-between text-base font-semibold" style={{ color: primaryColor }}>
             <span>Due today</span>
             <span>{formatCurrency(amountDueCents)}</span>
           </div>
-          <HelperText className="mt-3">
+          <HelperText className="mt-3" style={{ color: primaryColor }}>
             This amount is authorized but not captured. Manual capture ensures you only charge customers
             after services are delivered or if a policy fee applies.
           </HelperText>
@@ -1368,7 +2319,11 @@ function ConfirmationStep({
   amountDueCents,
   policies,
   timezone,
-  onBookAnother
+  onBookAnother,
+  primaryColor,
+  secondaryColor,
+  buttonRadius,
+  fontFamily
 }: {
   booking: FakeBooking;
   service?: {
@@ -1380,6 +2335,10 @@ function ConfirmationStep({
   policies: FakeBusinessWorkspace["policies"];
   timezone: string;
   onBookAnother: () => void;
+  primaryColor: string;
+  secondaryColor: string;
+  buttonRadius: string;
+  fontFamily: string;
 }) {
   return (
     <section className="rounded-3xl border border-emerald-400/40 bg-emerald-500/10 p-10 text-emerald-50 shadow-[0_0_80px_rgba(16,185,129,0.35)]">
@@ -1397,7 +2356,13 @@ function ConfirmationStep({
             won’t be charged until the appointment is completed—or if a manual policy fee applies.
           </p>
         </div>
-        <div className="rounded-3xl border border-emerald-400/50 bg-black/40 p-6 text-sm text-emerald-100/80">
+        <div 
+          className={cn(
+            "border border-emerald-400/50 p-6 text-sm text-emerald-100/80",
+            buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-lg'
+          )}
+          style={{ backgroundColor: `${secondaryColor}80` }}
+        >
           <p className="flex items-center gap-2">
             <CalendarDays className="h-4 w-4" aria-hidden="true" />
             {formatInTimeZone(booking.startDateTime, timezone, {
@@ -1414,8 +2379,8 @@ function ConfirmationStep({
               {booking.staff.name}
             </p>
           ) : null}
-          <p className="mt-1 flex items-center gap-2">
-            <Clock className="h-4 w-4" aria-hidden="true" />
+          <p className="mt-1 flex items-center gap-2" style={{ color: `${primaryColor}99` }}>
+            <Clock className="h-4 w-4" aria-hidden="true" style={{ color: `${primaryColor}99` }} />
             {formatDuration(service?.durationMinutes ?? booking.durationMinutes)}
           </p>
           <div className="mt-4 border-t border-emerald-400/30 pt-3 text-sm">
@@ -1437,28 +2402,81 @@ function ConfirmationStep({
         </div>
       </div>
 
-      <div className="mt-10 grid gap-6 md:grid-cols-2">
-        <div className="rounded-3xl border border-emerald-400/40 bg-emerald-400/10 p-6 text-sm">
-          <p className="text-emerald-200/90">What happens next</p>
-          <ul className="mt-3 space-y-2 text-emerald-100/80">
-            <li>Check your email and SMS for confirmation details and reminders.</li>
-            <li>Reschedule or cancel at least 24h in advance to avoid policy fees.</li>
-            <li>Manual capture keeps money in your control—no charges run automatically.</li>
-          </ul>
+      <div className="mt-10 space-y-6">
+        {/* What happens next - compact section */}
+        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/5 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/80">What happens next</p>
+          <p className="mt-1.5 text-sm text-emerald-100/70">
+            Check your email for confirmation details. Reschedule or cancel at least 24h in advance.
+          </p>
         </div>
-        <div className="rounded-3xl border border-emerald-400/40 bg-black/40 p-6 text-sm">
-          <p className="text-emerald-200/90">Policies snapshot</p>
-          {policies.cancellationPolicy || policies.noShowPolicy || policies.refundPolicy || policies.cashPolicy ? (
-            <ul className="mt-3 space-y-2 text-emerald-100/80">
-              {policies.cancellationPolicy ? <li>{policies.cancellationPolicy}</li> : null}
-              {policies.noShowPolicy ? <li>{policies.noShowPolicy}</li> : null}
-              {policies.refundPolicy ? <li>{policies.refundPolicy}</li> : null}
-              {policies.cashPolicy ? <li>{policies.cashPolicy}</li> : null}
-            </ul>
-          ) : (
-            <p className="mt-3 text-emerald-100/60">No policies configured for this business.</p>
-          )}
-        </div>
+
+        {/* Policies - individual boxes */}
+        {policies.cancellationPolicy || policies.noShowPolicy || policies.refundPolicy || policies.cashPolicy ? (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-200/90">Policies</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              {policies.cancellationPolicy ? (
+                <div 
+                  className={cn(
+                    "rounded-2xl border border-emerald-400/40 p-5 backdrop-blur-sm",
+                    buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-xl'
+                  )}
+                  style={{ backgroundColor: `${secondaryColor}90` }}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90 mb-2">Cancellations</p>
+                  <p className="text-sm leading-relaxed text-emerald-100/85">{policies.cancellationPolicy}</p>
+                </div>
+              ) : null}
+              {policies.noShowPolicy ? (
+                <div 
+                  className={cn(
+                    "rounded-2xl border border-emerald-400/40 p-5 backdrop-blur-sm",
+                    buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-xl'
+                  )}
+                  style={{ backgroundColor: `${secondaryColor}90` }}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90 mb-2">No-show appointments</p>
+                  <p className="text-sm leading-relaxed text-emerald-100/85">{policies.noShowPolicy}</p>
+                </div>
+              ) : null}
+              {policies.refundPolicy ? (
+                <div 
+                  className={cn(
+                    "rounded-2xl border border-emerald-400/40 p-5 backdrop-blur-sm",
+                    buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-xl'
+                  )}
+                  style={{ backgroundColor: `${secondaryColor}90` }}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90 mb-2">Refunds</p>
+                  <p className="text-sm leading-relaxed text-emerald-100/85">{policies.refundPolicy}</p>
+                </div>
+              ) : null}
+              {policies.cashPolicy ? (
+                <div 
+                  className={cn(
+                    "rounded-2xl border border-emerald-400/40 p-5 backdrop-blur-sm",
+                    buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-xl'
+                  )}
+                  style={{ backgroundColor: `${secondaryColor}90` }}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90 mb-2">Payments</p>
+                  <p className="text-sm leading-relaxed text-emerald-100/85">{policies.cashPolicy}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div 
+            className={cn(
+              "border border-emerald-400/30 p-6 text-center",
+              buttonRadius === 'rounded-full' ? 'rounded-3xl' : buttonRadius === 'rounded-lg' ? 'rounded-2xl' : 'rounded-xl'
+            )}
+            style={{ backgroundColor: `${secondaryColor}60` }}
+          >
+            <p className="text-sm text-emerald-100/60">No policies configured for this business.</p>
+          </div>
+        )}
       </div>
 
       <div className="mt-10 flex flex-wrap items-center gap-4">
@@ -1480,11 +2498,13 @@ function ConfirmationStep({
 function PolicyModal({
   policies,
   onClose,
-  timezone
+  timezone,
+  primaryColor
 }: {
   policies: FakeBusinessWorkspace["policies"];
   onClose: () => void;
   timezone: string;
+  primaryColor: string;
 }) {
   return (
     <div
@@ -1496,22 +2516,25 @@ function PolicyModal({
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-6 top-6 text-white/60 transition hover:text-white"
+          className="absolute right-6 top-6 transition"
+          style={{ color: `${primaryColor}99` }}
+          onMouseEnter={(e) => e.currentTarget.style.color = primaryColor}
+          onMouseLeave={(e) => e.currentTarget.style.color = `${primaryColor}99`}
           aria-label="Close policies"
         >
           ✕
         </button>
-        <h2 className="font-display text-3xl text-white">Booking policies</h2>
-        <p className="mt-2 text-sm text-white/60">
+        <h2 className="font-display text-3xl" style={{ color: primaryColor }}>Booking policies</h2>
+        <p className="mt-2 text-sm" style={{ color: `${primaryColor}99` }}>
           All times referenced align to {timezone}. Consent is required before submitting your booking.
         </p>
-        <div className="mt-6 space-y-5 text-sm leading-relaxed text-white/75">
-          <PolicyBlock title="Cancellation policy" body={policies.cancellationPolicy} />
-          <PolicyBlock title="Cancellation fees" body={describeFee(policies.cancellationFeeType, policies.cancellationFeeValue)} />
-          <PolicyBlock title="No-show policy" body={policies.noShowPolicy} />
-          <PolicyBlock title="No-show fee" body={describeFee(policies.noShowFeeType, policies.noShowFeeValue)} />
-          <PolicyBlock title="Refund policy" body={policies.refundPolicy} />
-          <PolicyBlock title="Cash policy" body={policies.cashPolicy} />
+        <div className="mt-6 space-y-5 text-sm leading-relaxed" style={{ color: `${primaryColor}BF` }}>
+          <PolicyBlock title="Cancellation policy" body={policies.cancellationPolicy} primaryColor={primaryColor} />
+          <PolicyBlock title="Cancellation fees" body={describeFee(policies.cancellationFeeType, policies.cancellationFeeValue)} primaryColor={primaryColor} />
+          <PolicyBlock title="No-show policy" body={policies.noShowPolicy} primaryColor={primaryColor} />
+          <PolicyBlock title="No-show fee" body={describeFee(policies.noShowFeeType, policies.noShowFeeValue)} primaryColor={primaryColor} />
+          <PolicyBlock title="Refund policy" body={policies.refundPolicy} primaryColor={primaryColor} />
+          <PolicyBlock title="Cash policy" body={policies.cashPolicy} primaryColor={primaryColor} />
         </div>
         <div className="mt-8 flex justify-end">
           <Button onClick={onClose} className="inline-flex items-center gap-2">
@@ -1526,44 +2549,66 @@ function PolicyModal({
 
 function StepIndicator({ currentStep, onReset, primaryColor }: { currentStep: Step; onReset: () => void; primaryColor: string }) {
   const steps: Array<{ id: Step; label: string }> = [
-    { id: "catalog", label: "Service" },
+      { id: "catalog", label: "Service" },
+      { id: "staff", label: "Staff" },
     { id: "availability", label: "Time" },
     { id: "checkout", label: "Checkout" },
     { id: "confirmation", label: "Done" }
   ];
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/5 px-6 py-4">
-      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-white/40">
-        {steps.map((step, index) => (
-          <div key={step.id} className="flex items-center gap-3">
-            <span
-              className={cn(
-                "inline-flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold",
-                currentStep === step.id
-                  ? "text-white"
-                  : "border-white/20 bg-white/10 text-white/50"
+    <div className="w-full rounded-3xl border px-8 py-6" style={{ 
+      borderColor: `${primaryColor}30`,
+      backgroundColor: `${primaryColor}08`,
+    }}>
+      <div className="relative flex items-start">
+        {steps.map((step, index) => {
+          const isActive = currentStep === step.id;
+          return (
+            <div key={step.id} className="relative flex flex-1 items-start">
+              <div className="flex flex-col items-center gap-1.5 w-full relative z-10">
+                {/* Circular bubble with number - consistent for all steps */}
+                <span
+                  className={cn(
+                    "relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-bold transition-all",
+                    isActive
+                      ? undefined
+                      : "border-white/20 bg-white/5"
+                  )}
+                  style={isActive ? {
+                    borderColor: primaryColor,
+                    backgroundColor: `${primaryColor}25`,
+                    color: primaryColor,
+                    boxShadow: `0 0 20px ${primaryColor}40`,
+                  } : {
+                    color: `${primaryColor}80`,
+                  }}
+                >
+                  {index + 1}
+                </span>
+                {/* Label outside bubble - consistent for all steps */}
+                <span 
+                  className="text-sm uppercase tracking-[0.35em] font-semibold whitespace-nowrap"
+                  style={{ color: isActive ? primaryColor : `${primaryColor}80` }}
+                >
+                  {step.label}
+                </span>
+              </div>
+              {/* Connector line between steps - connects from right of text to left of next circle */}
+              {index < steps.length - 1 && (
+                <div 
+                  className="absolute top-5 h-px z-0"
+                  style={{ 
+                    left: 'calc(50% + 2.5rem)',
+                    width: 'calc(100% - 5rem)',
+                    backgroundColor: `${primaryColor}20`
+                  }} 
+                  aria-hidden="true" 
+                />
               )}
-              style={currentStep === step.id ? {
-                borderColor: primaryColor,
-                backgroundColor: `${primaryColor}30`,
-              } : undefined}
-            >
-              {index + 1}
-            </span>
-            <span className={currentStep === step.id ? "text-white" : "text-white/50"}>
-              {step.label}
-            </span>
-            {index < steps.length - 1 ? (
-              <span className="h-px w-12 bg-white/10" aria-hidden="true" />
-            ) : null}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
-      {currentStep !== "catalog" && currentStep !== "confirmation" ? (
-        <Button variant="ghost" onClick={onReset} className="text-white/70">
-          Start over
-        </Button>
-      ) : null}
     </div>
   );
 }
@@ -1571,17 +2616,19 @@ function StepIndicator({ currentStep, onReset, primaryColor }: { currentStep: St
 function Field({
   label,
   helper,
-  children
+  children,
+  primaryColor
 }: {
   label: string;
   helper?: string;
   children: React.ReactNode;
+  primaryColor: string;
 }) {
   return (
-    <label className="flex flex-col gap-2 text-sm text-white/70">
-      <span className="font-semibold text-white">{label}</span>
+    <label className="flex flex-col gap-2 text-sm" style={{ color: primaryColor }}>
+      <span className="font-semibold" style={{ color: primaryColor }}>{label}</span>
       {children}
-      {helper ? <HelperText className="text-[13px] text-white/40">{helper}</HelperText> : null}
+      {helper ? <HelperText className="text-[13px]" style={{ color: primaryColor }}>{helper}</HelperText> : null}
     </label>
   );
 }
@@ -1590,11 +2637,13 @@ function StaffPill({
   label,
   color,
   active,
+  primaryColor,
   onClick
 }: {
   label: string;
   color?: string;
   active: boolean;
+  primaryColor: string;
   onClick: () => void;
 }) {
   return (
@@ -1603,20 +2652,23 @@ function StaffPill({
       onClick={onClick}
       className={cn(
         "rounded-full border px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-        active ? "border-white/60 bg-white/15 text-white" : "border-white/10 bg-white/5 text-white/60 hover:text-white/80"
+        active ? "border-white/60 bg-white/15" : "border-white/10 bg-white/5 hover:border-white/20"
       )}
-      style={active && color ? { borderColor: color, boxShadow: `0 0 25px ${color}33` } : undefined}
+      style={{
+        ...(active && color ? { borderColor: color, boxShadow: `0 0 25px ${color}33` } : {}),
+        color: active ? primaryColor : `${primaryColor}99`
+      }}
     >
       {label}
     </button>
   );
 }
 
-function PolicyBlock({ title, body }: { title: string; body: string }) {
+function PolicyBlock({ title, body, primaryColor }: { title: string; body: string; primaryColor: string }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.35em] text-white/40">{title}</p>
-      <p className="mt-2 text-sm text-white/70 leading-relaxed">{body}</p>
+      <p className="text-xs uppercase tracking-[0.35em]" style={{ color: `${primaryColor}66` }}>{title}</p>
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: `${primaryColor}B3` }}>{body}</p>
     </div>
   );
 }

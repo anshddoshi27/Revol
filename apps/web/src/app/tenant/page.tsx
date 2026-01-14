@@ -175,13 +175,17 @@ export default function TenantPage() {
     })),
   }));
 
-  // Transform staff to match StaffMember format
+  // Transform staff to match StaffMember format - include all new fields
   const transformedStaff = catalogData.staff.map((s: any) => ({
     id: s.id,
     name: s.name,
     role: s.role || undefined,
     color: s.color || "#000000",
     active: true,
+    imageUrl: s.imageUrl || undefined,
+    description: s.description || undefined,
+    review: s.review || undefined,
+    reviewerName: s.reviewerName || undefined,
   }));
 
   const workspace = {

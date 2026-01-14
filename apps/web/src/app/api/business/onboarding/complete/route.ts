@@ -268,13 +268,44 @@ export async function POST(request: Request) {
     const subscriptionStatus = business.subscription_status || 'trial';
     
     console.log('[onboarding-complete] Finalizing onboarding with subscription status:', subscriptionStatus);
-    console.log('[onboarding-complete] Plan type:', business.notifications_enabled ? 'Pro ($21.99/month)' : 'Basic ($11.99/month)');
+    console.log('[onboarding-complete] Plan type: Basic ($14.99/month) - notifications enabled');
+    
+    // Set launched_at to now when business goes live
+    // Trial period is 7 days from launch date, not from when trial was selected
+    const launchedAt = new Date();
+    const launchedAtISO = launchedAt.toISOString();
+    
+    // Calculate trial end date: 7 days from launch
+    const trialEndsAt = new Date(launchedAt);
+    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
+    const trialEndsAtISO = trialEndsAt.toISOString();
+    
+    // If business has a Stripe subscription, update the trial_end to be 7 days from launch
+    if (business.stripe_subscription_id && subscriptionStatus === 'trial') {
+      try {
+        const { getStripeClient } = await import('@/lib/stripe');
+        const stripe = getStripeClient();
+        
+        // Update subscription to set trial_end to 7 days from launch
+        await stripe.subscriptions.update(business.stripe_subscription_id, {
+          trial_end: Math.floor(trialEndsAt.getTime() / 1000), // Stripe expects Unix timestamp
+        });
+        
+        console.log('[onboarding-complete] Updated Stripe subscription trial_end to:', trialEndsAtISO);
+      } catch (stripeError) {
+        console.error('[onboarding-complete] Error updating Stripe subscription trial_end:', stripeError);
+        // Continue even if Stripe update fails - we'll still update the database
+      }
+    }
     
     // Update business to ensure subscription_status is set and mark as ready
     let { error: updateError } = await supabase
       .from('businesses')
       .update({
         subscription_status: subscriptionStatus,
+        launched_at: launchedAtISO,
+        trial_ends_at: subscriptionStatus === 'trial' ? trialEndsAtISO : business.trial_ends_at,
+        next_bill_at: subscriptionStatus === 'trial' ? trialEndsAtISO : business.next_bill_at,
         updated_at: new Date().toISOString(),
       })
       .eq('id', businessId);
@@ -289,6 +320,7 @@ export async function POST(request: Request) {
         .from('businesses')
         .update({
           subscription_status: subscriptionStatus,
+          launched_at: launchedAt,
           updated_at: new Date().toISOString(),
         })
         .eq('id', businessId);

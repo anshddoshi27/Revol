@@ -14,6 +14,7 @@ import {
   Layers3,
   LayoutDashboard,
   LifeBuoy,
+  Palette,
   Settings2,
   UsersRound
 } from "lucide-react";
@@ -67,6 +68,11 @@ const NAV_ITEMS = [
     label: "Policies",
     segment: "policies",
     icon: <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+  },
+  {
+    label: "Branding",
+    segment: "branding",
+    icon: <Palette className="h-4 w-4" aria-hidden="true" />
   },
   {
     label: "Gift cards",
@@ -248,7 +254,7 @@ export default function AdminBusinessLayout({
 
           const catalog = Array.from(categoriesMap.values());
 
-          // Transform staff
+          // Transform staff - include all new fields
           const staff = (apiData.staff || []).map((s: any) => ({
             id: s.id,
             name: s.name,
@@ -256,6 +262,11 @@ export default function AdminBusinessLayout({
             phone: s.phone || '',
             color: s.color || '#5B64FF',
             role: s.role || 'staff',
+            active: s.is_active !== false,
+            imageUrl: s.image_url || undefined,
+            description: s.description || undefined,
+            review: s.review || undefined,
+            reviewerName: s.reviewer_name || undefined,
           }));
 
           // Transform bookings
@@ -561,13 +572,17 @@ export default function AdminBusinessLayout({
                 })),
               });
 
-              // Transform staff (handle empty staff array)
+              // Transform staff (handle empty staff array) - include all new fields
               const staff = (apiData.staff || []).map((s: any) => ({
                 id: s.id,
                 name: s.name,
                 role: s.role || '',
                 color: s.color || '#5B64FF',
-                active: s.active !== false,
+                active: s.is_active !== false,
+                imageUrl: s.image_url || undefined,
+                description: s.description || undefined,
+                review: s.review || undefined,
+                reviewerName: s.reviewer_name || undefined,
               }));
 
               // Transform availability (handle empty availability array)
@@ -690,6 +705,7 @@ export default function AdminBusinessLayout({
                 branding: apiData.branding || {
                   primaryColor: apiData.business.brand_primary_color || '',
                   secondaryColor: apiData.business.brand_secondary_color || undefined,
+                  useGradient: apiData.business.use_gradient ?? true,
                   logoUrl: apiData.business.logo_url || undefined,
                   logoName: undefined,
                   recommendedDimensions: { width: 960, height: 1280 },
@@ -1254,9 +1270,10 @@ function transformBookingsFromAPI(
     if (booking.status === 'pending') status = 'pending';
     else if (booking.status === 'scheduled') status = 'pending';
     else if (booking.status === 'completed') status = 'completed';
-    else if (booking.status === 'canceled') status = 'canceled';
+    else if (booking.status === 'canceled' || booking.status === 'cancelled') status = 'canceled'; // Handle both spellings
     else if (booking.status === 'no_show') status = 'no_show';
-    else if (booking.payment_status === 'requires_action') status = 'requires_action';
+    else if (booking.status === 'refunded') status = 'refunded';
+    else if (booking.payment_status === 'requires_action' || booking.payment_status === 'charge_pending') status = 'requires_action';
 
     return {
       id: booking.id,

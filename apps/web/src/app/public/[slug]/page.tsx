@@ -16,14 +16,27 @@ interface PublicBookingPageProps {
 interface BusinessData {
   id: string;
   name: string;
+  description?: string;
   subdomain: string;
   timezone: string;
   subscription_status: string;
+  // Branding fields
   brand_primary_color?: string;
   brand_secondary_color?: string;
+  use_gradient?: boolean;
   logo_url?: string;
+  brand_font_family?: string;
+  brand_button_shape?: string;
+  hero_image_url?: string;
+  booking_page_description?: string;
+  // Contact/location
   support_email?: string;
   phone?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
 }
 
 interface CatalogData {
@@ -55,7 +68,15 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(`/api/public/${slug}/catalog`);
+        // Fetch with cache-busting timestamp to ensure we get the latest branding config
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/public/${slug}/catalog?t=${timestamp}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          }
+        });
         
         if (!response.ok) {
           if (response.status === 404) {
@@ -143,27 +164,33 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
       id: svc.id,
       name: svc.name,
       description: svc.description || undefined,
-      durationMinutes: svc.duration_minutes || 60,
+      // API returns duration_min, not duration_minutes
+      durationMinutes: svc.duration_min || svc.duration_minutes || 60,
       priceCents: svc.price_cents || 0,
       instructions: svc.pre_appointment_instructions || undefined,
       staffIds: svc.staffIds || [],
+      imageUrl: svc.image_url || undefined,
     })),
   }));
 
-  // Transform staff to match StaffMember format
+  // Transform staff to match StaffMember format - include all new fields
   const transformedStaff = catalogData.staff.map((s: any) => ({
     id: s.id,
     name: s.name,
     role: s.role || undefined,
     color: s.color || "#000000",
     active: true,
+    imageUrl: s.imageUrl || undefined,
+    description: s.description || undefined,
+    review: s.review || undefined,
+    reviewerName: s.reviewerName || undefined,
   }));
 
   const workspace = {
     identity: {
       business: {
         businessName: catalogData.business.name,
-        description: "",
+        description: catalogData.business.description || "",
         doingBusinessAs: catalogData.business.name,
         legalName: catalogData.business.name,
         industry: "",
@@ -173,17 +200,24 @@ export default function PublicBookingPage({ params }: PublicBookingPageProps) {
         phone: catalogData.business.phone || "",
         supportEmail: catalogData.business.support_email || "",
         website: undefined,
-        addressLine1: "",
+        addressLine1: catalogData.business.street || "",
         addressLine2: undefined,
-        city: "",
-        stateProvince: "",
-        postalCode: "",
-        country: "",
+        city: catalogData.business.city || "",
+        stateProvince: catalogData.business.state || "",
+        postalCode: catalogData.business.postal_code || "",
+        country: catalogData.business.country || "",
       },
       branding: {
         primaryColor: catalogData.business.brand_primary_color || "#5B64FF",
+        secondaryColor: catalogData.business.brand_secondary_color || "#1a1a2e",
+        useGradient: catalogData.business.use_gradient ?? true,
         logoUrl: catalogData.business.logo_url,
         logoName: undefined,
+        fontFamily: (catalogData.business.brand_font_family || "Inter") as any,
+        buttonShape: (catalogData.business.brand_button_shape || "rounded") as any,
+        heroImageUrl: catalogData.business.hero_image_url,
+        heroImageName: undefined,
+        bookingPageDescription: catalogData.business.booking_page_description,
         recommendedDimensions: {
           width: 200,
           height: 200,

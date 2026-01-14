@@ -242,7 +242,7 @@ Solutions:
         subdomain: `temp-${Date.now()}`, // Temporary, will be updated in step 2
         timezone: 'America/New_York', // Default, will be updated in step 3
         industry: 'other', // Default, will be updated in step 1
-        notifications_enabled: false, // Default to Basic plan ($11.99/month) - user can upgrade in step 8
+        notifications_enabled: true, // Default to Basic plan ($14.99/month) with notifications enabled
       })
       .select('id')
       .single();

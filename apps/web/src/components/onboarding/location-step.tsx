@@ -112,7 +112,7 @@ export function LocationStep({ defaultValues, onNext, onBack }: LocationStepProp
             id="location-timezone"
             list="timezone-suggestions"
             placeholder="America/New_York"
-            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             {...register("timezone")}
             aria-describedby={
               errors.timezone?.message ? "location-timezone-error" : "location-timezone-helper"

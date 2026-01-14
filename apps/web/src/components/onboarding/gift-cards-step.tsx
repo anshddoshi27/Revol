@@ -41,6 +41,12 @@ export function GiftCardsStep({ defaultValues, onNext, onBack }: GiftCardsStepPr
   };
 
   const handleContinue = () => {
+    // If gift cards are enabled and no codes have been generated yet, generate one automatically
+    if (config.enabled && config.generatedCodes.length === 0) {
+      const code = createGiftCode();
+      onNext({ ...config, generatedCodes: [code] });
+      return;
+    }
     onNext(config);
   };
 
@@ -202,16 +208,39 @@ export function GiftCardsStep({ defaultValues, onNext, onBack }: GiftCardsStepPr
               </button>
             </div>
             {config.generatedCodes.length ? (
-              <ul className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
-                {config.generatedCodes.map((code) => (
-                  <li
-                    key={code}
-                    className="rounded-full border border-white/15 bg-white/5 px-3 py-1 font-semibold"
-                  >
-                    {code}
-                  </li>
+              <div className="mt-4 space-y-2">
+                {config.generatedCodes.map((code, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={code}
+                      onChange={(event) => {
+                        const newCodes = [...config.generatedCodes];
+                        newCodes[index] = event.target.value.toUpperCase().trim();
+                        setConfig((prev) => ({
+                          ...prev,
+                          generatedCodes: newCodes
+                        }));
+                      }}
+                      className="font-mono text-sm"
+                      placeholder="GIFT-CODE"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newCodes = config.generatedCodes.filter((_, i) => i !== index);
+                        setConfig((prev) => ({
+                          ...prev,
+                          generatedCodes: newCodes
+                        }));
+                      }}
+                      className="rounded-full border border-red-400/50 bg-red-400/10 px-3 py-1 text-xs font-semibold text-red-200 transition hover:bg-red-400/20"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 ))}
-              </ul>
+              </div>
             ) : (
               <HelperText className="mt-3">
                 Generate codes now or later in admin—either way balances sync to the ledger.

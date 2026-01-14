@@ -213,9 +213,55 @@ export default function NotificationsPage() {
   };
 
   // Combined function for toggling enabled state (immediate save)
-  const toggleTemplateEnabled = (templateId: string) => {
-    updateTemplateLocal(templateId, (prev) => ({ ...prev, enabled: !prev.enabled }));
-    saveTemplate(templateId, true); // Immediate save
+  const toggleTemplateEnabled = async (templateId: string) => {
+    const template = templates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    // Toggle the enabled state immediately in UI
+    const newEnabledState = !template.enabled;
+    updateTemplateLocal(templateId, (prev) => ({ ...prev, enabled: newEnabledState }));
+    
+    // Save immediately
+    setSaving(prev => ({ ...prev, [templateId]: true }));
+    
+    try {
+      console.log(`[notifications] Toggling template ${templateId} to ${newEnabledState ? 'enabled' : 'disabled'}`);
+      
+      // Update directly via Supabase client
+      const { data: updatedData, error: updateError } = await supabase
+        .from('notification_templates')
+        .update({
+          is_enabled: newEnabledState,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', templateId)
+        .eq('business_id', params.businessId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[notifications] Error toggling template:', updateError);
+        // Revert the change on error
+        updateTemplateLocal(templateId, (prev) => ({ ...prev, enabled: template.enabled }));
+        alert(`Failed to ${newEnabledState ? 'enable' : 'disable'} template: ${updateError.message || 'Unknown error'}. Please try again.`);
+      } else {
+        console.log('[notifications] Template toggled successfully:', updatedData);
+        // Ensure state matches what was saved (in case of any conversion)
+        if (updatedData) {
+          updateTemplateLocal(templateId, (prev) => ({ 
+            ...prev, 
+            enabled: updatedData.is_enabled === true // Explicitly check for true
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('[notifications] Error toggling template:', error);
+      // Revert the change on error
+      updateTemplateLocal(templateId, (prev) => ({ ...prev, enabled: template.enabled }));
+      alert(`Failed to ${newEnabledState ? 'enable' : 'disable'} template: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
+    } finally {
+      setSaving(prev => ({ ...prev, [templateId]: false }));
+    }
   };
 
   if (loading) {
@@ -259,7 +305,8 @@ export default function NotificationsPage() {
     );
   }
 
-  // Check if notifications are enabled for this business (Basic Plan = false, Pro Plan = true)
+  // Check if notifications are enabled for this business (Basic Plan now has notifications enabled = true)
+  // This check should rarely trigger since Basic Plan now has notifications enabled
   if (!notificationsEnabled) {
     return (
       <div className="space-y-10">
@@ -268,13 +315,12 @@ export default function NotificationsPage() {
           <h1 className="font-display text-4xl text-white">Notifications</h1>
         </header>
         <div className="rounded-3xl border border-amber-400/30 bg-amber-400/10 p-8 text-center">
-          <p className="text-lg font-semibold text-white">Basic Plan - Notifications Not Available</p>
+          <p className="text-lg font-semibold text-white">Notifications Not Available</p>
           <p className="mt-2 text-sm text-white/70">
-            Your account is on the Basic Plan ($11.99/month). Email notifications are not included.
+            Notifications are not enabled for this account. Basic Plan ($14.99/month) includes notifications.
           </p>
           <p className="mt-4 text-sm text-white/60">
-            Only booking confirmation messages are shown to clients. To enable automated email notifications, 
-            reminders, and follow-ups, upgrade to the Pro Plan ($21.99/month).
+            Please contact support if you believe notifications should be enabled for your account.
           </p>
           <div className="mt-6">
             <a
@@ -426,17 +472,164 @@ function NotificationPreview({
   template: NotificationTemplate | null;
   onClose: () => void;
 }) {
+  const [previewData, setPreviewData] = useState<{
+    subject: string | null;
+    body: string;
+  } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const params = useParams<{ businessId: string }>();
+  const supabase = createClientClient();
+
+  // Fetch real data and generate preview when template changes
+  useEffect(() => {
+    if (!template || !params.businessId) return;
+
+    async function generatePreview() {
+      setLoadingPreview(true);
+      try {
+        // Fetch real service data
+        const { data: services } = await supabase
+          .from('services')
+          .select('id, name, duration_min, price_cents')
+          .eq('business_id', params.businessId)
+          .eq('is_active', true)
+          .is('deleted_at', null)
+          .limit(1)
+          .single();
+
+        // Fetch real staff data
+        const { data: staff } = await supabase
+          .from('staff')
+          .select('id, name')
+          .eq('business_id', params.businessId)
+          .eq('is_active', true)
+          .is('deleted_at', null)
+          .limit(1)
+          .single();
+
+        // Fetch business data
+        const { data: business } = await supabase
+          .from('businesses')
+          .select('name, subdomain, timezone')
+          .eq('id', params.businessId)
+          .single();
+
+        // Use real data or fallback to defaults
+        const serviceName = services?.name || 'Sample Service';
+        const serviceDuration = services?.duration_min || 60;
+        const servicePrice = services?.price_cents || 10000;
+        const staffName = staff?.name || 'Sample Staff';
+        const businessName = business?.name || 'Your Business';
+        const subdomain = business?.subdomain || 'yourbusiness';
+
+        // Format duration
+        const formatDuration = (minutes: number) => {
+          if (minutes < 60) return `${minutes} min`;
+          const hrs = Math.floor(minutes / 60);
+          const mins = minutes % 60;
+          return mins === 0 ? `${hrs} hr` : `${hrs} hr ${mins} min`;
+        };
+
+        // Format price
+        const formatPrice = (cents: number) => {
+          return `$${(cents / 100).toFixed(2)}`;
+        };
+
+        // Format date (tomorrow)
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const formatDate = (date: Date) => {
+          return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          });
+        };
+
+        // Format time
+        const formatTime = (date: Date) => {
+          return date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
+        };
+
+        // Replace placeholders with real data
+        let previewBody = template.body
+          .replaceAll("${customer.name}", "John Doe")
+          .replaceAll("${service.name}", serviceName)
+          .replaceAll("${service.duration}", formatDuration(serviceDuration))
+          .replaceAll("${service.price}", formatPrice(servicePrice))
+          .replaceAll("${staff.name}", staffName)
+          .replaceAll("${booking.date}", formatDate(tomorrow))
+          .replaceAll("${booking.time}", formatTime(tomorrow))
+          .replaceAll("${business.name}", businessName)
+          .replaceAll("${booking.url}", `https://${subdomain}.main.tld/confirm/REVOL-12345678`);
+
+        let previewSubject = template.subject
+          ? template.subject
+              .replaceAll("${customer.name}", "John Doe")
+              .replaceAll("${service.name}", serviceName)
+              .replaceAll("${service.duration}", formatDuration(serviceDuration))
+              .replaceAll("${service.price}", formatPrice(servicePrice))
+              .replaceAll("${staff.name}", staffName)
+              .replaceAll("${booking.date}", formatDate(tomorrow))
+              .replaceAll("${booking.time}", formatTime(tomorrow))
+              .replaceAll("${business.name}", businessName)
+              .replaceAll("${booking.url}", `https://${subdomain}.main.tld/confirm/REVOL-12345678`)
+          : null;
+
+        setPreviewData({
+          subject: previewSubject,
+          body: previewBody,
+        });
+      } catch (error) {
+        console.error('Error generating preview:', error);
+        // Fallback to simple replacements if API fails
+        const previewBody = template.body
+          .replaceAll("${customer.name}", "John Doe")
+          .replaceAll("${service.name}", "Sample Service")
+          .replaceAll("${service.duration}", "60 min")
+          .replaceAll("${service.price}", "$100.00")
+          .replaceAll("${staff.name}", "Sample Staff")
+          .replaceAll("${booking.date}", new Date().toLocaleDateString())
+          .replaceAll("${booking.time}", "2:00 PM")
+          .replaceAll("${business.name}", "Your Business")
+          .replaceAll("${booking.url}", "https://yourbusiness.main.tld/confirm/REVOL-12345678");
+        setPreviewData({
+          subject: template.subject || null,
+          body: previewBody,
+        });
+      } finally {
+        setLoadingPreview(false);
+      }
+    }
+
+    generatePreview();
+  }, [template, params.businessId, supabase]);
+
   if (!template) return null;
-  const previewBody = template.body
-    .replaceAll("${customer.name}", "Jordan Blake")
-    .replaceAll("${service.name}", "Signature Cut")
-    .replaceAll("${service.duration}", "60 minutes")
-    .replaceAll("${service.price}", "$120.00")
-    .replaceAll("${staff.name}", "Ava Thompson")
-    .replaceAll("${booking.date}", "Mar 18, 2025")
-    .replaceAll("${booking.time}", "2:00 PM")
-    .replaceAll("${business.name}", "Studio Nova")
-    .replaceAll("${booking.url}", "https://novastudio.main.tld/booking/preview");
+
+  if (loadingPreview || !previewData) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur">
+        <div className="relative w-full max-w-2xl rounded-3xl border border-white/10 bg-black px-6 py-8 text-white shadow-[0_60px_160px_rgba(4,12,35,0.7)]">
+          <button
+            type="button"
+            className="absolute right-6 top-6 rounded-full border border-white/20 bg-black/60 px-3 py-1 text-xs uppercase tracking-wide text-white/60 transition hover:text-white"
+            onClick={onClose}
+          >
+            Close
+          </button>
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+            <p className="ml-3 text-sm text-white/60">Loading preview...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur">
@@ -452,15 +645,15 @@ function NotificationPreview({
         <p className="mt-1 text-xs uppercase tracking-wide text-white/40">
           {template.channel.toUpperCase()} · {template.trigger.replace("_", " ")}
         </p>
-        {template.subject ? (
+        {previewData.subject ? (
           <div className="mt-6 rounded-2xl border border-white/10 bg-black/70 px-4 py-3 text-sm text-white/80">
             <span className="text-xs uppercase tracking-wide text-white/40">Subject</span>
-            <p className="mt-1 text-white">{template.subject}</p>
+            <p className="mt-1 text-white">{previewData.subject}</p>
           </div>
         ) : null}
         <div className="mt-6 rounded-2xl border border-white/10 bg-black/70 px-4 py-4 text-sm text-white/80">
           <span className="text-xs uppercase tracking-wide text-white/40">Body</span>
-          <p className="mt-2 whitespace-pre-line">{previewBody}</p>
+          <p className="mt-2 whitespace-pre-line">{previewData.body}</p>
         </div>
       </div>
     </div>

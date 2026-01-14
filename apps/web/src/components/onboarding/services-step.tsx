@@ -335,7 +335,7 @@ export function ServicesStep({ defaultValues, staff, onNext, onBack }: ServicesS
             <textarea
               id="category-description"
               rows={2}
-              className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+              className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               placeholder="Highlight what makes this category special."
               value={categoryDraft.description}
               onChange={(event) =>
@@ -521,7 +521,7 @@ export function ServicesStep({ defaultValues, staff, onNext, onBack }: ServicesS
                       <textarea
                         id={`service-description-${category.id}`}
                         rows={2}
-                        className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+                        className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                         placeholder="Customers see this when picking a service."
                         value={draft.description}
                         onChange={(event) =>
@@ -543,7 +543,7 @@ export function ServicesStep({ defaultValues, staff, onNext, onBack }: ServicesS
                       <textarea
                         id={`service-instructions-${category.id}`}
                         rows={2}
-                        className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+                        className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                         placeholder="Share tips or expectations before customers arrive."
                         value={draft.instructions}
                         onChange={(event) =>

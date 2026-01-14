@@ -62,14 +62,45 @@ export async function POST(
       // No body provided, use defaults
     }
 
-    // Get business for timezone
+    // Get business for timezone and other info
     const { data: business } = await supabase
       .from('businesses')
       .select('timezone, name, support_email, phone, subdomain')
       .eq('id', businessId)
       .single();
 
-    // Create default sample data
+    // Fetch real service data from database (use first active service as sample)
+    const { data: services } = await supabase
+      .from('services')
+      .select('id, name, duration_min, price_cents')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .limit(1)
+      .single();
+
+    // Fetch real staff data from database (use first active staff as sample)
+    const { data: staff } = await supabase
+      .from('staff')
+      .select('id, name')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .limit(1)
+      .single();
+
+    // Use real data from database, fallback to defaults if no data exists
+    const sampleService = services || {
+      name: 'Sample Service',
+      duration_min: 60,
+      price_cents: 10000,
+    };
+
+    const sampleStaff = staff || {
+      name: 'Sample Staff',
+    };
+
+    // Create sample data using real database values
     const sampleData: NotificationData = {
       customer: {
         name: 'John Doe',
@@ -78,20 +109,20 @@ export async function POST(
         ...customData.customer,
       },
       service: {
-        name: 'Haircut',
-        duration_min: 60,
-        price_cents: 10000,
+        name: sampleService.name,
+        duration_min: sampleService.duration_min,
+        price_cents: sampleService.price_cents,
         ...customData.service,
       },
       staff: {
-        name: 'Jane Smith',
+        name: sampleStaff.name,
         ...customData.staff,
       },
       booking: {
         id: 'booking-12345678',
         start_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow
-        final_price_cents: 8000,
-        price_cents: 10000,
+        final_price_cents: Math.round(sampleService.price_cents * 0.8), // 20% discount example
+        price_cents: sampleService.price_cents,
         ...customData.booking,
       },
       business: {

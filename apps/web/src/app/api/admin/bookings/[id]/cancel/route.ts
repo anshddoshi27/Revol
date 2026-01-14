@@ -79,38 +79,8 @@ export async function POST(
       );
     }
 
-    if (!booking.businesses?.stripe_connect_account_id) {
-      return NextResponse.json(
-        { error: 'Business Stripe Connect account not configured' },
-        { status: 500 }
-      );
-    }
-
-    const { data: setupPayment } = await supabase
-      .from('booking_payments')
-      .select('stripe_setup_intent_id')
-      .eq('booking_id', booking.id)
-      .eq('status', 'card_saved')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!setupPayment?.stripe_setup_intent_id) {
-      return NextResponse.json(
-        { error: 'No saved payment method found for this booking' },
-        { status: 400 }
-      );
-    }
-
-    const paymentMethodId = await getPaymentMethodFromSetupIntent(setupPayment.stripe_setup_intent_id);
-    if (!paymentMethodId) {
-      return NextResponse.json(
-        { error: 'Failed to retrieve payment method' },
-        { status: 500 }
-      );
-    }
-
-    // Calculate cancellation fee from policy snapshot
+    // Calculate cancellation fee from policy snapshot FIRST
+    // This allows us to handle $0 fees without requiring a payment record
     const policySnapshot = booking.policy_snapshot as any;
     let feeAmountCents = 0;
 
@@ -121,8 +91,10 @@ export async function POST(
       feeAmountCents = Math.round((booking.final_price_cents * percent) / 100);
     }
 
+    // If fee is 0, just update status without charging - no payment record needed
     if (feeAmountCents === 0) {
-      await supabase
+      console.log(`[cancel-booking] Cancellation fee is $0, updating status without payment for booking ${booking.id}`);
+      const { error: updateError } = await supabase
         .from('bookings')
         .update({
           status: 'cancelled',
@@ -130,17 +102,98 @@ export async function POST(
           last_money_action: 'cancel_fee',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', booking.id);
+        .eq('id', booking.id)
+        .eq('user_id', userId)
+        .eq('business_id', businessId)
+        .is('deleted_at', null)
+        .select('id');
+
+      if (updateError) {
+        console.error('[cancel-booking] Error updating booking status:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update booking status', details: updateError.message },
+          { status: 500 }
+        );
+      }
 
       const response = {
         status: 'CANCELLED',
         charge_amount: 0,
         currency: 'usd',
-        message: 'Cancellation fee is $0.00',
+        message: 'Cancellation fee is $0.00. Booking cancelled.',
+        booking_status: 'cancelled',
       };
 
-      await storeIdempotency(userId, route, idempotencyKey, response);
+      try {
+        await storeIdempotency(userId, route, idempotencyKey, response);
+      } catch (idempotencyError) {
+        console.error('Error storing idempotency key (non-fatal):', idempotencyError);
+      }
+
       return NextResponse.json(response);
+    }
+
+    // Fee > 0, so we need a payment method - check for Stripe Connect account
+    if (!booking.businesses?.stripe_connect_account_id) {
+      return NextResponse.json(
+        { error: 'Business Stripe Connect account not configured. Cannot charge cancellation fee.' },
+        { status: 500 }
+      );
+    }
+
+    // Get payment method from SetupIntent
+    // Check for any payment record with a setup_intent_id
+    // Valid payment_status enum values: 'none', 'card_saved', 'charge_pending', 'charged', 'refunded', 'failed'
+    // The webhook updates status to 'card_saved' when SetupIntent succeeds, but it might not have processed yet
+    // So we check for 'none' (initial state) or 'card_saved' (webhook processed)
+    const { data: setupPayment, error: paymentQueryError } = await supabase
+      .from('booking_payments')
+      .select('stripe_setup_intent_id')
+      .eq('booking_id', booking.id)
+      .not('stripe_setup_intent_id', 'is', null)
+      .in('status', ['none', 'card_saved'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (paymentQueryError) {
+      console.error('[cancel-booking] Error querying booking payments:', paymentQueryError);
+      return NextResponse.json(
+        { error: 'Failed to check payment status', details: paymentQueryError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!setupPayment?.stripe_setup_intent_id) {
+      // Log all payment records for debugging
+      const { data: allPayments } = await supabase
+        .from('booking_payments')
+        .select('id, status, stripe_setup_intent_id, money_action, created_at')
+        .eq('booking_id', booking.id);
+      
+      console.error(`[cancel-booking] No payment record with setup_intent_id found for booking ${booking.id}. Fee is ${feeAmountCents/100}. All payment records:`, allPayments);
+      
+      return NextResponse.json(
+        { 
+          error: `Cancellation fee is $${(feeAmountCents/100).toFixed(2)}, but no saved payment method found for this booking. Cannot charge fee without payment method.`,
+          booking_id: booking.id,
+          fee_amount_cents: feeAmountCents,
+          has_payment_records: (allPayments?.length ?? 0) > 0,
+          payment_records_count: allPayments?.length ?? 0
+        },
+        { status: 400 }
+      );
+    }
+
+    const paymentMethodId = await getPaymentMethodFromSetupIntent(setupPayment.stripe_setup_intent_id);
+    if (!paymentMethodId) {
+      return NextResponse.json(
+        { 
+          error: 'Payment method not yet available. The customer may need to complete the payment setup first. Please check if the SetupIntent was completed successfully.',
+          setup_intent_id: setupPayment.stripe_setup_intent_id
+        },
+        { status: 400 }
+      );
     }
 
     const platformFeeCents = Math.round(feeAmountCents * 0.01);
@@ -179,7 +232,7 @@ export async function POST(
           updated_at: new Date().toISOString(),
         });
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('bookings')
         .update({
           status: 'cancelled',
@@ -188,6 +241,14 @@ export async function POST(
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking.id);
+
+      if (updateError) {
+        console.error('Error updating booking status:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update booking status', details: updateError.message },
+          { status: 500 }
+        );
+      }
 
       // Emit booking_cancelled notification (async, don't wait)
       emitNotification(businessId, 'booking_cancelled', booking.id, supabase).catch((err) => {
@@ -207,6 +268,7 @@ export async function POST(
         currency: 'usd',
         stripe_payment_intent_id: paymentIntentId,
         receipt_url: `https://dashboard.stripe.com/payments/${paymentIntentId}`,
+        booking_status: 'cancelled',
       };
 
       await storeIdempotency(userId, route, idempotencyKey, response);

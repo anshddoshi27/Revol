@@ -479,33 +479,32 @@ async function handlePaymentSetup(request: Request) {
     // Select the correct Stripe price ID based on notifications_enabled
     // 
     // Pricing:
-    // - Basic Plan ($11.99/month): notifications_enabled = false
-    //   → Uses STRIPE_PLAN_PRICE_ID_WITHOUT_NOTIFICATIONS
-    // - Pro Plan ($21.99/month): notifications_enabled = true
+    // - Basic Plan ($14.99/month): notifications_enabled = true (only available plan)
     //   → Uses STRIPE_PLAN_PRICE_ID_WITH_NOTIFICATIONS
+    // - Pro Plan: coming soon (disabled)
     //
     // The user selects this in onboarding Step 8 (Notifications step)
     // which saves notifications_enabled to the businesses table.
-    const notificationsEnabled = business.notifications_enabled === true; // Explicitly check for true
-    const planType = notificationsEnabled ? 'Pro' : 'Basic';
-    const planPrice = notificationsEnabled ? 21.99 : 11.99;
+    // Basic Plan now has notifications enabled by default
+    const notificationsEnabled = business.notifications_enabled === true; // Basic Plan has notifications enabled
+    const planType = 'Basic'; // Only Basic Plan is available
+    const planPrice = 14.99; // Basic Plan is $14.99/month
     
     console.log(`Creating subscription for business ${businessId}:`);
     console.log(`  - notifications_enabled: ${business.notifications_enabled}`);
     console.log(`  - Plan: ${planType} ($${planPrice}/month)`);
     
+    // Basic Plan now has notifications enabled, so always use WITH_NOTIFICATIONS price ID
     const priceIdWithNotifications = process.env.STRIPE_PLAN_PRICE_ID_WITH_NOTIFICATIONS || process.env.NEXT_PUBLIC_STRIPE_PLAN_PRICE_ID_WITH_NOTIFICATIONS;
-    const priceIdWithoutNotifications = process.env.STRIPE_PLAN_PRICE_ID_WITHOUT_NOTIFICATIONS || process.env.NEXT_PUBLIC_STRIPE_PLAN_PRICE_ID_WITHOUT_NOTIFICATIONS;
     
     // Fallback to single price ID if separate ones not configured
     const fallbackPriceId = process.env.STRIPE_PLAN_PRICE_ID || process.env.NEXT_PUBLIC_STRIPE_PLAN_PRICE_ID;
     
-    const stripePriceId: string | undefined = notificationsEnabled 
-      ? (priceIdWithNotifications || fallbackPriceId)
-      : (priceIdWithoutNotifications || fallbackPriceId);
+    // Basic Plan ($14.99/month) has notifications enabled, so use WITH_NOTIFICATIONS price ID
+    const stripePriceId: string | undefined = priceIdWithNotifications || fallbackPriceId;
     
     console.log(`  - Selected Stripe Price ID: ${stripePriceId}`);
-    console.log(`  - Price ID source: ${notificationsEnabled ? 'WITH_NOTIFICATIONS' : 'WITHOUT_NOTIFICATIONS'}`);
+    console.log(`  - Price ID source: WITH_NOTIFICATIONS (Basic Plan has notifications enabled)`);
 
     if (!subscriptionId) {
       if (!stripePriceId) {
@@ -588,7 +587,7 @@ async function handlePaymentSetup(request: Request) {
           console.log(`  - Price ID: ${verifiedBusiness.stripe_price_id}`);
           console.log(`  - Notifications enabled: ${verifiedBusiness.notifications_enabled}`);
           console.log(`  - Status: ${verifiedBusiness.subscription_status}`);
-          console.log(`  - Plan: ${verifiedBusiness.notifications_enabled ? 'Pro ($21.99/month)' : 'Basic ($11.99/month)'}`);
+          console.log(`  - Plan: Basic ($14.99/month) - notifications enabled`);
         }
       } catch (subscriptionError) {
         console.error('Error creating subscription:', subscriptionError);

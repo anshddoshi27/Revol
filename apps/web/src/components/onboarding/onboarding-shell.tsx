@@ -40,10 +40,10 @@ export function OnboardingShell({
   const progressPercent = mounted ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-[#020817] via-[#050F2C] to-[#0B1D45] pb-24">
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(91,100,255,0.25),_transparent_65%)]" />
+    <div className="relative min-h-screen bg-gradient-to-br from-black via-slate-950 to-black pb-24">
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(91,100,255,0.15),_transparent_70%)]" />
       <div className="mx-auto flex max-w-7xl flex-col gap-10 px-6 pt-24 lg:flex-row lg:gap-14 lg:px-12">
-        <aside className="lg:w-72">
+        <aside className="order-2 lg:order-1 lg:w-72">
           <Badge intent="info" className="mb-4">
             Onboarding · {progressPercent}% complete
           </Badge>
@@ -54,7 +54,7 @@ export function OnboardingShell({
           </HelperText>
 
           <nav
-            className="mt-10 space-y-2 rounded-3xl border border-white/10 bg-white/5/40 p-2 backdrop-blur-xl"
+            className="mt-10 space-y-2 rounded-3xl border border-white/10 bg-black/60 p-2 backdrop-blur-xl"
             aria-label="Onboarding steps"
           >
             {steps.map((step, index) => {
@@ -74,8 +74,8 @@ export function OnboardingShell({
                   className={clsx(
                     "group flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                     isActive
-                      ? "bg-white/15 text-white shadow-lg shadow-primary/20"
-                      : "text-white/65 hover:bg-white/10",
+                      ? "bg-primary/20 text-white shadow-lg shadow-primary/20"
+                      : "text-white/60 hover:bg-black/60 hover:text-white",
                     disabled && "cursor-not-allowed opacity-60"
                   )}
                   aria-current={isActive ? "step" : undefined}
@@ -98,7 +98,7 @@ export function OnboardingShell({
           </nav>
         </aside>
 
-        <section className="flex-1">
+        <section className="order-1 lg:order-2 flex-1">
           <div className="glass-panel relative rounded-3xl border border-white/10 p-8 shadow-glow-blue lg:p-10">
             <div
               className="absolute inset-x-10 top-0 h-1 rounded-b-full bg-gradient-to-r from-primary via-primary/60 to-primary/90"

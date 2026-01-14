@@ -121,10 +121,10 @@ function getDefaultTemplates(): NotificationTemplate[] {
 }
 
 export function NotificationsStep({ defaultValues, notificationsEnabled: defaultNotificationsEnabled, onNext, onBack }: NotificationsStepProps) {
-  // If coming soon, always default to Basic Plan (false) and skip template configuration
+  // Basic Plan is the default and only selectable option (enables notifications)
   const isComingSoon = isNotificationsComingSoon();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(
-    isComingSoon ? false : (defaultNotificationsEnabled === false ? false : null)
+    isComingSoon ? true : (defaultNotificationsEnabled === true ? true : true) // Always default to true (Basic Plan with notifications)
   );
   const [templates, setTemplates] = useState<NotificationTemplate[]>(defaultValues);
   const [expandedId, setExpandedId] = useState<string | null>(defaultValues[0]?.id ?? null);
@@ -194,46 +194,24 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
   }, [templates]);
 
   const handleContinue = async () => {
-    // If coming soon, always proceed with Basic Plan (no templates)
-    if (isComingSoon) {
-      setError(null);
-      setIsSubmitting(true);
-      try {
-        await onNext([], false); // Basic Plan, no templates
-      } finally {
-        setIsSubmitting(false);
+    // Basic Plan is the only selectable option and it enables notifications
+    // If not selected yet, default to true (Basic Plan with notifications)
+    const finalNotificationsEnabled = notificationsEnabled === null ? true : notificationsEnabled;
+
+    // Basic Plan enables notifications, so validate templates if needed
+    if (finalNotificationsEnabled === true) {
+      const issues = Object.values(lintResults).filter(Boolean);
+      if (issues.length) {
+        setError("Fix placeholder errors before continuing.");
+        return;
       }
-      return;
     }
-
-    // If notifications enabled but not yet confirmed, require selection
-    if (notificationsEnabled === null) {
-      setError("Please select a subscription plan (Basic or Pro) to continue.");
-      return;
-    }
-
-    // If notifications are disabled, skip validation and proceed
-    if (notificationsEnabled === false) {
-      setError(null);
-      setIsSubmitting(true);
-      try {
-        await onNext([], false);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    // If notifications enabled, validate templates
-    const issues = Object.values(lintResults).filter(Boolean);
-    if (issues.length) {
-      setError("Fix placeholder errors before continuing.");
-      return;
-    }
+    
     setError(null);
     setIsSubmitting(true);
     try {
-      await onNext(templates, true);
+      // Basic Plan now has notifications_enabled = true
+      await onNext(templates, finalNotificationsEnabled);
     } finally {
       setIsSubmitting(false);
     }
@@ -247,123 +225,79 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
           Step 8 · Notifications
         </span>
         <h2 id="notifications-step-heading" className="font-display text-3xl text-white">
-          {isComingSoon
-            ? "Notifications Coming Soon"
-            : notificationsEnabled === null
-            ? "Enable notifications and emails?"
+          {notificationsEnabled === null
+            ? "Choose your plan"
             : "Make every message feel personal"}
         </h2>
         <p className="max-w-3xl text-base text-white/70">
-          {isComingSoon
-            ? "Automated email notifications are coming soon! Your booking system is fully functional without them. For now, you'll be on the Basic Plan."
-            : notificationsEnabled === null
-            ? "Would you like to enable email notifications for your booking flow? If enabled, you'll be able to send automated reminders, confirmations, and follow-ups to your clients."
+          {notificationsEnabled === null
+            ? "Select the Basic Plan to enable online payments and customizable email notifications to your customers."
             : "Templates support email notifications. Use placeholders to merge live booking data. We'll block unknown tokens so every send stays accurate."}
         </p>
       </header>
 
-      {isComingSoon ? (
-        <div className="space-y-4">
-          {/* Coming Soon UI */}
-          <div className="rounded-3xl border border-primary/30 bg-primary/10 p-8 text-center">
-            <div className="space-y-4">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-primary/50 bg-primary/10">
-                <CheckCircle2 className="h-8 w-8 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-semibold text-white">Pro Plan - Coming Soon</h3>
-                <p className="mt-2 text-lg text-primary/90">$21.99/month</p>
-              </div>
-              <p className="mx-auto max-w-md text-sm text-white/70">
-                Automated email notifications are coming soon! 
-                For now, you'll be on the Basic Plan. Your booking system is fully functional.
-              </p>
-              <div className="pt-4">
-                <button
-                  type="button"
-                  onClick={() => setNotificationsEnabled(false)}
-                  className="inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-6 py-3 text-sm font-semibold text-white transition hover:border-primary/70 hover:bg-primary/15"
-                >
-                  Continue with Basic Plan ($11.99/month)
-                </button>
+      <div className="space-y-4">
+        {/* Always show both plans - Basic Plan is selectable, Pro Plan is disabled/coming soon */}
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="space-y-4">
+            {/* Pro Plan - Disabled, Coming Soon */}
+            <div
+              className="flex w-full items-center gap-4 rounded-2xl border-2 border-white/10 bg-white/5 p-6 opacity-60 cursor-not-allowed"
+            >
+              <XCircle className="h-6 w-6 text-white/40" />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white/60">Pro Plan</h3>
+                  <span className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-white/60">
+                    Coming soon
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-white/50">
+                  Enhanced features are coming soon.
+                </p>
               </div>
             </div>
+            
+            {/* Basic Plan - Selectable, enables notifications */}
+            <button
+              type="button"
+              onClick={() => {
+                setNotificationsEnabled(true); // Basic Plan now enables notifications
+                // Initialize templates if empty when Basic Plan is selected
+                if (templates.length === 0) {
+                  const defaultTemplates = getDefaultTemplates();
+                  setTemplates(defaultTemplates);
+                  if (defaultTemplates.length > 0) {
+                    setExpandedId(defaultTemplates[0].id);
+                  }
+                }
+                setError(null);
+              }}
+              className={`flex w-full items-center gap-4 rounded-2xl border-2 p-6 text-left transition ${
+                notificationsEnabled === true
+                  ? "border-primary/50 bg-primary/10 hover:border-primary/70 hover:bg-primary/15"
+                  : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+              }`}
+            >
+              {notificationsEnabled === true ? (
+                <CheckCircle2 className="h-6 w-6 text-primary" />
+              ) : (
+                <XCircle className="h-6 w-6 text-white/40" />
+              )}
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white">Basic Plan</h3>
+                  <span className={`text-xl font-bold ${notificationsEnabled === true ? "text-primary" : "text-white/90"}`}>
+                    $14.99/month
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-white/70">
+                  Enable online payments and send customizable email notifications to customers for bookings, reminders, and updates.
+                </p>
+              </div>
+            </button>
           </div>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Always show both plans - selected one highlighted, unselected greyed out */}
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <div className="space-y-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setNotificationsEnabled(true);
-                  // Initialize templates if empty when Pro Plan is selected
-                  if (templates.length === 0) {
-                    const defaultTemplates = getDefaultTemplates();
-                    setTemplates(defaultTemplates);
-                    if (defaultTemplates.length > 0) {
-                      setExpandedId(defaultTemplates[0].id);
-                    }
-                  }
-                  setError(null);
-                }}
-                className={`flex w-full items-center gap-4 rounded-2xl border-2 p-6 text-left transition ${
-                  notificationsEnabled === true
-                    ? "border-primary/50 bg-primary/10 hover:border-primary/70 hover:bg-primary/15"
-                    : "border-white/10 bg-white/5 opacity-50 hover:border-white/20 hover:bg-white/10 hover:opacity-70"
-                }`}
-              >
-                {notificationsEnabled === true ? (
-                  <CheckCircle2 className="h-6 w-6 text-primary" />
-                ) : (
-                  <XCircle className="h-6 w-6 text-white/40" />
-                )}
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-white">Pro Plan</h3>
-                    <span className={`text-xl font-bold ${notificationsEnabled === true ? "text-primary" : "text-white/60"}`}>
-                      $21.99/month
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-white/70">
-                    Send automated email notifications to clients for bookings, reminders, and updates.
-                  </p>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNotificationsEnabled(false);
-                  setTemplates([]); // Clear templates when switching to Basic Plan
-                  setError(null);
-                }}
-                className={`flex w-full items-center gap-4 rounded-2xl border-2 p-6 text-left transition ${
-                  notificationsEnabled === false
-                    ? "border-primary/50 bg-primary/10 hover:border-primary/70 hover:bg-primary/15"
-                    : "border-white/10 bg-white/5 opacity-50 hover:border-white/20 hover:bg-white/10 hover:opacity-70"
-                }`}
-              >
-                {notificationsEnabled === false ? (
-                  <CheckCircle2 className="h-6 w-6 text-primary" />
-                ) : (
-                  <XCircle className="h-6 w-6 text-white/40" />
-                )}
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-white">Basic Plan</h3>
-                    <span className={`text-xl font-bold ${notificationsEnabled === false ? "text-primary" : "text-white/60"}`}>
-                      $11.99/month
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-white/70">
-                    Clients will only see booking confirmation messages. No emails will be sent.
-                  </p>
-                </div>
-              </button>
-            </div>
-          </div>
           
           {notificationsEnabled && (
             <>
@@ -439,7 +373,7 @@ export function NotificationsStep({ defaultValues, notificationsEnabled: default
                           event.target.value as NotificationTemplate["trigger"]
                         )
                       }
-                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                     >
                       {Object.entries(TRIGGER_LABELS).map(([value, label]) => (
                         <option key={value} value={value}>

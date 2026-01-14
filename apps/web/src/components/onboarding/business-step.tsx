@@ -121,7 +121,7 @@ export function BusinessStep({ defaultValues, onNext, onBack }: BusinessStepProp
           <textarea
             id="business-desc"
             rows={3}
-            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             placeholder="Modern aesthetics studio specializing in skin, hair, and relaxation treatments."
             {...register("description")}
             aria-describedby={
@@ -195,7 +195,7 @@ export function BusinessStep({ defaultValues, onNext, onBack }: BusinessStepProp
             id="business-industry"
             list="industry-suggestions"
             placeholder="Select or type"
-            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050F2C]"
+            className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white shadow-inner placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             {...register("industry")}
             aria-describedby={
               errors.industry?.message ? "business-industry-error" : "business-industry-helper"

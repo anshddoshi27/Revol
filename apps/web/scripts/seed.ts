@@ -410,11 +410,55 @@ async function seed() {
 
     // Step 7: Create availability rules
     console.log('\n7️⃣ Creating availability rules...');
-    // Monday-Friday, 9 AM - 5 PM for each staff+service combo
+    // IMPORTANT: Ensure the same person doesn't have overlapping slots across different services
+    // Different people can have overlapping slots, which is fine.
+    
+    // Build a map of staff -> their services to assign non-overlapping time windows
+    const staffServicesMap = new Map<string, Array<{ service_id: string; index: number }>>();
+    for (const link of staffServiceLinks) {
+      if (!staffServicesMap.has(link.staff_id)) {
+        staffServicesMap.set(link.staff_id, []);
+      }
+      const services = staffServicesMap.get(link.staff_id)!;
+      if (!services.find(s => s.service_id === link.service_id)) {
+        services.push({ 
+          service_id: link.service_id, 
+          index: services.length 
+        });
+      }
+    }
+    
+    // Time windows to distribute across services for the same person
+    const timeWindows = [
+      { start: '09:00', end: '17:00' }, // Full day (if only one service)
+      { start: '09:00', end: '12:00' }, // Morning window
+      { start: '13:00', end: '17:00' }, // Afternoon window
+      { start: '09:00', end: '11:00' }, // Early morning (if 4+ services)
+      { start: '14:00', end: '17:00' }, // Late afternoon (if 4+ services)
+    ];
+    
     const weekdays = [1, 2, 3, 4, 5]; // Monday = 1, Friday = 5
     let ruleCount = 0;
 
     for (const link of staffServiceLinks) {
+      // Get the services assigned to this staff member
+      const staffServices = staffServicesMap.get(link.staff_id) || [];
+      const serviceInfo = staffServices.find(s => s.service_id === link.service_id);
+      const serviceIndex = serviceInfo?.index ?? 0;
+      const totalServicesForStaff = staffServices.length;
+      
+      // Determine which time window to use for this service
+      // If staff has multiple services, distribute them across different time windows
+      let timeWindow: { start: string; end: string };
+      if (totalServicesForStaff === 1) {
+        // Only one service - use full day
+        timeWindow = timeWindows[0];
+      } else {
+        // Multiple services - assign different time windows to avoid overlap
+        const windowIndex = Math.min(serviceIndex % (timeWindows.length - 1) + 1, timeWindows.length - 1);
+        timeWindow = timeWindows[windowIndex];
+      }
+      
       for (const weekday of weekdays) {
         const { data: existing } = await supabase
           .from('availability_rules')
@@ -435,15 +479,15 @@ async function seed() {
               service_id: link.service_id,
               rule_type: 'weekly',
               weekday,
-              start_time: '09:00',
-              end_time: '17:00',
+              start_time: timeWindow.start,
+              end_time: timeWindow.end,
               capacity: 1,
             });
           ruleCount++;
         }
       }
     }
-    console.log(`   ✓ Created ${ruleCount} availability rules`);
+    console.log(`   ✓ Created ${ruleCount} availability rules (non-overlapping for same person across services)`);
 
     // Step 8: Create policies
     console.log('\n8️⃣ Creating policies...');

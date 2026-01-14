@@ -72,10 +72,10 @@ export async function GET(
       .eq('is_active', true)
       .is('deleted_at', null);
 
-    // Get staff
+    // Get staff with all fields including new display fields
     const { data: staff } = await supabase
       .from('staff')
-      .select('id, name, role, color')
+      .select('id, name, role, color, image_url, description, review, reviewer_name')
       .eq('business_id', business.id)
       .eq('is_active', true)
       .is('deleted_at', null);
@@ -139,17 +139,39 @@ export async function GET(
       business: {
         id: business.id,
         name: business.name,
+        description: business.description || '',
         subdomain: business.subdomain,
         timezone: business.timezone,
         subscription_status: business.subscription_status,
-        brand_primary_color: business.brand_primary_color,
-        brand_secondary_color: business.brand_secondary_color,
+        // Branding fields
+        brand_primary_color: business.brand_primary_color || '#5B64FF',
+        brand_secondary_color: business.brand_secondary_color || '#1a1a2e',
+        use_gradient: business.use_gradient ?? true,
         logo_url: business.logo_url,
+        brand_font_family: business.brand_font_family || 'Inter',
+        brand_button_shape: business.brand_button_shape || 'rounded',
+        hero_image_url: business.hero_image_url,
+        booking_page_description: business.booking_page_description,
+        // Location/contact
         support_email: business.support_email,
         phone: business.phone,
+        street: business.street,
+        city: business.city,
+        state: business.state,
+        postal_code: business.postal_code,
+        country: business.country,
       },
       categories: categoriesWithServices,
-      staff: staff || [],
+      staff: (staff || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        role: s.role || undefined,
+        color: s.color || undefined,
+        imageUrl: s.image_url || undefined,
+        description: s.description || undefined,
+        review: s.review || undefined,
+        reviewerName: s.reviewer_name || undefined,
+      })),
       acceptedPaymentMethods: acceptedMethods, // Include accepted payment methods
       policies: policy ? {
         cancellationPolicy: policy.cancellation_policy_text || '',
@@ -171,6 +193,11 @@ export async function GET(
         cashPolicy: '',
       },
     });
+    
+    // Add cache-control headers to prevent caching of branding config
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    response.headers.set('Pragma', 'no-cache');
+    response.headers.set('Expires', '0');
     
     return addCorsHeaders(response, request);
   } catch (error) {

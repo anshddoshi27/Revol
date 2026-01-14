@@ -126,12 +126,20 @@ export async function PUT(request: Request) {
     const body = await request.json();
     let { templates, notifications_enabled } = body;
 
-    // If notifications feature is disabled, force Basic Plan (notifications_enabled = false)
+    // If notifications feature is disabled globally, handle accordingly
+    // Note: Basic Plan now has notifications enabled by default
     const notificationsFeatureEnabled = getEffectiveNotificationsEnabled();
     if (!notificationsFeatureEnabled) {
-      console.log('[step-8-notifications] Notifications feature disabled - forcing Basic Plan');
+      console.log('[step-8-notifications] Notifications feature disabled globally - this should not happen with Basic Plan');
+      // Basic Plan should always have notifications enabled, but if feature flag is off, respect it
       notifications_enabled = false;
       templates = []; // Clear any templates if feature is disabled
+    } else {
+      // Feature is enabled - Basic Plan has notifications enabled
+      // Ensure notifications_enabled is true for Basic Plan
+      if (notifications_enabled === null || notifications_enabled === false) {
+        notifications_enabled = true; // Basic Plan now has notifications enabled
+      }
     }
 
     // Log the received value for debugging
@@ -139,7 +147,7 @@ export async function PUT(request: Request) {
       notifications_enabled,
       notifications_enabled_type: typeof notifications_enabled,
       templates_count: Array.isArray(templates) ? templates.length : 'not an array',
-      planType: notifications_enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      planType: 'Basic ($14.99/month) - notifications enabled',
       featureEnabled: notificationsFeatureEnabled,
     });
 
@@ -181,7 +189,7 @@ export async function PUT(request: Request) {
     console.log('[step-8-notifications] BEFORE UPDATE - Current state:', {
       businessId,
       receivedValue: notifications_enabled,
-      planType: notifications_enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      planType: 'Basic ($14.99/month) - notifications enabled',
       valueType: typeof notifications_enabled,
       templatesCount: templates.length,
     });
@@ -262,7 +270,7 @@ export async function PUT(request: Request) {
           savedValue: updatedBusiness.notifications_enabled,
           expectedValue: notifications_enabled,
           valuesMatch: updatedBusiness.notifications_enabled === notifications_enabled,
-          planType: updatedBusiness.notifications_enabled ? 'Pro ($21.99/month)' : 'Basic ($11.99/month)',
+          planType: 'Basic ($14.99/month) - notifications enabled',
         });
         
         // CRITICAL: If values don't match, this is a serious error
@@ -307,9 +315,9 @@ export async function PUT(request: Request) {
         success: true,
         templateIds: [],
         notifications_enabled,
-        plan_type: notifications_enabled ? 'Pro' : 'Basic',
-        plan_price: notifications_enabled ? 21.99 : 11.99,
-        message: `Plan saved: ${notifications_enabled ? 'Pro' : 'Basic'} ($${notifications_enabled ? '21.99' : '11.99'}/month). No notification templates.`,
+        plan_type: 'Basic',
+        plan_price: 14.99,
+        message: `Plan saved: Basic ($14.99/month) - notifications enabled. No notification templates.`,
       });
     }
 
@@ -472,9 +480,9 @@ export async function PUT(request: Request) {
       success: true,
       templateIds,
       notifications_enabled,
-      plan_type: notifications_enabled ? 'Pro' : 'Basic',
-      plan_price: notifications_enabled ? 21.99 : 11.99,
-      message: `Saved ${templateIds.length} notification template(s). Plan: ${notifications_enabled ? 'Pro' : 'Basic'} ($${notifications_enabled ? '21.99' : '11.99'}/month)`,
+      plan_type: 'Basic',
+      plan_price: 14.99,
+      message: `Saved ${templateIds.length} notification template(s). Plan: Basic ($14.99/month) - notifications enabled`,
     });
   } catch (error) {
     console.error('Error in step-8-notifications:', error);

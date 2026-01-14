@@ -109,7 +109,7 @@ export async function POST(
       });
 
     // Update booking status
-    await supabase
+    const { error: updateError } = await supabase
       .from('bookings')
       .update({
         status: 'refunded',
@@ -118,6 +118,14 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq('id', booking.id);
+
+    if (updateError) {
+      console.error('Error updating booking status:', updateError);
+      return NextResponse.json(
+        { error: 'Failed to update booking status', details: updateError.message },
+        { status: 500 }
+      );
+    }
 
     // Emit refunded notification (async, don't wait)
     emitNotification(businessId, 'refunded', booking.id, supabase, amount).catch((err) => {
@@ -174,6 +182,7 @@ export async function POST(
       currency: 'usd',
       stripe_refund_id: refundId,
       receipt_url: `https://dashboard.stripe.com/refunds/${refundId}`,
+      booking_status: 'refunded',
     };
 
     await storeIdempotency(userId, route, idempotencyKey, response);

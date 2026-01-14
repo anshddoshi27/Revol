@@ -18,7 +18,8 @@
  * 
  * When enabled:
  * - Full notifications functionality available
- * - Pro Plan ($21.99/month) and Basic Plan ($13.99/month) available
+ * - Basic Plan ($14.99/month) has notifications enabled (only available plan)
+ * - Pro Plan is coming soon (disabled)
  * - Users can configure email/SMS templates
  */
 export const FEATURES = {

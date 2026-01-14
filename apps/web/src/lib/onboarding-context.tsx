@@ -150,11 +150,17 @@ const initialState: OnboardingState = {
   team: [],
   branding: {
     primaryColor: "#5B64FF",
+    secondaryColor: "#1a1a2e",
     logoUrl: undefined,
     logoName: undefined,
+    fontFamily: "Inter",
+    buttonShape: "rounded",
+    heroImageUrl: undefined,
+    heroImageName: undefined,
+    bookingPageDescription: undefined,
     recommendedDimensions: {
-      width: 960,
-      height: 1280
+      width: 200,
+      height: 200
     }
   },
   services: [],
@@ -207,7 +213,15 @@ function reducer(state: OnboardingState, action: OnboardingAction): OnboardingSt
     case "SAVE_SERVICES":
       return { ...state, services: action.payload };
     case "SAVE_AVAILABILITY":
-      return { ...state, availability: action.payload };
+      const newState = { ...state, availability: action.payload };
+      console.log('[OnboardingReducer] SAVE_AVAILABILITY action:', {
+        payloadLength: action.payload?.length || 0,
+        payloadServices: action.payload?.map((a: any) => a.serviceId) || [],
+        payloadData: JSON.stringify(action.payload, null, 2),
+        newStateAvailabilityLength: newState.availability?.length || 0,
+        previousStateAvailabilityLength: state.availability?.length || 0
+      });
+      return newState;
     case "SAVE_NOTIFICATIONS":
       return { ...state, notifications: action.payload.templates, notificationsEnabled: action.payload.enabled };
     case "SAVE_POLICIES":
@@ -277,6 +291,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           // Check URL parameter first - if new=true, this is a fresh signup, start at step 1
           const urlParams = new URLSearchParams(window.location.search);
           const isNewSignup = urlParams.get('new') === 'true';
+          const accountId = urlParams.get("account_id");
+          const isStripeReturn = !!accountId;
           
           if (isNewSignup) {
             console.log('[OnboardingProvider] New signup detected from URL parameter - starting fresh at step 1');
@@ -351,8 +367,38 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
             dispatch({ type: "SAVE_SERVICES", payload: data.services });
           }
           
-          if (data.availability && data.availability.length > 0) {
-            dispatch({ type: "SAVE_AVAILABILITY", payload: data.availability });
+          // Always save availability data if it exists (even if empty array)
+          // This ensures availability state is properly restored
+          if (data.availability !== undefined) {
+            // Clean the availability data to ensure it only contains staffId and slots
+            const cleanAvailability = Array.isArray(data.availability) 
+              ? data.availability.map((serviceAvail: any) => ({
+                  serviceId: serviceAvail.serviceId,
+                  staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+                    staffId: staffAvail.staffId,
+                    slots: staffAvail.slots || []
+                  }))
+                }))
+              : [];
+            
+            // Calculate statistics for detailed logging
+            const totalStaffEntries = cleanAvailability.reduce((sum: number, a: any) => sum + (a.staff?.length || 0), 0);
+            const totalSlots = cleanAvailability.reduce((sum: number, a: any) => 
+              sum + (a.staff?.reduce((staffSum: number, st: any) => staffSum + (st.slots?.length || 0), 0) || 0), 0
+            );
+            
+            dispatch({ type: "SAVE_AVAILABILITY", payload: cleanAvailability });
+            console.log('[OnboardingProvider] ✅ Saved availability to context:', {
+              count: cleanAvailability.length,
+              services: cleanAvailability.map((a: any) => a.serviceId),
+              totalStaffEntries: totalStaffEntries,
+              totalSlots: totalSlots,
+              hasData: cleanAvailability.length > 0 && totalSlots > 0,
+              rawData: JSON.stringify(data.availability, null, 2),
+              cleanedData: JSON.stringify(cleanAvailability, null, 2)
+            });
+          } else {
+            console.warn('[OnboardingProvider] ⚠️ No availability data in loaded data (undefined)');
           }
           
           if (data.notifications) {
@@ -371,6 +417,69 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
             dispatch({ type: "SAVE_PAYMENT_SETUP", payload: data.paymentSetup });
           }
           
+          // Check if this is a Stripe return (has account_id in URL)
+          
+          if (isStripeReturn) {
+            console.log('[OnboardingProvider] Stripe return detected (account_id:', accountId, ') - handling step navigation');
+            // Mark steps as completed
+            const completedSteps: OnboardingStepId[] = [];
+            if (isValidBusiness(data.business)) completedSteps.push('business');
+            if (isValidWebsite(data.website)) completedSteps.push('website');
+            if (isValidLocation(data.location)) completedSteps.push('location');
+            if (data.team && data.team.length > 0) completedSteps.push('team');
+            if (data.branding?.primaryColor && data.branding.primaryColor.trim().length > 0) completedSteps.push('branding');
+            if (data.services && data.services.length > 0) completedSteps.push('services');
+            // Check availability - it must be an array with at least one service that has staff with slots
+            const hasValidAvailability = data.availability && 
+              Array.isArray(data.availability) && 
+              data.availability.length > 0 &&
+              data.availability.some((serviceAvail: any) => 
+                serviceAvail.staff && 
+                Array.isArray(serviceAvail.staff) && 
+                serviceAvail.staff.length > 0 &&
+                serviceAvail.staff.some((staffAvail: any) => 
+                  staffAvail.slots && 
+                  Array.isArray(staffAvail.slots) && 
+                  staffAvail.slots.length > 0
+                )
+              );
+            if (hasValidAvailability) {
+              completedSteps.push('availability');
+              console.log('[OnboardingProvider] Availability step is completed');
+            } else {
+              console.log('[OnboardingProvider] Availability step is NOT completed:', {
+                hasAvailability: !!data.availability,
+                isArray: Array.isArray(data.availability),
+                length: data.availability?.length || 0
+              });
+            }
+            if (data.notifications) completedSteps.push('notifications');
+            if (data.policies && (data.policies.cancellationPolicy?.trim() || data.policies.noShowPolicy?.trim())) completedSteps.push('policies');
+            if (data.giftCards) completedSteps.push('giftCards');
+            
+            // Check payment setup status - this is critical for Stripe returns
+            const isPaymentCompleted = data.paymentSetup && 
+              (data.paymentSetup.connectStatus === "completed" || data.paymentSetup.connectStatus === "in_progress");
+            
+            if (isPaymentCompleted) {
+              completedSteps.push('paymentSetup');
+              console.log('[OnboardingProvider] Payment setup completed (connectStatus:', data.paymentSetup.connectStatus, ') - going to goLive');
+              // If payment is completed, ALWAYS go to goLive (page.tsx will also handle this, but ensure it here too)
+              dispatch({ type: "SET_STEP", payload: "goLive" });
+            } else {
+              // Payment not completed yet - go to paymentSetup step
+              console.log('[OnboardingProvider] Payment setup not completed yet - going to paymentSetup step');
+              dispatch({ type: "SET_STEP", payload: "paymentSetup" });
+            }
+            
+            completedSteps.forEach(step => {
+              dispatch({ type: "COMPLETE_STEP", payload: step });
+            });
+            
+            console.log('[OnboardingProvider] Stripe return - marked steps as completed:', completedSteps, 'navigated to:', isPaymentCompleted ? 'goLive' : 'paymentSetup');
+            return; // Exit early - don't run the normal step detection logic
+          }
+          
           // Determine current step based on VALID completed steps only (for returning users)
           const completedSteps: OnboardingStepId[] = [];
           if (isValidBusiness(data.business)) completedSteps.push('business');
@@ -383,7 +492,24 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           if (data.notifications) completedSteps.push('notifications');
           if (data.policies && (data.policies.cancellationPolicy?.trim() || data.policies.noShowPolicy?.trim())) completedSteps.push('policies');
           if (data.giftCards) completedSteps.push('giftCards');
-          if (data.paymentSetup && data.paymentSetup.connectStatus !== "not_started") completedSteps.push('paymentSetup');
+          
+          // IMPORTANT: Check payment setup status FIRST
+          // If payment setup is completed, ALWAYS go to goLive regardless of other incomplete steps
+          const isPaymentSetupCompleted = data.paymentSetup && 
+            (data.paymentSetup.connectStatus === "completed" || data.paymentSetup.connectStatus === "in_progress");
+          
+          if (isPaymentSetupCompleted) {
+            completedSteps.push('paymentSetup');
+            console.log('[OnboardingProvider] Payment setup is completed - going directly to goLive (ignoring other incomplete steps)');
+            dispatch({ type: "SET_STEP", payload: "goLive" });
+            console.log('[OnboardingProvider] Returning user - loaded from database, completed steps:', completedSteps, 'starting at: goLive');
+            return; // Exit early - don't check for other incomplete steps
+          }
+          
+          // Payment setup not completed yet - check for other incomplete steps
+          if (data.paymentSetup && data.paymentSetup.connectStatus !== "not_started") {
+            completedSteps.push('paymentSetup');
+          }
           
           // Set current step to the first incomplete step
           const STEP_SEQUENCE: OnboardingStepId[] = [
@@ -403,12 +529,15 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           
           const firstIncomplete = STEP_SEQUENCE.find(step => !completedSteps.includes(step));
           if (firstIncomplete) {
+            console.log('[OnboardingProvider] Setting step to first incomplete:', firstIncomplete);
             dispatch({ type: "SET_STEP", payload: firstIncomplete });
           } else if (completedSteps.length > 0) {
             // All steps completed, go to goLive
+            console.log('[OnboardingProvider] All steps completed, going to goLive');
             dispatch({ type: "SET_STEP", payload: "goLive" });
           } else {
             // Fallback: start at step 1
+            console.log('[OnboardingProvider] No completed steps, starting at business');
             dispatch({ type: "SET_STEP", payload: "business" });
           }
           
@@ -427,8 +556,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, [isHydrated]);
 
   const setStep = React.useCallback((step: OnboardingStepId) => {
+    console.log('[OnboardingContext] setStep called with:', step);
+    console.log('[OnboardingContext] Current step before setStep:', state.currentStep);
     dispatch({ type: "SET_STEP", payload: step });
-  }, []);
+    // Log after dispatch (will be updated on next render)
+    setTimeout(() => {
+      console.log('[OnboardingContext] Step should now be:', step);
+    }, 0);
+  }, [state.currentStep]);
 
   const completeStep = React.useCallback((step: OnboardingStepId) => {
     dispatch({ type: "COMPLETE_STEP", payload: step });
@@ -511,26 +646,39 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, [state]);
 
   const value = React.useMemo(
-    () => ({
-      ...state,
-      setStep,
-      completeStep,
-      saveBusiness,
-      saveWebsite,
-      saveLocation,
-      saveTeam,
-      saveBranding,
-      saveServices,
-      saveAvailability,
-      saveNotifications,
-      savePolicies,
-      saveGiftCards,
-      savePaymentSetup,
-      setBookingUrl,
-      setOnboardingCompleted,
-      reset,
-      generateBusinessFromState
-    }),
+    () => {
+      // Log when availability changes in the memoized value
+      if (state.availability && state.availability.length > 0) {
+        console.log('[OnboardingProvider] Memoized value includes availability:', {
+          length: state.availability.length,
+          services: state.availability.map((a: any) => a.serviceId),
+          totalSlots: state.availability.reduce((sum: number, a: any) => 
+            sum + (a.staff?.reduce((staffSum: number, st: any) => staffSum + (st.slots?.length || 0), 0) || 0), 0
+          )
+        });
+      }
+      
+      return {
+        ...state,
+        setStep,
+        completeStep,
+        saveBusiness,
+        saveWebsite,
+        saveLocation,
+        saveTeam,
+        saveBranding,
+        saveServices,
+        saveAvailability,
+        saveNotifications,
+        savePolicies,
+        saveGiftCards,
+        savePaymentSetup,
+        setBookingUrl,
+        setOnboardingCompleted,
+        reset,
+        generateBusinessFromState
+      };
+    },
     [
       state,
       setStep,
@@ -552,6 +700,16 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       generateBusinessFromState
     ]
   );
+  
+  // Log state changes for debugging
+  React.useEffect(() => {
+    console.log('[OnboardingProvider] State changed - availability:', {
+      length: state.availability?.length || 0,
+      services: state.availability?.map((a: any) => a.serviceId) || [],
+      currentStep: state.currentStep,
+      completedSteps: state.completedSteps
+    });
+  }, [state.availability, state.currentStep]);
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;
 }

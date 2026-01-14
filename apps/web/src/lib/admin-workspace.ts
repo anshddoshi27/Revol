@@ -706,11 +706,17 @@ export const DEV_WORKSPACE_SEED: WorkspaceSeedInput = {
   },
   branding: {
     primaryColor: "#5B64FF",
+    secondaryColor: "#1a1a2e",
     logoUrl: "/branding/demo-logo.svg",
     logoName: "Studio Nova logo",
+    fontFamily: "Inter",
+    buttonShape: "rounded",
+    heroImageUrl: undefined,
+    heroImageName: undefined,
+    bookingPageDescription: "Modern hair and skin studio focusing on glow-first treatments.",
     recommendedDimensions: {
-      width: 960,
-      height: 1280
+      width: 200,
+      height: 200
     }
   },
   team: [
@@ -845,14 +851,13 @@ export const DEV_WORKSPACE_SEED: WorkspaceSeedInput = {
   ],
   policies: {
     cancellationPolicy:
-      "Cancel or reschedule up to 24 hours before your appointment to avoid a fee. " +
-      "Last-minute cancellations make it hard for us to fill your slot.",
+      "Cancel or reschedule up to 24 hours before your appointment. No cancellation fee.",
     cancellationFeeType: "percent",
-    cancellationFeeValue: 25,
+    cancellationFeeValue: 0, // Set to 0 for testing without Stripe
     noShowPolicy:
       "No-shows are charged 50% of the service price to cover our team’s time. Please call if you’re running late.",
     noShowFeeType: "percent",
-    noShowFeeValue: 50,
+    noShowFeeValue: 0, // Set to 0 for testing without Stripe
     refundPolicy:
       "Refunds are reviewed within 5 business days. We can convert to credit when appropriate.",
     cashPolicy: "Card on file is required; cash tips accepted in studio."

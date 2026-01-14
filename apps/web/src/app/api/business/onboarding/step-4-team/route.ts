@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     const supabase = await createServerClient();
     const { data: staff, error } = await supabase
       .from('staff')
-      .select('id, name, role, color, is_active')
+      .select('id, name, role, color, is_active, image_url, description, review, reviewer_name')
       .eq('user_id', userId)
       .eq('business_id', businessId)
       .is('deleted_at', null)
@@ -49,6 +49,10 @@ export async function GET(request: Request) {
       role: s.role || '',
       color: s.color || undefined,
       active: s.is_active !== false,
+      imageUrl: s.image_url || undefined,
+      description: s.description || undefined,
+      review: s.review || undefined,
+      reviewerName: s.reviewer_name || undefined,
     }));
 
     return NextResponse.json({
@@ -165,6 +169,10 @@ export async function PUT(request: Request) {
         color: member.color || null,
         notes: null,
         is_active: member.active !== false, // Default to true
+        image_url: member.imageUrl || null,
+        description: member.description || null,
+        review: member.review || null,
+        reviewer_name: member.reviewerName || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -186,7 +194,7 @@ export async function PUT(request: Request) {
         onConflict: 'id',
         ignoreDuplicates: false,
       })
-      .select('id');
+      .select('id, name, role, color, is_active, image_url, description, review, reviewer_name');
 
     // If RLS error, try with service role
     if (insertError && (insertError.code === 'PGRST301' || insertError.message?.includes('No suitable key'))) {
@@ -200,7 +208,7 @@ export async function PUT(request: Request) {
           onConflict: 'id',
           ignoreDuplicates: false,
         })
-        .select('id');
+        .select('id, name, role, color, is_active, image_url, description, review, reviewer_name');
       
       if (adminInsertError) {
         console.error('[step-4-team] Error inserting with admin client:', adminInsertError);
@@ -221,11 +229,26 @@ export async function PUT(request: Request) {
 
     const staffIds = insertedStaff?.map(s => s.id) || [];
     
+    // Map database records to StaffMember format for frontend
+    const staffMembers: StaffMember[] = (insertedStaff || []).map(s => ({
+      id: s.id,
+      name: s.name,
+      role: s.role || '',
+      color: s.color || undefined,
+      active: s.is_active !== false,
+      imageUrl: s.image_url || undefined,
+      description: s.description || undefined,
+      review: s.review || undefined,
+      reviewerName: s.reviewer_name || undefined,
+    }));
+    
     console.log('[step-4-team] Successfully saved staff:', staffIds.length, 'members');
+    console.log('[step-4-team] Returning staff with real database IDs:', staffMembers.map(s => ({ id: s.id, name: s.name })));
 
     return NextResponse.json({
       success: true,
       staffIds,
+      staff: staffMembers, // Return full staff objects with real database IDs
       message: `Saved ${staffIds.length} staff member(s)`,
     });
   } catch (error) {

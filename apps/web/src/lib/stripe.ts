@@ -154,9 +154,60 @@ export async function createSubscription(
 }
 
 /**
+ * Retry helper for Stripe API calls with exponential backoff
+ * Retries transient errors (rate limits, network issues, 5xx responses)
+ */
+async function retryStripeCall<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000,
+  operationName: string = 'Stripe operation'
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Don't retry for client errors (4xx) except rate limits (429)
+      if (error?.statusCode && error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 429) {
+        console.error(`[stripe-retry] Non-retryable error (${error.statusCode}) for ${operationName}:`, error.message);
+        throw error;
+      }
+      
+      // Don't retry if we've exhausted retries
+      if (attempt === maxRetries) {
+        console.error(`[stripe-retry] Max retries (${maxRetries}) exceeded for ${operationName} after ${attempt + 1} attempts:`, error.message);
+        throw error;
+      }
+      
+      // Calculate exponential backoff delay: baseDelay * 2^attempt
+      const delayMs = baseDelayMs * Math.pow(2, attempt);
+      const isRateLimit = error?.statusCode === 429;
+      const actualDelay = isRateLimit && error?.headers?.['retry-after'] 
+        ? parseInt(error.headers['retry-after']) * 1000 
+        : delayMs;
+      
+      console.warn(
+        `[stripe-retry] Attempt ${attempt + 1}/${maxRetries + 1} failed for ${operationName} ` +
+        `(${error.message || 'unknown error'}). Retrying in ${actualDelay}ms...`
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, actualDelay));
+    }
+  }
+  
+  // Should never reach here, but TypeScript needs this
+  throw lastError || new Error(`Failed ${operationName} after ${maxRetries + 1} attempts`);
+}
+
+/**
  * Create a PaymentIntent with Connect destination charge
  * This charges the customer and sends funds to the connected account
  * Supports off-session charges for saved payment methods
+ * Includes retry logic with exponential backoff for transient Stripe API failures
  * 
  * Returns the PaymentIntent with status information
  */
@@ -206,7 +257,13 @@ export async function createPaymentIntent(params: {
     paymentIntentParams.confirm = true;
   }
 
-  const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+  // Wrap Stripe API call with retry logic for transient failures
+  const paymentIntent = await retryStripeCall(
+    () => stripe.paymentIntents.create(paymentIntentParams),
+    3, // max 3 retries (4 total attempts)
+    1000, // base delay 1s
+    `createPaymentIntent (booking: ${metadata?.booking_id || 'unknown'})`
+  );
 
   return {
     paymentIntentId: paymentIntent.id,
@@ -218,6 +275,7 @@ export async function createPaymentIntent(params: {
 
 /**
  * Create a refund for a PaymentIntent
+ * Includes retry logic with exponential backoff for transient Stripe API failures
  */
 export async function createRefund(
   paymentIntentId: string,
@@ -233,7 +291,12 @@ export async function createRefund(
     refundParams.amount = amount;
   }
 
-  const refund = await stripe.refunds.create(refundParams);
+  const refund = await retryStripeCall(
+    () => stripe.refunds.create(refundParams),
+    3, // max 3 retries
+    1000, // base delay 1s
+    `createRefund (payment_intent: ${paymentIntentId})`
+  );
 
   return {
     refundId: refund.id,
@@ -243,13 +306,19 @@ export async function createRefund(
 
 /**
  * Get payment method from a SetupIntent
+ * Includes retry logic with exponential backoff for transient Stripe API failures
  */
 export async function getPaymentMethodFromSetupIntent(
   setupIntentId: string
 ): Promise<string | null> {
   const stripe = getStripeClient();
 
-  const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+  const setupIntent = await retryStripeCall(
+    () => stripe.setupIntents.retrieve(setupIntentId),
+    3, // max 3 retries
+    1000, // base delay 1s
+    `getPaymentMethodFromSetupIntent (setup_intent: ${setupIntentId})`
+  );
 
   if (typeof setupIntent.payment_method === 'string') {
     return setupIntent.payment_method;
@@ -263,17 +332,76 @@ export async function getPaymentMethodFromSetupIntent(
 }
 
 /**
- * Verify a Connect account is active
+ * Verify a Connect account is active and has required capabilities
  */
-export async function verifyConnectAccount(accountId: string): Promise<boolean> {
+export async function verifyConnectAccount(accountId: string): Promise<{ 
+  valid: boolean; 
+  detailsSubmitted?: boolean; 
+  chargesEnabled?: boolean; 
+  transfersEnabled?: boolean;
+  error?: string;
+}> {
   try {
     const stripe = getStripeClient();
     const account = await stripe.accounts.retrieve(accountId);
 
-    return account.details_submitted && account.charges_enabled;
+    const detailsSubmitted = account.details_submitted ?? false;
+    const chargesEnabled = account.charges_enabled ?? false;
+    
+    // Check for transfers capability - must be 'active' (not 'pending', 'inactive', or missing)
+    const transfersCapability = account.capabilities?.transfers;
+    const legacyPaymentsCapability = account.capabilities?.legacy_payments;
+    const cryptoTransfersCapability = account.capabilities?.crypto_transfers;
+    
+    const transfersEnabled = transfersCapability?.status === 'active' || 
+                            legacyPaymentsCapability?.status === 'active' ||
+                            cryptoTransfersCapability?.status === 'active';
+    
+    // Log capability statuses for debugging
+    if (!transfersEnabled) {
+      console.warn(`[verifyConnectAccount] Transfers not enabled. Statuses: transfers=${transfersCapability?.status || 'missing'}, legacy_payments=${legacyPaymentsCapability?.status || 'missing'}, crypto_transfers=${cryptoTransfersCapability?.status || 'missing'}`);
+    }
+
+    const valid = detailsSubmitted && chargesEnabled && transfersEnabled;
+
+    if (!valid) {
+      const missing: string[] = [];
+      if (!detailsSubmitted) missing.push('details submission');
+      if (!chargesEnabled) missing.push('charges capability');
+      if (!transfersEnabled) missing.push('transfers capability (transfers, legacy_payments, or crypto_transfers)');
+      
+      return {
+        valid: false,
+        detailsSubmitted,
+        chargesEnabled,
+        transfersEnabled,
+        error: `Stripe Connect account is missing: ${missing.join(', ')}. Please complete account setup in Stripe Dashboard.`
+      };
+    }
+
+    return {
+      valid: true,
+      detailsSubmitted,
+      chargesEnabled,
+      transfersEnabled
+    };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error verifying Connect account:', error);
-    return false;
+    return {
+      valid: false,
+      error: `Failed to verify Connect account: ${errorMessage}`
+    };
   }
+}
+
+/**
+ * Cancel a Stripe subscription
+ * This prevents any future charges
+ */
+export async function cancelSubscription(subscriptionId: string): Promise<void> {
+  const stripe = getStripeClient();
+  
+  await stripe.subscriptions.cancel(subscriptionId);
 }
 

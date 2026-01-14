@@ -54,12 +54,50 @@ export interface StaffMember {
   role?: string;
   color: string;
   active: boolean;
+  imageUrl?: string;
+  description?: string;
+  review?: string;
+  reviewerName?: string;
 }
 
+export type ButtonShape = 'rounded' | 'slightly-rounded' | 'square';
+
+export type FontFamily = 
+  | 'Inter'
+  | 'Poppins'
+  | 'Playfair Display'
+  | 'Montserrat'
+  | 'Lora'
+  | 'Roboto'
+  | 'Open Sans'
+  | 'Raleway'
+  | 'Merriweather'
+  | 'DM Sans';
+
 export interface BrandingConfig {
+  // Colors
   primaryColor: string;
+  secondaryColor: string;
+  useGradient?: boolean; // Whether to use gradients or solid colors
+  
+  // Logo (small square, top-right of booking page)
   logoUrl?: string;
   logoName?: string;
+  
+  // Typography
+  fontFamily: FontFamily;
+  
+  // Button styling
+  buttonShape: ButtonShape;
+  
+  // Hero image (optional header background or side image)
+  heroImageUrl?: string;
+  heroImageName?: string;
+  
+  // Business description for booking page (under title)
+  bookingPageDescription?: string;
+  
+  // Deprecated but kept for compatibility
   recommendedDimensions: {
     width: number;
     height: number;
@@ -74,6 +112,7 @@ export interface ServiceDefinition {
   priceCents: number;
   instructions?: string;
   staffIds: string[];
+  imageUrl?: string;
 }
 
 export interface ServiceCategory {

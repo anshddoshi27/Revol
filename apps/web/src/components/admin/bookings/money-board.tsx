@@ -16,7 +16,7 @@ import type { PoliciesConfig } from "@/lib/onboarding-types";
 interface MoneyBoardProps {
   bookings: FakeBooking[];
   policies: PoliciesConfig;
-  onAction: (bookingId: string, action: MoneyBoardAction) => BookingActionResponse | undefined;
+  onAction: (bookingId: string, action: MoneyBoardAction) => Promise<BookingActionResponse | undefined>;
 }
 
 export function MoneyBoard({ bookings, policies, onAction }: MoneyBoardProps) {
@@ -33,40 +33,50 @@ export function MoneyBoard({ bookings, policies, onAction }: MoneyBoardProps) {
     [bookings]
   );
 
-  const handleAction = (bookingId: string, action: MoneyBoardAction) => {
-    const result = onAction(bookingId, action);
-    if (!result) {
-      toast.pushToast({
-        title: "Action unavailable",
-        description: "This booking cannot process that action right now.",
-        intent: "warning"
-      });
-      return;
-    }
+  const handleAction = async (bookingId: string, action: MoneyBoardAction) => {
+    try {
+      const result = await onAction(bookingId, action);
+      if (!result) {
+        // Check browser console for detailed error message from API
+        toast.pushToast({
+          title: "Action unavailable",
+          description: "This booking cannot process that action right now. Please check the browser console for details, or ensure the booking has a completed payment setup.",
+          intent: "warning"
+        });
+        return;
+      }
 
-    if (result.status === "requires_action") {
+      if (result.status === "requires_action") {
+        toast.pushToast({
+          title: "Customer action required",
+          description:
+            result.payLinkUrl ??
+            "Send the secure pay link to the customer so they can finish authentication.",
+          intent: "warning",
+          actionLabel: result.payLinkUrl ? "Copy link" : undefined,
+          onAction: result.payLinkUrl
+            ? () => navigator.clipboard.writeText(result.payLinkUrl ?? "")
+            : undefined
+        });
+      } else {
+        toast.pushToast({
+          title: "Money board updated",
+          description: result.message,
+          intent: "success"
+        });
+      }
+
+      setSelectedBooking((current) =>
+        current && current.id === result.booking.id ? result.booking : current
+      );
+    } catch (error) {
+      console.error('Error performing booking action:', error);
       toast.pushToast({
-        title: "Customer action required",
-        description:
-          result.payLinkUrl ??
-          "Send the secure pay link to the customer so they can finish authentication.",
-        intent: "warning",
-        actionLabel: result.payLinkUrl ? "Copy link" : undefined,
-        onAction: result.payLinkUrl
-          ? () => navigator.clipboard.writeText(result.payLinkUrl ?? "")
-          : undefined
-      });
-    } else {
-      toast.pushToast({
-        title: "Money board updated",
-        description: result.message,
-        intent: "success"
+        title: "Action failed",
+        description: error instanceof Error ? error.message : "An error occurred while processing this action.",
+        intent: "error"
       });
     }
-
-    setSelectedBooking((current) =>
-      current && current.id === result.booking.id ? result.booking : current
-    );
   };
 
   if (sortedBookings.length === 0) {
@@ -384,13 +394,14 @@ function DetailGrid({
 }
 
 function StatusBadge({ status }: { status: FakeBooking["status"] }) {
-  const map: Record<FakeBooking["status"], { label: string; tone: string }> = {
+  const map: Record<string, { label: string; tone: string }> = {
     pending: { label: "Pending", tone: "border-amber-300/40 bg-amber-300/20 text-amber-100" },
     authorized: { label: "Authorized", tone: "border-sky-400/40 bg-sky-400/20 text-sky-100" },
     completed: { label: "Completed", tone: "border-emerald-400/40 bg-emerald-400/20 text-emerald-100" },
     captured: { label: "Captured", tone: "border-emerald-400/40 bg-emerald-400/20 text-emerald-100" },
     no_show: { label: "No-show", tone: "border-rose-400/40 bg-rose-400/15 text-rose-100" },
     canceled: { label: "Cancelled", tone: "border-orange-400/40 bg-orange-400/15 text-orange-100" },
+    cancelled: { label: "Cancelled", tone: "border-orange-400/40 bg-orange-400/15 text-orange-100" }, // British spelling from database
     refunded: { label: "Refunded", tone: "border-indigo-400/40 bg-indigo-400/20 text-indigo-100" },
     disputed: { label: "Disputed", tone: "border-red-400/40 bg-red-400/15 text-red-100" },
     requires_action: {
@@ -399,7 +410,7 @@ function StatusBadge({ status }: { status: FakeBooking["status"] }) {
     },
     expired: { label: "Expired", tone: "border-slate-400/40 bg-slate-400/20 text-slate-100" }
   };
-  const entry = map[status];
+  const entry = map[status] || { label: status || "Unknown", tone: "border-slate-400/40 bg-slate-400/20 text-slate-100" };
   return (
     <span
       className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${entry.tone}`}

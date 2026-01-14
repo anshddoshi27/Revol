@@ -71,8 +71,8 @@ export default function AccountPage() {
   
   // Use ONLY database value - no fallback
   // The notifications_enabled flag determines the subscription plan
-  // Basic Plan: notifications_enabled = false ($11.99/month)
-  // Pro Plan: notifications_enabled = true ($21.99/month)
+  // Basic Plan: notifications_enabled = true ($14.99/month) - only available plan
+  // Pro Plan: coming soon (disabled)
   const notificationsEnabled = realBusiness?.notifications_enabled === true;
 
   const startTrial = () => {
@@ -119,17 +119,60 @@ export default function AccountPage() {
     });
   };
 
-  const cancel = () => {
-    setPayment((prev) => ({
-      ...prev,
-      subscriptionStatus: "canceled",
-      nextBillDate: undefined,
-      lastStatusChangeAt: new Date().toISOString()
-    }));
-    updateBusiness({
-      status: "canceled",
-      nextBillDate: undefined
-    });
+  const cancel = async () => {
+    if (!params.businessId) return;
+    
+    try {
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        alert("You must be logged in to cancel your subscription.");
+        return;
+      }
+
+      // Call the subscription cancellation API
+      const response = await fetch(`/api/business/${params.businessId}/subscription`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'cancel' }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to cancel subscription');
+      }
+
+      // Update local state
+      setPayment((prev) => ({
+        ...prev,
+        subscriptionStatus: "canceled",
+        nextBillDate: undefined,
+        lastStatusChangeAt: new Date().toISOString()
+      }));
+      updateBusiness({
+        status: "canceled",
+        nextBillDate: undefined
+      });
+      
+      // Refresh business data from database
+      const { data: businessData } = await supabase
+        .from('businesses')
+        .select('subscription_status, trial_ends_at, next_bill_at')
+        .eq('id', params.businessId)
+        .single();
+      
+      if (businessData) {
+        setRealBusiness(businessData);
+      }
+    } catch (error) {
+      console.error('Error canceling subscription:', error);
+      alert(error instanceof Error ? error.message : 'Failed to cancel subscription. Please try again.');
+    }
   };
 
   const deleteBusiness = async () => {
@@ -205,8 +248,8 @@ export default function AccountPage() {
                 <dt>Plan</dt>
                 <dd className="text-white font-semibold">
                   {/* Plan is determined by notifications_enabled flag from onboarding Step 8 */}
-                  {/* Basic Plan ($11.99/month): notifications_enabled = false */}
-                  {/* Pro Plan ($21.99/month): notifications_enabled = true */}
+                  {/* Basic Plan ($14.99/month): notifications_enabled = true - only available plan */}
+                  {/* Pro Plan: coming soon (disabled) */}
                   {getSubscriptionPlanName(notificationsEnabled)} - ${getSubscriptionPlanPrice(notificationsEnabled).toFixed(2)}/month
                 </dd>
               </div>

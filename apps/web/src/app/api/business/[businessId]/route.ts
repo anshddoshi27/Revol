@@ -207,6 +207,7 @@ export async function GET(
     const branding = {
       primaryColor: business.brand_primary_color || '#5B64FF',
       secondaryColor: business.brand_secondary_color || undefined,
+      useGradient: business.use_gradient ?? true,
       logoUrl: business.logo_url || undefined,
       logoName: undefined,
       recommendedDimensions: { width: 960, height: 1280 },

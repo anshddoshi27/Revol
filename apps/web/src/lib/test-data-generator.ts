@@ -84,8 +84,20 @@ const CATEGORY_NAMES = [
   "Holistic Services"
 ];
 
-// Random color palette
+// Random color palette (for categories, branding, etc.)
 const COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2", "#F8B739", "#95A5A6"];
+
+// Calendar colors for team members (auto-assigned in order)
+const CALENDAR_COLORS = [
+  "#FF0000", // Red (1st)
+  "#0000FF", // Blue (2nd)
+  "#00FF00", // Green (3rd)
+  "#800080", // Purple (4th)
+  "#FFFF00", // Yellow (5th)
+  "#FFA500", // Orange (6th)
+  "#FFFFFF", // White (7th)
+  "#A52A2A", // Brown (8th)
+];
 
 /**
  * Generate test data for Signup Form
@@ -183,21 +195,18 @@ export function generateLocationData(): LocationContacts {
 
 /**
  * Generate test data for Team Step
+ * Colors are automatically assigned based on position (1st = Red, 2nd = Blue, etc.)
  */
 export function generateTeamData(count: number = 3): StaffMember[] {
   const staff: StaffMember[] = [];
-  const usedColors = new Set<string>();
+  const maxCount = Math.min(count, CALENDAR_COLORS.length); // Limit to 8 members
   
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < maxCount; i++) {
     const firstName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
     const lastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
     
-    // Pick an unused color
-    let color = COLORS[Math.floor(Math.random() * COLORS.length)];
-    while (usedColors.has(color) && usedColors.size < COLORS.length) {
-      color = COLORS[Math.floor(Math.random() * COLORS.length)];
-    }
-    usedColors.add(color);
+    // Auto-assign color based on index (same as team-step component)
+    const color = CALENDAR_COLORS[i];
     
     const roles = ["Stylist", "Therapist", "Trainer", "Practitioner", "Specialist", "Consultant"];
     
@@ -218,13 +227,24 @@ export function generateTeamData(count: number = 3): StaffMember[] {
  */
 export function generateBrandingData(): BrandingConfig {
   const primaryColor = COLORS[Math.floor(Math.random() * COLORS.length)];
+  const secondaryColors = ["#1a1a2e", "#0f0f1a", "#1e1e2d", "#252538", "#16161d"];
+  const secondaryColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+  const fonts = ["Inter", "Poppins", "Playfair Display", "Montserrat", "Lora", "Roboto", "Open Sans", "Raleway", "Merriweather", "DM Sans"] as const;
+  const buttonShapes = ["rounded", "slightly-rounded", "square"] as const;
   
   return {
     primaryColor: primaryColor,
+    secondaryColor: secondaryColor,
     logoUrl: undefined, // Will be set if uploaded
+    logoName: undefined,
+    fontFamily: fonts[Math.floor(Math.random() * fonts.length)],
+    buttonShape: buttonShapes[Math.floor(Math.random() * buttonShapes.length)],
+    heroImageUrl: undefined, // Will be set if uploaded
+    heroImageName: undefined,
+    bookingPageDescription: undefined,
     recommendedDimensions: {
-      width: 960,
-      height: 1280
+      width: 200,
+      height: 200
     }
   };
 }
@@ -287,6 +307,9 @@ export function generateServicesData(staff: StaffMember[] = []): ServiceCategory
 /**
  * Generate test data for Availability Step
  * Returns slots in the format expected by the availability step component
+ * 
+ * IMPORTANT: Ensures the same person (staff member) never has overlapping slots
+ * across different services. Different people can have overlapping slots, which is fine.
  */
 export function generateAvailabilityData(
   services: ServiceCategory[],
@@ -294,35 +317,95 @@ export function generateAvailabilityData(
 ): ServiceAvailability[] {
   const availability: ServiceAvailability[] = [];
   
-  // Generate availability for each service
+  // Step 1: Build a map of staff member -> services they're assigned to
+  const staffToServices = new Map<string, Array<{ serviceId: string; category: ServiceCategory; service: ServiceDefinition }>>();
+  
   for (const category of services) {
     for (const service of category.services) {
-      // Create availability for each staff assigned to this service
+      for (const staffId of service.staffIds) {
+        if (!staffToServices.has(staffId)) {
+          staffToServices.set(staffId, []);
+        }
+        staffToServices.get(staffId)!.push({ serviceId: service.id, category, service });
+      }
+    }
+  }
+  
+  // Step 2: For each staff member, generate non-overlapping time slots across all their services
+  // Track slots already assigned to each staff member to prevent overlaps
+  const staffSlotTracker = new Map<string, Set<string>>(); // staffId -> Set of "day:startTime:endTime"
+  
+  // Step 3: Generate availability entries for each service
+  for (const category of services) {
+    for (const service of category.services) {
       const staffAvailabilityList: StaffAvailability[] = [];
       
       for (const staffId of service.staffIds) {
         const staffMember = staff.find(s => s.id === staffId);
         if (!staffMember) continue;
         
-        // Generate weekly availability slots (Mon-Fri, 9am-5pm)
-        const slots: AvailabilitySlot[] = [];
+        // Get or create slot tracker for this staff member
+        if (!staffSlotTracker.has(staffId)) {
+          staffSlotTracker.set(staffId, new Set());
+        }
+        const slotTracker = staffSlotTracker.get(staffId)!;
         
-        // Monday through Friday
+        // Get all services this staff member is assigned to
+        const staffServices = staffToServices.get(staffId) || [];
+        const serviceIndex = staffServices.findIndex(s => s.serviceId === service.id);
+        const totalServicesForStaff = staffServices.length;
+        
+        // Generate slots that don't overlap with slots already assigned to this staff
+        // for other services. We'll divide the day into time windows and assign
+        // different windows to different services.
+        const slots: AvailabilitySlot[] = [];
         const weekdays: DayOfWeek[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
         
+        // Time windows we can use (9am-12pm, 12pm-5pm, or entire day 9am-5pm)
+        const timeWindows: Array<{ start: string; end: string }> = [
+          { start: "09:00", end: "17:00" }, // Full day (default if only one service)
+          { start: "09:00", end: "12:00" }, // Morning window
+          { start: "13:00", end: "17:00" }, // Afternoon window
+        ];
+        
         weekdays.forEach(day => {
-          slots.push({
-            id: `slot-${Date.now()}-${staffId}-${day}`,
-            day: day,
-            startTime: "09:00",
-            endTime: "17:00"
-          });
+          // Determine which time window to use for this service
+          let timeWindow: { start: string; end: string };
+          
+          if (totalServicesForStaff === 1) {
+            // Only one service - use full day
+            timeWindow = timeWindows[0];
+          } else {
+            // Multiple services - assign different time windows
+            // Cycle through available windows to distribute them
+            const windowIndex = serviceIndex % (timeWindows.length - 1) + 1; // Skip full day (index 0) when multiple services
+            timeWindow = timeWindows[windowIndex];
+          }
+          
+          // Create a unique key for this slot
+          const slotKey = `${day}:${timeWindow.start}:${timeWindow.end}`;
+          
+          // Only create this slot if the staff member doesn't already have a slot
+          // at this exact time for another service
+          if (!slotTracker.has(slotKey)) {
+            slots.push({
+              id: `slot-${Date.now()}-${staffId}-${service.id}-${day}`,
+              day: day,
+              startTime: timeWindow.start,
+              endTime: timeWindow.end
+            });
+            
+            // Mark this time slot as used for this staff member
+            slotTracker.add(slotKey);
+          }
         });
         
-        staffAvailabilityList.push({
-          staffId: staffId,
-          slots: slots
-        });
+        if (slots.length > 0) {
+          staffAvailabilityList.push({
+            staffId: staffId,
+            slots: slots
+          });
+        }
       }
       
       if (staffAvailabilityList.length > 0) {

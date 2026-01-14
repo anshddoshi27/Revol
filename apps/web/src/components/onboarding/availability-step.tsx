@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Save, CalendarCheck2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,15 @@ import type {
   ServiceDefinition,
   StaffMember
 } from "@/lib/onboarding-context";
+
+// Helper function to check if two time ranges overlap
+const timeRangesOverlap = (
+  start1: number, end1: number,
+  start2: number, end2: number
+): boolean => {
+  // Two ranges overlap if start1 < end2 AND start2 < end1
+  return start1 < end2 && start2 < end1;
+};
 
 interface AvailabilityStepProps {
   services: ServiceCategory[];
@@ -50,22 +59,75 @@ export function AvailabilityStep({
   const [fetchedSlots, setFetchedSlots] = useState<ExpandedAvailabilitySlot[]>([]);
   const [isSavingAvailability, setIsSavingAvailability] = useState(false);
   // Track saved availability during this onboarding session
-  const [savedAvailability, setSavedAvailability] = useState<ServiceAvailability[]>([]);
+  // Initialize from defaultValues to restore data after Stripe redirect
+  const [savedAvailability, setSavedAvailability] = useState<ServiceAvailability[]>(() => {
+    console.log('[AvailabilityStep] Initializing savedAvailability from defaultValues:', {
+      hasDefaultValues: !!defaultValues,
+      defaultValuesLength: defaultValues?.length || 0,
+      defaultValues: defaultValues
+    });
+    // Clean defaultValues to ensure only staffId and slots are included
+    if (defaultValues && Array.isArray(defaultValues) && defaultValues.length > 0) {
+      return defaultValues.map((serviceAvail: any) => ({
+        serviceId: serviceAvail.serviceId,
+        staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+          staffId: staffAvail.staffId,
+          slots: staffAvail.slots || []
+        }))
+      }));
+    }
+    return [];
+  });
   // Pending availability additions - slots clicked but not yet saved
   const [pendingAvailabilityAdditions, setPendingAvailabilityAdditions] = useState<Array<{
     staffId: string;
     date: Date;
     hour: number;
+    minute: number;
   }>>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Get all services for dropdown
-  const allServices = services.flatMap((category) =>
-    category.services.map((service) => ({
-      ...service,
-      categoryName: category.name
-    }))
+  // Get all services for dropdown - memoize to prevent infinite loops
+  const allServices = useMemo(() => 
+    services.flatMap((category) =>
+      category.services.map((service) => ({
+        ...service,
+        categoryName: category.name
+      }))
+    ), [services]
   );
+
+  // Initialize savedAvailability from defaultValues when component mounts or defaultValues changes
+  // This ensures data is restored after Stripe redirect
+  useEffect(() => {
+    if (defaultValues && Array.isArray(defaultValues) && defaultValues.length > 0) {
+      // Only update if savedAvailability is empty or if defaultValues has changed
+      const cleanedDefaultValues = defaultValues.map((serviceAvail: any) => ({
+        serviceId: serviceAvail.serviceId,
+        staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+          staffId: staffAvail.staffId,
+          slots: staffAvail.slots || []
+        }))
+      }));
+      
+      // Check if we need to update (avoid unnecessary updates)
+      const needsUpdate = savedAvailability.length === 0 || 
+        JSON.stringify(savedAvailability) !== JSON.stringify(cleanedDefaultValues);
+      
+      if (needsUpdate) {
+        console.log('[AvailabilityStep] Updating savedAvailability from defaultValues:', {
+          defaultValuesLength: defaultValues.length,
+          cleanedLength: cleanedDefaultValues.length,
+          services: cleanedDefaultValues.map((a: any) => a.serviceId)
+        });
+        setSavedAvailability(cleanedDefaultValues);
+      }
+    } else if (defaultValues && defaultValues.length === 0 && savedAvailability.length > 0) {
+      // If defaultValues is explicitly empty, clear savedAvailability
+      console.log('[AvailabilityStep] Clearing savedAvailability (defaultValues is empty)');
+      setSavedAvailability([]);
+    }
+  }, [defaultValues]); // Only depend on defaultValues, not savedAvailability to avoid loops
 
   // When service changes, load saved availability for that service
   // This ensures saved slots persist when switching between services
@@ -87,6 +149,11 @@ export function AvailabilityStep({
     );
     
     if (serviceAvail) {
+      console.log('[AvailabilityStep] Loading saved availability for service:', {
+        serviceId: selectedServiceId,
+        staffCount: serviceAvail.staff?.length || 0,
+        totalSlots: serviceAvail.staff?.reduce((sum: number, s: any) => sum + (s.slots?.length || 0), 0) || 0
+      });
       // Expand saved slots for this service
       const weekStart = new Date(currentWeekStart);
       weekStart.setHours(0, 0, 0, 0);
@@ -103,6 +170,7 @@ export function AvailabilityStep({
       setFetchedSlots(expandedSlots);
     } else {
       // No saved availability for this service yet - start with empty calendar
+      console.log('[AvailabilityStep] No saved availability for service:', selectedServiceId);
       setFetchedSlots([]);
     }
   }, [selectedServiceId, savedAvailability, allServices, staff, timezone, currentWeekStart]);
@@ -128,9 +196,19 @@ export function AvailabilityStep({
   // Generate hours from 8 AM to 8 PM (matching booking flow)
   const hours = Array.from({ length: 13 }, (_, i) => i + 8);
 
-  // Group availability slots by day and hour (including pending additions)
-  const slotsByDayAndHour = useMemo(() => {
-    const grouped: Record<string, Record<number, ExpandedAvailabilitySlot[]>> = {};
+  // Generate 30-minute time segments for each hour
+  const timeSegments = useMemo(() => {
+    const segments: Array<{ hour: number; minute: number }> = [];
+    hours.forEach(hour => {
+      segments.push({ hour, minute: 0 });
+      segments.push({ hour, minute: 30 });
+    });
+    return segments;
+  }, [hours]);
+
+  // Group availability slots by day and time segment (30-minute blocks)
+  const slotsByDayAndTime = useMemo(() => {
+    const grouped: Record<string, Record<string, ExpandedAvailabilitySlot[]>> = {};
     
     // Flatten all slots from all days
     const allSlots = Object.values(groupedSlots).flat();
@@ -139,8 +217,9 @@ export function AvailabilityStep({
     allSlots.forEach(slot => {
       const slotDate = new Date(slot.startDateTime);
       const dateKey = formatInTimeZone(slotDate, timezone, "yyyy-MM-dd");
-      const hour = formatInTimeZone(slotDate, timezone, { hour: "numeric", hour12: false });
-      const hourNum = parseInt(hour, 10);
+      const slotHour = parseInt(formatInTimeZone(slotDate, timezone, { hour: "numeric", hour12: false }), 10);
+      const slotMinute = parseInt(formatInTimeZone(slotDate, timezone, { minute: "numeric" }), 10);
+      const slotRoundedMinute = Math.floor(slotMinute / 30) * 30;
       
       // Only include slots that are in the current week
       const isInCurrentWeek = weekDays.some(day => {
@@ -154,17 +233,43 @@ export function AvailabilityStep({
         grouped[dateKey] = {};
       }
       
-      if (!grouped[dateKey][hourNum]) {
-        grouped[dateKey][hourNum] = [];
-      }
+      // Calculate slot start and end in minutes
+      const slotStart = new Date(slot.startDateTime);
+      const slotEnd = new Date(slot.endDateTime);
+      const slotStartMinutes = slotHour * 60 + slotRoundedMinute;
+      const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
       
-      // Check for duplicates (same hour, same staff, same date)
-      const isDuplicate = grouped[dateKey][hourNum].some(
-        existing => existing.staffId === slot.staffId && existing.startDateTime === slot.startDateTime
-      );
-      
-      if (!isDuplicate) {
-        grouped[dateKey][hourNum].push(slot);
+      // Add this slot only to time segments it actually overlaps with
+      // Check all possible 30-minute segments from start to end
+      let currentSegmentMinutes = slotStartMinutes;
+      while (currentSegmentMinutes < slotEndMinutes) {
+        const segmentHour = Math.floor(currentSegmentMinutes / 60);
+        const segmentMinute = currentSegmentMinutes % 60;
+        const roundedMinute = Math.floor(segmentMinute / 30) * 30;
+        const segmentStartMinutes = segmentHour * 60 + roundedMinute;
+        const segmentEndMinutes = segmentStartMinutes + 30;
+        
+        // Check if slot overlaps with this segment
+        // Slot overlaps if: slotStart < segmentEnd AND slotEnd > segmentStart
+        if (slotStartMinutes < segmentEndMinutes && slotEndMinutes > segmentStartMinutes) {
+          const timeKey = `${segmentHour}:${roundedMinute.toString().padStart(2, '0')}`;
+          
+          if (!grouped[dateKey][timeKey]) {
+            grouped[dateKey][timeKey] = [];
+          }
+          
+          // Check for duplicates
+          const isDuplicate = grouped[dateKey][timeKey].some(
+            existing => existing.id === slot.id
+          );
+        
+          if (!isDuplicate) {
+            grouped[dateKey][timeKey].push(slot);
+          }
+        }
+        
+        // Move to next 30-minute segment
+        currentSegmentMinutes = segmentStartMinutes + 30;
       }
     });
     
@@ -174,7 +279,6 @@ export function AvailabilityStep({
       if (selectedService) {
         pendingAvailabilityAdditions.forEach((pending) => {
           const dateKey = formatInTimeZone(pending.date, timezone, "yyyy-MM-dd");
-          const hourNum = pending.hour;
           
           // Only include if in current week
           const isInCurrentWeek = weekDays.some(day => {
@@ -188,36 +292,67 @@ export function AvailabilityStep({
             grouped[dateKey] = {};
           }
           
-          if (!grouped[dateKey][hourNum]) {
-            grouped[dateKey][hourNum] = [];
-          }
+          // Round service duration to nearest 30-minute increment
+          const roundedDuration = Math.round(selectedService.durationMinutes / 30) * 30;
+          const finalDuration = roundedDuration < 30 ? 30 : roundedDuration;
           
-          // Check if this pending slot already exists as pending (don't duplicate)
-          const alreadyPending = grouped[dateKey][hourNum].some(
-            existing => existing.staffId === pending.staffId && 
-            existing.id && existing.id.startsWith('pending-')
-          );
+          // Round pending minute to nearest 30-minute block
+          const roundedMinute = Math.floor(pending.minute / 30) * 30;
+          const startMinutes = pending.hour * 60 + roundedMinute;
+          const endMinutes = startMinutes + finalDuration;
           
-          if (!alreadyPending) {
-            // Remove any saved slot for the same time/staff (pending replaces saved)
-            grouped[dateKey][hourNum] = grouped[dateKey][hourNum].filter(
-              existing => !(existing.staffId === pending.staffId && !existing.id?.startsWith('pending-'))
-            );
+          // Add this pending slot only to time segments it actually overlaps with
+          let currentSegmentMinutes = startMinutes;
+          while (currentSegmentMinutes < endMinutes) {
+            const segmentHour = Math.floor(currentSegmentMinutes / 60);
+            const segmentMinute = currentSegmentMinutes % 60;
+            const roundedSegmentMinute = Math.floor(segmentMinute / 30) * 30;
+            const segmentStartMinutes = segmentHour * 60 + roundedSegmentMinute;
+            const segmentEndMinutes = segmentStartMinutes + 30;
             
-            const staffMember = staff.find((s: StaffMember) => s.id === pending.staffId);
-            const startDateTime = zonedMinutesToDate(pending.date, pending.hour * 60, timezone);
-            const endDateTime = new Date(startDateTime.getTime() + selectedService.durationMinutes * 60 * 1000);
+            // Check if slot overlaps with this segment
+            if (startMinutes < segmentEndMinutes && endMinutes > segmentStartMinutes) {
+              const timeKey = `${segmentHour}:${roundedSegmentMinute.toString().padStart(2, '0')}`;
+              
+              if (!grouped[dateKey][timeKey]) {
+                grouped[dateKey][timeKey] = [];
+              }
+              
+              // Check if this pending slot already exists (don't duplicate)
+              const pendingId = `pending-${pending.staffId}-${dateKey}-${pending.hour}-${roundedMinute}`;
+              const alreadyPending = grouped[dateKey][timeKey].some(
+                existing => existing.id === pendingId
+              );
+              
+              if (!alreadyPending) {
+                // Remove any saved slot for the same time/staff (pending replaces saved)
+                // Only remove from the first block (where slot starts)
+                if (currentSegmentMinutes === startMinutes) {
+                  grouped[dateKey][timeKey] = grouped[dateKey][timeKey].filter(
+                    existing => !(existing.staffId === pending.staffId && 
+                                 !existing.id?.startsWith('pending-'))
+                  );
+                }
+                
+                const staffMember = staff.find((s: StaffMember) => s.id === pending.staffId);
+                const startDateTime = zonedMinutesToDate(pending.date, startMinutes, timezone);
+                const endDateTime = new Date(startDateTime.getTime() + finalDuration * 60 * 1000);
+                
+                grouped[dateKey][timeKey].push({
+                  id: pendingId,
+                  serviceId: selectedServiceId,
+                  staffId: pending.staffId,
+                  staffName: staffMember?.name || 'Unknown',
+                  staffColor: staffMember?.color || "#000000",
+                  startDateTime: startDateTime.toISOString(),
+                  endDateTime: endDateTime.toISOString(),
+                  dayLabel: formatInTimeZone(pending.date, timezone, { weekday: "long" }),
+                });
+              }
+            }
             
-            grouped[dateKey][hourNum].push({
-              id: `pending-${pending.staffId}-${dateKey}-${hourNum}`,
-              serviceId: selectedServiceId,
-              staffId: pending.staffId,
-              staffName: staffMember?.name || 'Unknown',
-              staffColor: staffMember?.color || "#000000",
-              startDateTime: startDateTime.toISOString(),
-              endDateTime: endDateTime.toISOString(),
-              dayLabel: formatInTimeZone(pending.date, timezone, { weekday: "long" }),
-            });
+            // Move to next 30-minute segment
+            currentSegmentMinutes = segmentStartMinutes + 30;
           }
         });
       }
@@ -232,7 +367,7 @@ export function AvailabilityStep({
     setCurrentWeekStart(newDate);
   };
 
-  const handleEmptySlotClick = (day: Date, hour: number) => {
+  const handleEmptySlotClick = (day: Date, hour: number, minute: number = 0) => {
     if (!selectedServiceId) {
       setError('Please select a service first');
       return;
@@ -264,52 +399,104 @@ export function AvailabilityStep({
       return;
     }
     
-    // Check if ALL selected staff already have this slot pending
-    const allPending = staffToProcess.every(member => 
-      pendingAvailabilityAdditions.some(
+    // Round clicked time to nearest 30-minute block (0 or 30)
+    const roundedMinute = Math.floor(minute / 30) * 30;
+    const roundedClickedMinutes = hour * 60 + roundedMinute;
+    
+    // Round service duration to nearest 30-minute increment (30, 60, 90, etc.)
+    const roundedDuration = Math.round(selectedService.durationMinutes / 30) * 30;
+    const finalDuration = roundedDuration < 30 ? 30 : roundedDuration;
+    
+    // Calculate the time range for the new slot (using rounded times)
+    const newSlotStartMinutes = roundedClickedMinutes;
+    const newSlotEndMinutes = roundedClickedMinutes + finalDuration;
+    
+    const dateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+    const weekdayName = formatInTimeZone(day, timezone, { weekday: "long" }).toLowerCase();
+    
+    // Check for conflicts for each staff member
+    const validAdditions: Array<{ staffId: string; date: Date; hour: number; minute: number }> = [];
+    
+    staffToProcess.forEach(member => {
+      // Check for conflicts with existing slots (from fetchedSlots)
+      const existingSlotsForStaff = fetchedSlots.filter(slot => {
+        const slotDate = new Date(slot.startDateTime);
+        const slotDateKey = formatInTimeZone(slotDate, timezone, "yyyy-MM-dd");
+        const slotWeekday = formatInTimeZone(slotDate, timezone, { weekday: "long" }).toLowerCase();
+        return slot.staffId === member.id && 
+               slotDateKey === dateKey && 
+               slotWeekday === weekdayName;
+      });
+      
+      // Check if new slot overlaps with any existing slot
+      const hasConflict = existingSlotsForStaff.some(slot => {
+        const slotStart = new Date(slot.startDateTime);
+        const slotEnd = new Date(slot.endDateTime);
+        const slotStartMinutes = formatInTimeZone(slotStart, timezone, { hour: "numeric", hour12: false }) * 60 + 
+                                 parseInt(formatInTimeZone(slotStart, timezone, { minute: "numeric" }), 10);
+        const slotEndMinutes = formatInTimeZone(slotEnd, timezone, { hour: "numeric", hour12: false }) * 60 + 
+                               parseInt(formatInTimeZone(slotEnd, timezone, { minute: "numeric" }), 10);
+        
+        return timeRangesOverlap(newSlotStartMinutes, newSlotEndMinutes, slotStartMinutes, slotEndMinutes);
+      });
+      
+      // Also check for conflicts with other pending additions for the same staff
+      const hasPendingConflict = pendingAvailabilityAdditions.some(pending => {
+        if (pending.staffId !== member.id) return false;
+        if (formatInTimeZone(pending.date, timezone, "yyyy-MM-dd") !== dateKey) return false;
+        
+        // Round pending slot times to 30-minute blocks
+        const pendingRoundedMinute = Math.floor(pending.minute / 30) * 30;
+        const pendingStartMinutes = pending.hour * 60 + pendingRoundedMinute;
+        const pendingRoundedDuration = Math.round(selectedService.durationMinutes / 30) * 30;
+        const pendingFinalDuration = pendingRoundedDuration < 30 ? 30 : pendingRoundedDuration;
+        const pendingEndMinutes = pendingStartMinutes + pendingFinalDuration;
+        
+        return timeRangesOverlap(newSlotStartMinutes, newSlotEndMinutes, pendingStartMinutes, pendingEndMinutes);
+      });
+      
+      if (hasConflict || hasPendingConflict) {
+        setError(`Cannot add slot for ${member.name}: This time conflicts with an existing availability slot. The service duration (${finalDuration} minutes) would overlap with another slot.`);
+        return;
+      }
+      
+      // Check if this slot is already pending
+      const alreadyPending = pendingAvailabilityAdditions.some(
         (pending) =>
           pending.staffId === member.id &&
           pending.date.toDateString() === day.toDateString() &&
-          pending.hour === hour
-      )
-    );
+          pending.hour === hour &&
+          pending.minute === roundedMinute
+      );
+      
+      if (!alreadyPending) {
+        validAdditions.push({
+          staffId: member.id,
+          date: day,
+          hour,
+          minute: roundedMinute
+        });
+      }
+    });
     
-    if (allPending) {
-      // Remove for all selected staff (toggle off)
+    if (validAdditions.length > 0) {
+      setPendingAvailabilityAdditions((prev) => [...prev, ...validAdditions]);
+      setError(null);
+    } else {
+      // All slots are already pending, so remove them (toggle off)
       setPendingAvailabilityAdditions((prev) =>
         prev.filter(
           (pending) => {
             const isSelectedStaff = staffToProcess.some(m => m.id === pending.staffId);
             return !(isSelectedStaff &&
               pending.date.toDateString() === day.toDateString() &&
-              pending.hour === hour);
+              pending.hour === hour &&
+              pending.minute === roundedMinute);
           }
         )
       );
-    } else {
-      // Add for all selected staff (or just the one selected)
-      const newAdditions = staffToProcess
-        .filter(member => {
-          // Only add if not already pending
-          return !pendingAvailabilityAdditions.some(
-            (pending) =>
-              pending.staffId === member.id &&
-              pending.date.toDateString() === day.toDateString() &&
-              pending.hour === hour
-          );
-        })
-        .map(member => ({
-          staffId: member.id,
-          date: day,
-          hour
-        }));
-      
-      if (newAdditions.length > 0) {
-        setPendingAvailabilityAdditions((prev) => [...prev, ...newAdditions]);
-      }
-    }
-    
     setError(null);
+    }
   };
 
 
@@ -350,6 +537,7 @@ export function AvailabilityStep({
       for (const pending of pendingAvailabilityAdditions) {
         const targetDate = pending.date;
         const targetHour = pending.hour;
+        const targetMinute = pending.minute ?? 0; // Default to 0 if not provided
         const staffId = pending.staffId;
 
         // Get weekday name from the date (timezone-aware)
@@ -357,12 +545,19 @@ export function AvailabilityStep({
         const weekdayName = formatInTimeZone(targetDate, timezone, { weekday: "long" });
         const weekday = weekdayName.toLowerCase();
         
-        // Format time as HH:mm
-        const startTime = `${String(targetHour).padStart(2, '0')}:00`;
+        // Round minute to nearest 30-minute block
+        const roundedMinute = Math.floor(targetMinute / 30) * 30;
         
-        // Calculate end time based on service duration
-        const startMinutes = targetHour * 60;
-        const endMinutes = startMinutes + selectedService.durationMinutes;
+        // Format time as HH:mm
+        const startTime = `${String(targetHour).padStart(2, '0')}:${String(roundedMinute).padStart(2, '0')}`;
+        
+        // Round service duration to nearest 30-minute increment
+        const roundedDuration = Math.round(selectedService.durationMinutes / 30) * 30;
+        const finalDuration = roundedDuration < 30 ? 30 : roundedDuration;
+        
+        // Calculate end time based on rounded service duration
+        const startMinutes = targetHour * 60 + roundedMinute;
+        const endMinutes = startMinutes + finalDuration;
         const endHour = Math.floor(endMinutes / 60);
         const endMin = endMinutes % 60;
         const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
@@ -528,13 +723,23 @@ export function AvailabilityStep({
       const staffId = pending.staffId;
       const targetDate = pending.date;
       const targetHour = pending.hour;
+      const targetMinute = pending.minute ?? 0;
+      
+      // Round minute to nearest 30-minute block
+      const roundedMinute = Math.floor(targetMinute / 30) * 30;
       
       // Store weekday as lowercase to match buildExpandedSlots expectation and API format
       const weekdayName = formatInTimeZone(targetDate, timezone, { weekday: "long" });
       const weekday = weekdayName.toLowerCase();
-      const startTime = `${String(targetHour).padStart(2, '0')}:00`;
-      const startMinutes = targetHour * 60;
-      const endMinutes = startMinutes + selectedService.durationMinutes;
+      const startTime = `${String(targetHour).padStart(2, '0')}:${String(roundedMinute).padStart(2, '0')}`;
+      
+      // Round service duration to nearest 30-minute increment
+      const roundedDuration = Math.round(selectedService.durationMinutes / 30) * 30;
+      const finalDuration = roundedDuration < 30 ? 30 : roundedDuration;
+      
+      // Calculate end time based on rounded service duration
+      const startMinutes = targetHour * 60 + roundedMinute;
+      const endMinutes = startMinutes + finalDuration;
       const endHour = Math.floor(endMinutes / 60);
       const endMin = endMinutes % 60;
       const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
@@ -635,7 +840,7 @@ export function AvailabilityStep({
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
         <Label className="text-white/70 mb-2 block">Filter by Service</Label>
         <select
-          className="w-full rounded-2xl border border-white/15 bg-[#050F2C]/60 px-4 py-3 text-sm text-white focus:border-primary focus:outline-none"
+          className="w-full rounded-2xl border border-white/15 bg-black/60 px-4 py-3 text-sm text-white focus:border-primary focus:outline-none"
           value={selectedServiceId || ""}
           onChange={(e) => {
             setSelectedServiceId(e.target.value || null);
@@ -644,11 +849,11 @@ export function AvailabilityStep({
             setError(null);
           }}
         >
-          <option value="" className="bg-[#050F2C] text-white">
+          <option value="" className="bg-black text-white">
             All Services
           </option>
           {allServices.map((service) => (
-            <option key={service.id} value={service.id} className="bg-[#050F2C] text-white">
+            <option key={service.id} value={service.id} className="bg-black text-white">
               {service.categoryName} - {service.name} ({service.durationMinutes} min · $
               {(service.priceCents / 100).toFixed(2)})
             </option>
@@ -785,82 +990,214 @@ export function AvailabilityStep({
                 ))}
               </div>
 
-              {/* Hour Rows */}
+              {/* Time Segment Rows - 30-minute blocks */}
               <div className="mt-2 space-y-1">
-                {hours.map((hour) => {
-                  const hourLabel = hour === 12 ? "12 PM" : hour > 12 ? `${hour - 12} PM` : `${hour} AM`;
+                {timeSegments.map((segment) => {
+                  const timeLabel = segment.minute === 0 
+                    ? (segment.hour === 12 ? "12 PM" : segment.hour > 12 ? `${segment.hour - 12} PM` : `${segment.hour} AM`)
+                    : `${segment.minute}`;
+                  const timeKey = `${segment.hour}:${segment.minute.toString().padStart(2, '0')}`;
+                  
                   return (
-                    <div key={hour} className="grid grid-cols-8 gap-2">
+                    <div key={timeKey} className="grid grid-cols-8 gap-2">
                       <div className="flex items-center text-xs text-white/60 py-2">
-                        {hourLabel}
+                        {segment.minute === 0 ? (
+                          <span>{segment.hour === 12 ? "12 PM" : segment.hour > 12 ? `${segment.hour - 12} PM` : `${segment.hour} AM`}</span>
+                        ) : (
+                          <span className="text-white/40">{segment.minute}</span>
+                        )}
                       </div>
                       {weekDays.map((day, dayIdx) => {
                         const dateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
-                        const slotsForHour = slotsByDayAndHour[dateKey]?.[hour] || [];
-
+                        const slotsForSegment = slotsByDayAndTime[dateKey]?.[timeKey] || [];
+                        
+                        // Filter out duplicate slots (same slot ID)
+                        const uniqueSlots = slotsForSegment.filter((slot, index, self) => 
+                          index === self.findIndex(s => s.id === slot.id)
+                        );
+                        
+                        // Group slots by their exact start time - slots that start together should be rendered as one continuous block
+                        const slotsByStartTime = new Map<string, typeof uniqueSlots>();
+                        uniqueSlots.forEach(slot => {
+                          const slotStart = new Date(slot.startDateTime);
+                          const slotHour = parseInt(formatInTimeZone(slotStart, timezone, { hour: "numeric", hour12: false }), 10);
+                          const slotMinute = parseInt(formatInTimeZone(slotStart, timezone, { minute: "numeric" }), 10);
+                          const slotRoundedMinute = Math.floor(slotMinute / 30) * 30;
+                          const startKey = `${slotHour}:${slotRoundedMinute.toString().padStart(2, '0')}`;
+                          
+                          if (!slotsByStartTime.has(startKey)) {
+                            slotsByStartTime.set(startKey, []);
+                          }
+                          slotsByStartTime.get(startKey)!.push(slot);
+                        });
+                        
+                        // Determine if this is the starting block for each slot group
+                        // Also check if slots should appear in this segment as continuation blocks
+                        const slotGroups = Array.from(slotsByStartTime.entries()).map(([startKey, slots]) => {
+                          const [hour, minute] = startKey.split(':').map(Number);
+                          const isStartingBlock = hour === segment.hour && minute === segment.minute;
+                          
+                          // Check if any slot in this group should appear in this segment (even if not starting)
+                          const segmentStartMinutes = segment.hour * 60 + segment.minute;
+                          const segmentEndMinutes = segmentStartMinutes + 30;
+                          
+                          const shouldAppear = isStartingBlock || slots.some(slot => {
+                            const slotStart = new Date(slot.startDateTime);
+                            const slotEnd = new Date(slot.endDateTime);
+                            const slotStartMinutes = hour * 60 + minute;
+                            const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                            
+                            // Slot appears in this segment if it overlaps
+                            return slotStartMinutes < segmentEndMinutes && slotEndMinutes > segmentStartMinutes;
+                          });
+                          
+                          return { startKey, slots, isStartingBlock, shouldAppear };
+                        }).filter(({ shouldAppear }) => shouldAppear);
+                        
+                        // Calculate service duration for visual spanning
+                        const selectedService = allServices.find(s => s.id === selectedServiceId);
+                        const roundedDuration = selectedService ? Math.round(selectedService.durationMinutes / 30) * 30 : 30;
+                        const finalDuration = roundedDuration < 30 ? 30 : roundedDuration;
+                        const blocksSpanned = Math.ceil(finalDuration / 30);
+                        const blockMinHeightRem = 3;
+                        const blockPaddingRem = 0.5;
+                        const firstBlockHeight = blockMinHeightRem + blockPaddingRem;
+                        
                         return (
-                          <div key={dayIdx} className="py-1">
-                            <div className="space-y-1">
-                              {/* Show available slots */}
-                              {slotsForHour.map((slot) => {
-                                const staffMember = staff.find(s => s.id === slot.staffId);
-                                const isPending = slot.id && slot.id.startsWith('pending-');
-                                const isSelectedStaff = selectedStaffId !== "any" && slot.staffId === selectedStaffId;
+                          <div key={dayIdx} className="relative py-1 min-h-[3.5rem]">
+                            {slotGroups.map(({ startKey, slots: groupSlots, isStartingBlock }, groupIdx) => {
+                              const totalStaffCount = groupSlots.length;
+                              const slotHeightInBlock = firstBlockHeight / totalStaffCount;
+                              
+                              if (isStartingBlock) {
+                                // Render all staff slots for this time as horizontal sections within one continuous block
+                                return (
+                                  <React.Fragment key={`${startKey}-${groupIdx}`}>
+                                    {groupSlots.map((slot, slotIdx) => {
+                                      const staffMember = staff.find(s => s.id === slot.staffId);
+                                      const isPending = slot.id && slot.id.startsWith('pending-');
+                                      const isSelectedStaff = selectedStaffId !== "any" && slot.staffId === selectedStaffId;
+                                      const slotTopOffset = slotIdx * slotHeightInBlock;
+                                      
+                                      // Calculate how many 30-minute blocks this slot spans
+                                      const slotStart = new Date(slot.startDateTime);
+                                      const slotEnd = new Date(slot.endDateTime);
+                                      const slotDurationMinutes = (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                                      const slotBlocksSpanned = Math.ceil(slotDurationMinutes / 30);
+                                      
+                                      return (
+                                        <button
+                                          key={slot.id}
+                                          type="button"
+                                          className={`absolute left-0 right-0 w-full rounded-lg border-2 px-2.5 py-1.5 text-left transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                                            isPending
+                                              ? "border-primary/80 bg-primary/25 hover:border-red-500/80 hover:bg-red-500/25"
+                                              : "border-primary/60 bg-primary/15 hover:border-primary/80 hover:bg-primary/25"
+                                          }`}
+                                          style={{
+                                            height: `${slotHeightInBlock}rem`,
+                                            minHeight: `${slotHeightInBlock}rem`,
+                                            top: `${slotTopOffset}rem`,
+                                            zIndex: 100 + slotIdx,
+                                            position: 'absolute',
+                                            borderTop: slotIdx === 0 ? undefined : 'none',
+                                            borderBottom: slotIdx === totalStaffCount - 1 && slotBlocksSpanned === 1 ? undefined : 'none',
+                                            borderBottomLeftRadius: (slotIdx === totalStaffCount - 1 && slotBlocksSpanned === 1) ? undefined : '0',
+                                            borderBottomRightRadius: (slotIdx === totalStaffCount - 1 && slotBlocksSpanned === 1) ? undefined : '0',
+                                            borderTopLeftRadius: slotIdx === 0 ? undefined : '0',
+                                            borderTopRightRadius: slotIdx === 0 ? undefined : '0',
+                                            borderColor: staffMember?.color ? `${staffMember.color}95` : undefined,
+                                            backgroundColor: staffMember?.color ? `${staffMember.color}18` : undefined,
+                                          }}
+                                          onClick={isPending && isSelectedStaff ? () => {
+                                            const slotDateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
+                                            const slotStart = new Date(slot.startDateTime);
+                                            const slotHour = parseInt(formatInTimeZone(slotStart, timezone, { hour: "numeric", hour12: false }), 10);
+                                            const slotMinute = parseInt(formatInTimeZone(slotStart, timezone, { minute: "numeric" }), 10);
+                                            const slotRoundedMinute = Math.floor(slotMinute / 30) * 30;
+                                            setPendingAvailabilityAdditions((prev) =>
+                                              prev.filter(
+                                                (pending) => {
+                                                  const pendingDateKey = formatInTimeZone(pending.date, timezone, "yyyy-MM-dd");
+                                                  return !(pending.staffId === slot.staffId &&
+                                                    pendingDateKey === slotDateKey &&
+                                                    pending.hour === slotHour &&
+                                                    pending.minute === slotRoundedMinute);
+                                                }
+                                              )
+                                            );
+                                          } : undefined}
+                                          title={isPending && isSelectedStaff ? "Click to remove" : undefined}
+                                        >
+                                          <p className="text-[11px] font-bold text-white leading-tight">
+                                            {slot.staffName}
+                                          </p>
+                                          <p className={`text-[8px] font-semibold leading-tight mt-0.5 ${isPending ? 'text-primary/90' : 'text-emerald-400/90'}`}>
+                                            {isPending ? '✓ Pending' : '✓ Saved'}
+                                          </p>
+                                        </button>
+                                      );
+                                    })}
+                                  </React.Fragment>
+                                );
+                              } else {
+                                // In continuation blocks, check if slot actually overlaps with this segment
+                                const [startHour, startMinute] = startKey.split(':').map(Number);
+                                const segmentStartMinutes = segment.hour * 60 + segment.minute;
+                                const segmentEndMinutes = segmentStartMinutes + 30;
                                 
                                 return (
-                                  <button
-                                    key={slot.id}
-                                    type="button"
-                                    onClick={isPending && isSelectedStaff ? () => {
-                                      // Remove pending slot on click
-                                      const slotDateKey = formatInTimeZone(day, timezone, "yyyy-MM-dd");
-                                      setPendingAvailabilityAdditions((prev) =>
-                                        prev.filter(
-                                          (pending) => {
-                                            const pendingDateKey = formatInTimeZone(pending.date, timezone, "yyyy-MM-dd");
-                                            return !(pending.staffId === slot.staffId &&
-                                              pendingDateKey === slotDateKey &&
-                                              pending.hour === hour);
-                                          }
-                                        )
+                                  <React.Fragment key={`${startKey}-continuation-${groupIdx}`}>
+                                    {groupSlots.map((slot, slotIdx) => {
+                                      const slotStart = new Date(slot.startDateTime);
+                                      const slotEnd = new Date(slot.endDateTime);
+                                      const slotStartMinutes = startHour * 60 + startMinute;
+                                      const slotEndMinutes = slotStartMinutes + (slotEnd.getTime() - slotStart.getTime()) / (1000 * 60);
+                                      
+                                      // Only render continuation if slot actually overlaps with this segment
+                                      if (slotStartMinutes >= segmentEndMinutes || slotEndMinutes <= segmentStartMinutes) {
+                                        return null;
+                                      }
+                                      
+                                      const staffMember = staff.find(s => s.id === slot.staffId);
+                                      const slotTopOffset = slotIdx * slotHeightInBlock;
+                                      
+                                      return (
+                                        <div
+                                          key={`${slot.id}-continuation`}
+                                          className="absolute left-0 right-0 pointer-events-none"
+                                          style={{
+                                            height: `${slotHeightInBlock}rem`,
+                                            top: `${slotTopOffset}rem`,
+                                            zIndex: 99 + slotIdx,
+                                            position: 'absolute',
+                                            borderLeft: staffMember?.color ? `2px solid ${staffMember.color}95` : '2px solid rgba(59, 130, 246, 0.6)',
+                                            borderRight: staffMember?.color ? `2px solid ${staffMember.color}95` : '2px solid rgba(59, 130, 246, 0.6)',
+                                            backgroundColor: staffMember?.color ? `${staffMember.color}18` : 'rgba(59, 130, 246, 0.15)',
+                                            borderTop: 'none',
+                                            borderBottom: slotIdx === totalStaffCount - 1 ? 'none' : 'none',
+                                            borderRadius: '0',
+                                            marginTop: slotIdx === 0 ? '-1px' : '0',
+                                          }}
+                                        />
                                       );
-                                    } : undefined}
-                                    className={`w-full rounded-lg border px-2 py-1.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${
-                                      isPending
-                                        ? "border-primary/60 bg-primary/20 hover:border-red-500/60 hover:bg-red-500/20"
-                                        : "border-primary/40 bg-primary/20 hover:border-primary/60 hover:bg-primary/30"
-                                    }`}
-                                    style={{
-                                      borderColor: staffMember?.color ? `${staffMember.color}80` : undefined,
-                                      backgroundColor: staffMember?.color ? `${staffMember.color}20` : undefined,
-                                    }}
-                                    title={isPending && isSelectedStaff ? "Click to remove" : undefined}
-                                  >
-                                    <p className="text-xs font-semibold text-white">
-                                      {formatInTimeZone(new Date(slot.startDateTime), timezone, { hour: "numeric", minute: "2-digit" })}
-                                    </p>
-                                    <p className="text-[10px] text-white/70 mt-0.5 truncate">
-                                      {slot.staffName}
-                                    </p>
-                                    <p className={`text-[10px] mt-0.5 truncate ${isPending ? "text-primary/90 font-semibold" : "text-emerald-400/90 font-semibold"}`}>
-                                      {isPending ? "✓ Pending" : "✓ Saved"}
-                                    </p>
-                                  </button>
+                                    })}
+                                  </React.Fragment>
                                 );
-                              })}
-                              
-                              {/* Show empty state if no slots - make it clickable to add availability */}
-                              {slotsForHour.length === 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleEmptySlotClick(day, hour)}
-                                  className="h-full w-full rounded-lg bg-white/5 border border-white/5 hover:border-primary/40 hover:bg-primary/10 py-1.5 transition cursor-pointer"
-                                  title="Click to add availability"
-                                >
-                                  <p className="text-[10px] text-white/20 text-center">+ Add</p>
-                                </button>
-                              )}
-                            </div>
+                              }
+                            })}
+                            
+                            {/* Show empty state if no slots - make it clickable to add availability */}
+                            {uniqueSlots.length === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleEmptySlotClick(day, segment.hour, segment.minute)}
+                                className="h-full w-full rounded-lg bg-white/5 border border-white/5 hover:border-primary/40 hover:bg-primary/10 py-1.5 transition cursor-pointer min-h-[3.5rem]"
+                                title="Click to add availability"
+                              >
+                                <p className="text-[10px] text-white/20 text-center">+ Add</p>
+                              </button>
+                            )}
                           </div>
                         );
                       })}

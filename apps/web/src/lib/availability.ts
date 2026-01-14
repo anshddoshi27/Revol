@@ -37,7 +37,7 @@ interface ExistingBooking {
   end_at: string;
 }
 
-const SLOT_DURATION_MINUTES = 15;
+const SLOT_DURATION_MINUTES = 30; // Changed to 30-minute blocks to match calendar UI
 const DEFAULT_MIN_LEAD_TIME_MINUTES = 120; // 2 hours
 const DEFAULT_MAX_ADVANCE_DAYS = 60;
 
@@ -123,18 +123,38 @@ export async function generateAvailabilitySlots(
   const targetDateInTimezone = toZonedTime(targetDateUTC, timezone);
   const weekday = targetDateInTimezone.getDay(); // Get weekday in business timezone
 
-  // Get service duration
-  const { data: service } = await supabase
+  // Get service duration - verify service exists and get real ID
+  const { data: service, error: serviceError } = await supabase
     .from('services')
-    .select('duration_min')
+    .select('id, duration_min, name')
     .eq('id', serviceId)
+    .eq('business_id', businessId)
+    .is('deleted_at', null)
     .single();
 
-  if (!service) {
-    throw new Error('Service not found');
+  if (serviceError || !service) {
+    console.error(`[availability] Service not found for ID: ${serviceId}, business: ${businessId}`, serviceError);
+    
+    // Debug: Check what services actually exist
+    const { data: allServices } = await supabase
+      .from('services')
+      .select('id, name')
+      .eq('business_id', businessId)
+      .is('deleted_at', null)
+      .limit(10);
+    console.log(`[availability] Available services in database (first 10):`, allServices?.map(s => ({ id: s.id, name: s.name })));
+    
+    throw new Error(`Service not found: ${serviceId}`);
   }
+  
+  console.log(`[availability] Found service: ${service.name} (${service.id}), duration: ${service.duration_min} min`);
 
+  // Round service duration to nearest 30-minute increment (30, 60, 90, etc.)
   const serviceDurationMinutes = service.duration_min;
+  const roundedServiceDuration = Math.round(serviceDurationMinutes / 30) * 30;
+  const finalServiceDuration = roundedServiceDuration < 30 ? 30 : roundedServiceDuration;
+  
+  console.log(`[availability] Service duration: ${serviceDurationMinutes} min, rounded to: ${finalServiceDuration} min`);
 
   // First, try to get staff from staff_services associations
   let staffIds: string[] = [];
@@ -191,22 +211,55 @@ export async function generateAvailabilitySlots(
 
   // Get availability rules for this service, staff, and weekday
   // Also filter by business_id to ensure we get the right rules
-  const { data: rules, error: rulesError } = await supabase
+  console.log(`[availability] Querying rules for service ${serviceId}, weekday ${weekday}, staffIds:`, staffIds);
+  
+  let query = supabase
     .from('availability_rules')
-    .select('staff_id, weekday, start_time, end_time')
+    .select('staff_id, weekday, start_time, end_time, service_id')
     .eq('business_id', businessId)
     .eq('service_id', serviceId)
-    .in('staff_id', staffIds.length > 0 ? staffIds : ['00000000-0000-0000-0000-000000000000']) // Prevent empty array
     .eq('weekday', weekday)
     .eq('rule_type', 'weekly')
     .is('deleted_at', null);
+  
+  // Only filter by staff_id if we have staff IDs
+  if (staffIds.length > 0) {
+    query = query.in('staff_id', staffIds);
+  }
+  
+  const { data: rules, error: rulesError } = await query;
 
   if (rulesError) {
     console.error(`[availability] Error fetching rules for ${date}:`, rulesError);
+    // Don't return early - try to continue with empty rules
   }
 
   if (!rules || rules.length === 0) {
     console.log(`[availability] No rules found for service ${serviceId}, date ${date}, weekday ${weekday}, staffIds:`, staffIds);
+    
+    // Debug: Check if there are ANY rules for this service (regardless of weekday)
+    const { data: allRulesForService } = await supabase
+      .from('availability_rules')
+      .select('service_id, weekday, staff_id')
+      .eq('business_id', businessId)
+      .eq('service_id', serviceId)
+      .eq('rule_type', 'weekly')
+      .is('deleted_at', null);
+    
+    if (allRulesForService && allRulesForService.length > 0) {
+      console.log(`[availability] Found ${allRulesForService.length} rules for service ${serviceId} (across all weekdays):`, allRulesForService.map(r => ({ weekday: r.weekday, staff_id: r.staff_id })));
+    } else {
+      console.log(`[availability] No rules found for service ${serviceId} at all. Checking all services...`);
+      const { data: allRules } = await supabase
+        .from('availability_rules')
+        .select('service_id, weekday, staff_id')
+        .eq('business_id', businessId)
+        .eq('rule_type', 'weekly')
+        .is('deleted_at', null)
+        .limit(10);
+      console.log(`[availability] Sample rules in database (first 10):`, allRules?.map(r => ({ service_id: r.service_id, weekday: r.weekday, staff_id: r.staff_id })));
+    }
+    
     return [];
   }
 
@@ -387,12 +440,17 @@ export async function generateAvailabilitySlots(
       ruleEndUTC: ruleEndUTC.toISOString(),
     });
 
-    // Walk in 15-minute increments (working in UTC)
+    // Round the start time to the nearest 30-minute block (align to 30-minute boundaries)
+    const ruleStartMinutes = ruleStartUTC.getMinutes();
+    const roundedStartMinutes = Math.floor(ruleStartMinutes / 30) * 30;
     let currentStart = new Date(ruleStartUTC);
+    currentStart.setMinutes(roundedStartMinutes, 0, 0); // Round to 30-minute boundary
+
     const ruleEndTime = new Date(ruleEndUTC);
 
+    // Walk in 30-minute increments (working in UTC)
     while (currentStart < ruleEndTime) {
-      const slotEnd = new Date(currentStart.getTime() + serviceDurationMinutes * 60 * 1000);
+      const slotEnd = new Date(currentStart.getTime() + finalServiceDuration * 60 * 1000);
       totalSlotsChecked++;
 
       // Check if slot fits within rule end time
@@ -428,7 +486,7 @@ export async function generateAvailabilitySlots(
         continue;
       }
 
-      // Valid slot - ensure times are in UTC ISO format
+      // Valid slot - ensure times are in UTC ISO format and rounded to 30-minute boundaries
       slots.push({
         staff_id: staffId,
         staff_name: staffName,
@@ -436,7 +494,7 @@ export async function generateAvailabilitySlots(
         end_at: new Date(slotEnd).toISOString(),
       });
 
-      // Move to next 15-minute slot
+      // Move to next 30-minute slot
       currentStart = new Date(currentStart.getTime() + SLOT_DURATION_MINUTES * 60 * 1000);
     }
   }

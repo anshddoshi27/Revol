@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     // Get services
     const { data: services, error: servicesError } = await supabase
       .from('services')
-      .select('id, category_id, name, description, duration_min, price_cents, pre_appointment_instructions')
+      .select('id, category_id, name, description, duration_min, price_cents, pre_appointment_instructions, image_url')
       .eq('user_id', userId)
       .eq('business_id', businessId)
       .is('deleted_at', null);
@@ -94,6 +94,7 @@ export async function GET(request: Request) {
           priceCents: svc.price_cents,
           instructions: svc.pre_appointment_instructions || '',
           staffIds: staffServiceMap.get(svc.id) || [],
+          imageUrl: svc.image_url || undefined,
         }));
 
       return {
@@ -239,10 +240,17 @@ export async function PUT(request: Request) {
 
     const categoryIds: string[] = [];
     const serviceIds: string[] = [];
+    // Track service ID mappings: oldId -> newId
+    const serviceIdMap = new Map<string, string>();
+    // Track category ID mappings: oldId -> newId
+    const categoryIdMap = new Map<string, string>();
+    // Build full service categories structure with real IDs to return
+    const returnedCategories: ServiceCategory[] = [];
 
     // Process each category
     for (let idx = 0; idx < categories.length; idx++) {
       const category: ServiceCategory = categories[idx];
+      const originalCategoryId = category.id;
 
       // Insert or update category
       // Only include id if it's a valid UUID, otherwise let DB generate it
@@ -308,10 +316,19 @@ export async function PUT(request: Request) {
 
       const categoryId = insertedCategory.id;
       categoryIds.push(categoryId);
+      
+      // Track the mapping of old category ID to new category ID
+      if (originalCategoryId && !isValidUUID(originalCategoryId)) {
+        categoryIdMap.set(originalCategoryId, categoryId);
+      }
+      
+      // Build services array for this category with real IDs
+      const returnedServices: any[] = [];
 
       // Process services in this category
       if (category.services && Array.isArray(category.services)) {
         for (const service of category.services) {
+          const originalServiceId = service.id;
           // Validate required service fields
           if (!service.name || !service.durationMinutes || service.priceCents === undefined) {
             console.warn(`Skipping service "${service.name}" - missing required fields`);
@@ -329,6 +346,7 @@ export async function PUT(request: Request) {
             duration_min: service.durationMinutes,
             price_cents: service.priceCents,
             pre_appointment_instructions: service.instructions || null,
+            image_url: service.imageUrl || null,
             is_active: true,
             deleted_at: null,
             created_at: new Date().toISOString(),
@@ -383,6 +401,25 @@ export async function PUT(request: Request) {
           }
 
           serviceIds.push(insertedService.id);
+          
+          // Track the mapping of old service ID to new service ID
+          // This allows frontend to update temporary IDs (like svc_xxx) to real database IDs
+          if (originalServiceId && !isValidUUID(originalServiceId)) {
+            serviceIdMap.set(originalServiceId, insertedService.id);
+            console.log(`[step-6-services] Mapped temporary service ID "${originalServiceId}" to real ID "${insertedService.id}"`);
+          }
+          
+          // Build service object with real ID for return
+          returnedServices.push({
+            id: insertedService.id, // Use real database ID
+            name: service.name,
+            description: service.description || '',
+            durationMinutes: service.durationMinutes,
+            priceCents: service.priceCents,
+            instructions: service.instructions || '',
+            staffIds: service.staffIds || [], // Keep staff IDs as-is (they should be real IDs from step-4)
+            imageUrl: service.imageUrl || undefined,
+          });
 
           // Handle staff-service associations
           if (service.staffIds && Array.isArray(service.staffIds) && service.staffIds.length > 0) {
@@ -459,14 +496,29 @@ export async function PUT(request: Request) {
           }
         }
       }
+      
+      // Build category object with real ID and services for return
+      returnedCategories.push({
+        id: categoryId, // Use real database ID
+        name: category.name,
+        description: category.description || '',
+        color: category.color || undefined,
+        services: returnedServices,
+      });
     }
 
     console.log('[step-6-services] Successfully saved:', categoryIds.length, 'categories and', serviceIds.length, 'services');
+    console.log('[step-6-services] Returning service categories with real database IDs:', returnedCategories.map(c => ({
+      categoryId: c.id,
+      categoryName: c.name,
+      services: c.services.map(s => ({ serviceId: s.id, serviceName: s.name }))
+    })));
 
     return NextResponse.json({
       success: true,
       categoryIds,
       serviceIds,
+      categories: returnedCategories, // Return full service categories with real database IDs
       message: `Saved ${categoryIds.length} category(ies) and ${serviceIds.length} service(s)`,
     });
   } catch (error) {

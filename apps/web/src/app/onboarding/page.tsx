@@ -228,14 +228,29 @@ export default function OnboardingPage() {
     
     if (accountId) {
       console.log('[onboarding] Stripe return detected, account_id:', accountId);
+      console.log('[onboarding] Current step before Stripe return:', onboarding.currentStep);
+      console.log('[onboarding] Completed steps before Stripe return:', onboarding.completedSteps);
       
-      // Navigate to payment setup step immediately
-      onboarding.setStep("paymentSetup");
-      
-      // Load ALL onboarding data from backend to restore complete state
+      // Load ALL onboarding data from backend to restore complete state FIRST
       const restoreAllOnboardingData = async () => {
         try {
+          console.log('[onboarding] Starting data restoration from backend...');
           const data = await loadOnboardingDataFromBackend();
+          console.log('[onboarding] Loaded data from backend:', {
+            hasBusiness: !!data.business,
+            hasWebsite: !!data.website,
+            hasLocation: !!data.location,
+            hasTeam: !!data.team,
+            hasBranding: !!data.branding,
+            hasServices: !!data.services,
+            hasAvailability: !!data.availability,
+            availabilityCount: data.availability?.length || 0,
+            hasNotifications: !!data.notifications,
+            hasPolicies: !!data.policies,
+            hasGiftCards: !!data.giftCards,
+            hasPaymentSetup: !!data.paymentSetup,
+            paymentSetupConnectStatus: data.paymentSetup?.connectStatus
+          });
           
           // Restore all the data to onboarding context
           if (data.business) {
@@ -256,8 +271,47 @@ export default function OnboardingPage() {
           if (data.services) {
             onboarding.saveServices(data.services);
           }
-          if (data.availability) {
-            onboarding.saveAvailability(data.availability);
+          // Always restore availability data if it exists (even if empty array)
+          // This ensures the component receives the correct data structure
+          if (data.availability !== undefined) {
+            const isArray = Array.isArray(data.availability);
+            const hasData = isArray && data.availability.length > 0;
+            
+            console.log('[onboarding] Restoring availability data:', {
+              hasAvailability: !!data.availability,
+              isArray: isArray,
+              length: data.availability?.length || 0,
+              services: hasData ? data.availability.map((a: any) => a.serviceId) : [],
+              firstService: hasData && data.availability[0] ? {
+                serviceId: data.availability[0].serviceId,
+                staffCount: data.availability[0].staff?.length || 0,
+                totalSlots: data.availability[0].staff?.reduce((sum: number, s: any) => sum + (s.slots?.length || 0), 0) || 0
+              } : null,
+              fullData: hasData ? JSON.stringify(data.availability, null, 2) : 'empty'
+            });
+            
+            // Ensure availability data structure is clean - only include staffId and slots
+            const cleanAvailability = isArray 
+              ? data.availability.map((serviceAvail: any) => ({
+                  serviceId: serviceAvail.serviceId,
+                  staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+                    staffId: staffAvail.staffId,
+                    slots: staffAvail.slots || []
+                  }))
+                }))
+              : [];
+            
+            // Always save to context, even if empty - this ensures state is properly initialized
+            onboarding.saveAvailability(cleanAvailability);
+            console.log('[onboarding] Availability data restored to context:', {
+              count: cleanAvailability.length,
+              services: cleanAvailability.map((a: any) => a.serviceId),
+              contextState: onboarding.availability?.length || 0
+            });
+          } else {
+            console.warn('[onboarding] No availability data in loaded data (undefined)');
+            // If availability is undefined, set empty array to ensure state is initialized
+            onboarding.saveAvailability([]);
           }
           // Only load notifications if feature is enabled
           if (isNotificationsEnabled() && data.notifications) {
@@ -284,18 +338,82 @@ export default function OnboardingPage() {
           if (data.team && data.team.length > 0) completedSteps.push('team');
           if (data.branding?.primaryColor) completedSteps.push('branding');
           if (data.services && data.services.length > 0) completedSteps.push('services');
-          if (data.availability && data.availability.length > 0) completedSteps.push('availability');
+          // Check availability - it must be an array with at least one service that has staff with slots
+          const hasValidAvailability = data.availability && 
+            Array.isArray(data.availability) && 
+            data.availability.length > 0 &&
+            data.availability.some((serviceAvail: any) => 
+              serviceAvail.staff && 
+              Array.isArray(serviceAvail.staff) && 
+              serviceAvail.staff.length > 0 &&
+              serviceAvail.staff.some((staffAvail: any) => 
+                staffAvail.slots && 
+                Array.isArray(staffAvail.slots) && 
+                staffAvail.slots.length > 0
+              )
+            );
+          
+          if (hasValidAvailability) {
+            completedSteps.push('availability');
+            console.log('[onboarding] Availability step is completed - has valid slots');
+          } else {
+            console.warn('[onboarding] Availability step is NOT completed:', {
+              hasAvailability: !!data.availability,
+              isArray: Array.isArray(data.availability),
+              length: data.availability?.length || 0,
+              hasValidSlots: data.availability?.some((s: any) => 
+                s.staff?.some((st: any) => st.slots?.length > 0)
+              ) || false
+            });
+          }
           if (data.notifications) completedSteps.push('notifications');
           if (data.policies) completedSteps.push('policies');
           if (data.giftCards) completedSteps.push('giftCards');
           
+          // IMPORTANT: Check payment setup status FIRST
+          const isPaymentCompleted = data.paymentSetup && 
+            (data.paymentSetup.connectStatus === "completed" || data.paymentSetup.connectStatus === "in_progress");
+          
+          if (isPaymentCompleted) {
+            completedSteps.push('paymentSetup');
+            console.log('[onboarding] Payment setup is COMPLETED (connectStatus:', data.paymentSetup.connectStatus, ') - will go to goLive');
+          } else {
+            console.log('[onboarding] Payment setup NOT completed yet (connectStatus:', data.paymentSetup?.connectStatus, ')');
+          }
+          
+          console.log('[onboarding] Steps to mark as completed:', completedSteps);
           completedSteps.forEach(step => {
             onboarding.completeStep(step);
           });
           
           console.log('[onboarding] All onboarding data restored from backend');
+          console.log('[onboarding] Completed steps after restoration:', onboarding.completedSteps);
+          
+          // Navigate based on payment setup status
+          if (isPaymentCompleted) {
+            // Payment setup is completed - check if we can go to goLive
+            // If availability is missing, go to availability step instead
+            const hasAvailability = data.availability && Array.isArray(data.availability) && data.availability.length > 0;
+            
+            if (hasAvailability) {
+              // All required data is present - go to goLive
+              console.log('[onboarding] Payment setup completed and availability exists - navigating to goLive step');
+              onboarding.setStep("goLive");
+              console.log('[onboarding] Current step after setting to goLive:', onboarding.currentStep);
+            } else {
+              // Payment is completed but availability is missing - go to availability step
+              console.warn('[onboarding] Payment setup completed but availability is missing - navigating to availability step');
+              onboarding.setStep("availability");
+              console.log('[onboarding] Current step after setting to availability:', onboarding.currentStep);
+            }
+          } else {
+            // Payment setup not completed yet - go to paymentSetup step
+            console.log('[onboarding] Payment setup not completed - navigating to paymentSetup step');
+            onboarding.setStep("paymentSetup");
+            console.log('[onboarding] Current step after setting to paymentSetup:', onboarding.currentStep);
+          }
         } catch (error) {
-          console.error('Error restoring onboarding data:', error);
+          console.error('[onboarding] Error restoring onboarding data:', error);
         }
       };
       
@@ -521,8 +639,18 @@ export default function OnboardingPage() {
   };
 
   const goForward = () => {
+    console.log('[onboarding] goForward called');
+    console.log('[onboarding] Current step:', onboarding.currentStep);
+    console.log('[onboarding] Next step:', nextStep);
+    console.log('[onboarding] Step sequence:', STEP_SEQUENCE);
+    console.log('[onboarding] Current index:', currentIndex);
+    
     if (nextStep) {
+      console.log('[onboarding] Setting step to:', nextStep);
       onboarding.setStep(nextStep);
+      console.log('[onboarding] Step set to:', nextStep, 'current step is now:', onboarding.currentStep);
+    } else {
+      console.warn('[onboarding] No next step available!');
     }
   };
 
@@ -653,12 +781,23 @@ export default function OnboardingPage() {
   };
 
   const handleTeamNext = async (values: Parameters<typeof onboarding.saveTeam>[0]) => {
+    // Save to context first (with temporary IDs)
     onboarding.saveTeam(values);
     
     try {
       // API expects { staff: StaffMember[] } not just the array
       const data = await makeAuthenticatedRequest('/api/business/onboarding/step-4-team', 'PUT', { staff: values });
       console.log('Team saved:', data);
+      
+      // CRITICAL FIX: Update context with real database IDs returned from API
+      // The API returns staff objects with real database UUIDs (not temporary IDs like "staff_xxx")
+      // This ensures availability uses the correct IDs when saving
+      if (data.staff && Array.isArray(data.staff) && data.staff.length > 0) {
+        console.log('[handleTeamNext] Updating context with real database IDs:', data.staff.map((s: any) => ({ id: s.id, name: s.name })));
+        onboarding.saveTeam(data.staff);
+      } else {
+        console.warn('[handleTeamNext] API did not return staff array, using original values');
+      }
     } catch (error) {
       console.error('Error saving team:', error);
       toast.pushToast({
@@ -694,12 +833,27 @@ export default function OnboardingPage() {
   };
 
   const handleServicesNext = async (values: Parameters<typeof onboarding.saveServices>[0]) => {
+    // Save to context first (with temporary IDs)
     onboarding.saveServices(values);
     
     try {
       // API expects { categories: ... } not just the array
       const data = await makeAuthenticatedRequest('/api/business/onboarding/step-6-services', 'PUT', { categories: values });
       console.log('Services saved:', data);
+      
+      // CRITICAL FIX: Update context with real database IDs returned from API
+      // The API returns service categories with real database UUIDs (not temporary IDs like "svc_xxx")
+      // This ensures availability uses the correct IDs when saving
+      if (data.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+        console.log('[handleServicesNext] Updating context with real database IDs:', data.categories.map((c: any) => ({
+          categoryId: c.id,
+          categoryName: c.name,
+          services: c.services.map((s: any) => ({ serviceId: s.id, serviceName: s.name }))
+        })));
+        onboarding.saveServices(data.categories);
+      } else {
+        console.warn('[handleServicesNext] API did not return categories array, using original values');
+      }
     } catch (error) {
       console.error('Error saving services:', error);
       toast.pushToast({
@@ -742,7 +896,7 @@ export default function OnboardingPage() {
     console.log('[onboarding] Sending notifications_enabled to API:', {
       enabled,
       enabledType: typeof enabled,
-      planType: enabled === false ? 'Basic ($11.99/month)' : 'Pro ($21.99/month)',
+      planType: 'Basic ($14.99/month) - notifications enabled',
       templatesCount: templates.length,
     });
     
@@ -812,13 +966,17 @@ export default function OnboardingPage() {
   };
 
   const handlePaymentNext = async (values: Parameters<typeof onboarding.savePaymentSetup>[0]) => {
+    console.log('[onboarding] handlePaymentNext called with values:', values);
+    console.log('[onboarding] Current step before payment next:', onboarding.currentStep);
+    console.log('[onboarding] Completed steps before payment next:', onboarding.completedSteps);
+    
     onboarding.savePaymentSetup(values);
     
     try {
       const data = await makeAuthenticatedRequest('/api/business/onboarding/step-11-payment-setup', 'PUT', values);
-      console.log('Payment setup saved:', data);
+      console.log('[onboarding] Payment setup saved:', data);
     } catch (error) {
-      console.error('Error saving payment setup:', error);
+      console.error('[onboarding] Error saving payment setup:', error);
       toast.pushToast({
         intent: 'error',
         title: 'Error',
@@ -827,8 +985,13 @@ export default function OnboardingPage() {
       return;
     }
     
+    console.log('[onboarding] Marking paymentSetup as completed');
     onboarding.completeStep("paymentSetup");
+    console.log('[onboarding] Completed steps after marking paymentSetup:', onboarding.completedSteps);
+    
+    console.log('[onboarding] Calling goForward() - next step should be goLive');
     goForward();
+    console.log('[onboarding] Current step after goForward:', onboarding.currentStep);
   };
 
   const handleStartTrial = () => {
@@ -849,6 +1012,83 @@ export default function OnboardingPage() {
 
   const handleLaunch = async () => {
     try {
+      // Check if availability is missing before attempting to launch
+      // First, try to reload availability from API if it's missing
+      if (!onboarding.availability || onboarding.availability.length === 0) {
+        console.warn('[onboarding] Availability is empty in context, attempting to reload from API...');
+        try {
+          const { createClientClient } = await import('@/lib/supabase-client');
+          const supabase = createClientClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session?.access_token) {
+            const headers: HeadersInit = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            };
+            
+            const availabilityResponse = await fetch('/api/business/onboarding/step-7-availability', {
+              method: 'GET',
+              headers,
+              credentials: 'include',
+            });
+            
+            if (availabilityResponse.ok) {
+              const availabilityData = await availabilityResponse.json();
+              console.log('[onboarding] Reloaded availability from API:', {
+                hasData: !!availabilityData.availability,
+                length: availabilityData.availability?.length || 0,
+                data: JSON.stringify(availabilityData, null, 2)
+              });
+              
+              if (availabilityData.availability && Array.isArray(availabilityData.availability) && availabilityData.availability.length > 0) {
+                // Clean and restore to context
+                const cleanAvailability = availabilityData.availability.map((serviceAvail: any) => ({
+                  serviceId: serviceAvail.serviceId,
+                  staff: (serviceAvail.staff || []).map((staffAvail: any) => ({
+                    staffId: staffAvail.staffId,
+                    slots: staffAvail.slots || []
+                  }))
+                }));
+                onboarding.saveAvailability(cleanAvailability);
+                console.log('[onboarding] ✅ Restored availability to context after reload');
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[onboarding] Error reloading availability:', error);
+        }
+      }
+      
+      // Check availability again after potential reload
+      console.log('[onboarding] Checking availability before launch:', {
+        hasAvailability: !!onboarding.availability,
+        isArray: Array.isArray(onboarding.availability),
+        length: onboarding.availability?.length || 0,
+        availability: JSON.stringify(onboarding.availability, null, 2),
+        stateCheck: {
+          currentStep: onboarding.currentStep,
+          completedSteps: onboarding.completedSteps
+        }
+      });
+      
+      if (!onboarding.availability || onboarding.availability.length === 0) {
+        console.error('[onboarding] Cannot launch: availability data is missing or empty');
+        toast.pushToast({
+          title: "Cannot launch business",
+          description: "Availability rules are required. Please complete the Availability step first.",
+          intent: "error"
+        });
+        // Navigate to availability step instead of showing error and staying on goLive
+        onboarding.setStep("availability");
+        return;
+      }
+      
+      console.log('[onboarding] Launching business with availability:', {
+        count: onboarding.availability.length,
+        services: onboarding.availability.map(a => a.serviceId)
+      });
+      
       // Call the backend API to finalize onboarding using authenticated request
       const data = await makeAuthenticatedRequest('/api/business/onboarding/complete', 'POST', {});
       
@@ -880,13 +1120,24 @@ export default function OnboardingPage() {
       });
       router.push(`/app/b/${business.slug}`);
     } catch (error) {
-      console.error('Error launching business:', error);
+      console.error('[onboarding] Error launching business:', error);
       const errorMessage = error instanceof Error ? error.message : 'An error occurred while finalizing onboarding.';
-      toast.pushToast({
-        title: "Failed to launch business",
-        description: errorMessage,
-        intent: "error"
-      });
+      
+      // If the error is about missing availability, navigate to availability step
+      if (errorMessage.includes('Availability rules are required') || errorMessage.includes('availability')) {
+        toast.pushToast({
+          title: "Availability required",
+          description: "Please complete the Availability step before launching your business.",
+          intent: "error"
+        });
+        onboarding.setStep("availability");
+      } else {
+        toast.pushToast({
+          title: "Failed to launch business",
+          description: errorMessage,
+          intent: "error"
+        });
+      }
     }
   };
 

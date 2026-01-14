@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { cancelSubscription } from '@/lib/stripe';
 
 /**
  * DELETE /api/business/[businessId]/delete
@@ -12,6 +13,8 @@ import { getCurrentUserId } from '@/lib/auth';
  * 
  * Note: Most tables have ON DELETE CASCADE, but we explicitly delete
  * in the correct order to ensure everything is removed.
+ * 
+ * Also cancels the Stripe subscription to stop billing before deletion.
  */
 export async function DELETE(
   request: Request,
@@ -32,9 +35,10 @@ export async function DELETE(
     const supabase = createAdminClient();
 
     // First, verify the business exists and belongs to the user
+    // Also get stripe_subscription_id to cancel subscription
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('id, user_id')
+      .select('id, user_id, stripe_subscription_id')
       .eq('id', businessId)
       .eq('user_id', userId)
       .single();
@@ -44,6 +48,18 @@ export async function DELETE(
         { error: 'Business not found or access denied' },
         { status: 404 }
       );
+    }
+
+    // Cancel Stripe subscription before deletion to stop billing
+    if (business.stripe_subscription_id) {
+      try {
+        await cancelSubscription(business.stripe_subscription_id);
+        console.log(`[delete-business] Canceled Stripe subscription ${business.stripe_subscription_id} for business ${businessId}`);
+      } catch (stripeError) {
+        console.error('[delete-business] Error canceling Stripe subscription:', stripeError);
+        // Continue with deletion even if Stripe cancel fails
+        // The subscription will be canceled by Stripe when the customer is deleted
+      }
     }
 
     console.log(`[delete-business] Starting hard deletion of business ${businessId} for user ${userId}`);

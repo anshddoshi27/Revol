@@ -1,0 +1,1226 @@
+Tithi Description (frontend logistcs)
+
+tithi.com is the landing page, which shows a Join tithi now and a login button.
+just that for now.
+either a user will create an account or login to the existing one.
+when a brand new owner signs up, they immediately drop into step one of onboarding, never into the admin.
+we only create the owner user record at signup; the business/account record (and its admin) are provisioned only after onboarding is fully completed.
+Each business onboards into a fully white-labeled environment: the public booking surface defaults to `{subdomain}.tithi.com`, and owners can optionally map a custom domain to keep the customer-facing experience entirely on-brand.
+The product replaces the typical patchwork of booking, payments, policies, notifications, CRM, and analytics tools by offering all of those functions inside the single Tithi admin.
+Every front-end surface must respect strict tenant isolation—admin pages only show data for the active business, and public booking views are limited to that tenant’s catalog.
+Branding primitives (logo, colors, typography choices, welcome copy) follow the tenant everywhere so customers only see the business identity, never “Tithi,” unless the owner explicitly enables it.
+Availability is a hard requirement for go-live: onboarding and admin flows prevent publishing a business until every service has at least one staffed availability window so the booking UI always renders actionable slots.
+Front-end flows should communicate that card details are validated and stored securely at checkout, even though charges only occur when money action buttons are triggered later.
+until then, there is no admin to show—onboarding is the only path.
+logging in (for owners who already finished an onboarding for at least one business) drops you straight into the admin for your selected business—there is no dashboard anymore.
+if the owner has multiple businesses, they switch between them from inside the admin (business picker in the header).
+(remember, each business has to be paid for speerately, one boarding flow for one buisness and gets its own 11.99 a month subscription, if you want multiple businesses you have to pay that many times more a month).
+once you’re inside a business admin, you land on the overview that mirrors the onboarding tabs.
+this has essentiall all the pages form the onbaording, allowing you to adjust all those parameters and settings that were set in onbaording so you can change them in real time even after the buisness went live.
+but it also has a past bookings page that shows all past bookings with all the data involved with it, along with the customer name email and phone number (gets entered when the customer is on the payment page).
+each booking is a block, and it has a "completed" button, "no show" button", and "refund" button.
+this is what contorls the actual money to go through, depending on if it was a successful transaction or a refund.
+untill one of thiese buttons are hit by the client, no payment has actually gone through.
+(this isn't reflected in the figma design so be sure to add it).
+make sure this is known when building the stripe pipeline and infrastructure that connects stripe to power the payments that occur.
+So if a user creates an account in Tithi, there needs to be an instance of a new user being created.
+And this instance umbrellas all of the data surrounding the business and all the services in it, all the availability data that are under each service, and also all the business names, name data, address, everything about that.
+That is already in the onboarding process, but basically everything needs to be organized.
+So I'm going to read out all the data that needs to be collected, and you need to figure out how to store it, organize it, and make it process and transfer with the front and back end database and to the different, to the booking flow and the admin view.
+I hope this makes sense.
+So in the beginning, step one is right after the user creates the account.
+So user creates the account with an email, a password, and a name and last name.
+And then it goes to set up your business, which is step one of eight, and it will start collecting business information like the business name, a brief description, and then what is the DBA, the legal business name, and then what is the industry.
+Then it goes, there's a section called your booking website, where it asks for the subdomain of your website, and this will be the exact URL for your booking flow for this website.
+Then it asks for location and contacts, a time zone, phone number, website support, email, business address, street address, city, state, province, postal code, and country, and then team members.
+This is where you add different team members, so you can, which will basically subdivide all the availability data.
+So when a user goes on the booking flow, they can not just see all the availabilities, but what staff members are exactly available for what certain time blocks.
+So anyways, user adds a team member and their role and their name, and then there's social media, which you can add the website to the actual company's website, Instagram, Facebook, TikTok, YouTube, but this is all optional.
+And then it goes to the next step, which is going to be the logo and brand colors, and this is where you upload your logo and then the brand color, and then this will basically design the look of the booking flow.
+Then it goes to step three, which is services and categories.
+So so far, we had all of that data about the business and the staff members and the URL, and all of that needs to be organized.
+Staff members need to be especially organized because they get used for the availability set, which is later on step four.
+But now we're in step three, and this is services and categories, and this is where a user adds a category, and under that category, they will be able to add the services that they want.
+And these services require, so when you add a category, you add the category name, optional description, category color, and then you add services within that category, and this will ask for the service name, description, duration, price, and pre-appointment instructions, which will be listed in the booking flow under the service.
+And then you add the service, service gets added successfully, and then you add another service if you want.
+And then once you add all those services within that category, you create the category and then that category is born and all the services under it will be attached.
+So the category is the parent and the services are the child instances within the parent.
+And they have the duration, price, instructions, description, all those data fields within each child or service.
+And once this is all the categories are added and with it with all their respective services, then you continue to availability.
+And this is where you select a service and then fill out the availability for it.
+And you don't just fill out the availability in general, but you pick a staff member and then fill out its availability.
+And then you pick the next staff member and select and put it, fill in their availability.
+And then you finish filling in the availability for that service and you go to the next service.
+And you have to do it for all of the services that are listed.
+And once you do that, then you go to the next step, which is notification templates.
+And this is where you create notifications.
+You create a template, you do the template name, a channel, which will be email, SMS or push.
+And then email subject, if it is an email, and then category, which will either be confirmation, reminder, follow up, cancellation or reschedule.
+And then.
+And then.
+And then the category, which is I Just Said That, and then trigger event, which will either be Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Booking Rescheduled, and Booking Completed.
+And then there are available placeholders.
+So now this is important.
+These available placeholders will be filled out in this step, in the Notification step.
+And this will be not filled out, but this will be the Customer Name, the Service Name, the Service Duration, Price, Booking Date.
+So these are all variables that can be added to the content of the notification because every notification is going to be different for every customer according to their Customer Name and the service that they booked, so they will be dynamic.
+To make this possible, make sure thesevariables properly access it's respective data so this works.
+YOU ARE A DEVELOPER, FIGUER OUT HOW TO DO THIS.
+This is a template, but the data will be different for each actual notification when it's practically rujnning, when the app is practically running and people are actually booking stuff.
+The Customer Name will be different, the Service Name will be different, the Service Duration will be different because it depends on what service they add, Price, Booking Date, Booking Time, Business Name.
+So instead of saying, your booking is at August, it's going to say, your booking is at Booking Date, which is the variable.
+So people will be able to add these placeholders and these need to be properly managed so they always become the right data when the notification is actually sent.
+So we need to make sure this happens as well.
+So you need to figure out how to organize this and get this created with the onboarding and then routed properly so it always shows the right data when a user wants to add one of these placeholders in their notification template content.
+Then the next step will be the Gift Cards.
+Now this is optional.
+Sorry, it is not the Gift Cards, it is Policies and Confirmation.
+So this is where the user fills out their booking policies, which is the Cancellation Policy, the No-Show Policy, the No-Show Flat Fee, and the Refund Policy and the Cash Payment Policy.
+These will all be shown in the Payment section of the Booking Flow as little pop-ups.
+It will be one pop-up and all the policies will be listed and it's a scrollable component where the user will be able to scroll through everything and understand these policies.
+These are set over here and it's just adding the content, the text content of the policy and the No-Show Flat Fee or Percentage Fee, whatever the user wants to have.
+These percentages will be applied to the payments accordingly for the final price, the booking was marked a No Show.
+And then user saves the policies and then the next step is Gift Cards.
+This is optional but a user can create a Gift Card.
+They can set the expiration date and also the amount that the Gift Card holds, either an actual amount or a percentage discount off whatever the price of the booking is.
+And then the user can generate the actual code, which is a randomized generator creating a Gift Code.
+But basically, again, remember the whole entire goal of all of this.
+It's just being able to store all of this data under each user, which is under each business name.
+Also just to confirm with you, the percentage discounts that are set are to be appleid if this code is added from a customer in the payment section, to then show the final price.
+make sure the payment page will do this.
+organize the data storage accordingly.
+remember ( understand how to store this data, process it and transfer it around to the Booking Flow and within the steps of the onboarding.) Going back to how the onboarding works for the app, that is the Gift Card section and then it goes to Payment Setup.
+This is where the user fills out their credit card and then all the payment methods that they want to allow.
+Then that will create the Stripe account under My Account, which is the Stripe Express and that allows different accounts to be made under My (me the person who build the app) Account so they can create payment processing for their booking flow.
+Credit Card and Payment Methods need to be configured over here.
+Once that is done, you need to build the code that will trigger an account to be made under my stripe account then it goes to the final step.
+full stripe setupt: [I'll analyze your existing backend and database structure to modify the Stripe integration plan for compatibility.
+Let me first examine the current backend architecture and database models.
+[3 tools called] Now let me examine the existing payment API and financial models more closely: [3 tools called] Now let me examine the existing services and onboarding structure: [3 tools called] Now I have a comprehensive understanding of the existing backend and database structure.
+Let me create a modified Stripe integration plan that's compatible with the existing system: [1 tool called] Based on my analysis of your existing backend and database structure, here's a modified Stripe integration plan that's fully compatible with your current system: # ⚡️ MODIFIED STRIPE INTEGRATION PLAN ## 🧩 COMPATIBLE WITH EXISTING BACKEND & DATABASE ### 🔧 PHASE 1 — EXTEND EXISTING MODELS (Database Compatibility) **Goal**: Extend existing TenantBilling and Payment models to support subscriptions and Stripe Connect.
+**Database Changes** (Add to existing TenantBilling model):
+
+tithi.com is the landing page, super simple, it just shows a Join Tithi Now and a Login button.
+that’s it for now.
+user either creates an account or logs in.
+logging in now takes you right into the admin for the active business—no dashboard interstitial.
+if the owner has multiple businesses, the admin header exposes a business switcher to jump between them.
+remember: each business is its own thing and is billed separately at $11.99/month.
+one onboarding flow per business.
+if you want multiple businesses you pay that many subscriptions, one per business.
+
+the admin basically mirrors all the pages from onboarding so you can tweak everything live even after go-live.
+plus there’s a Past Bookings page that lists all bookings with the data tied to it, including the customer’s name, email, and phone (collected at booking).
+each booking is a block with four buttons: Completed, No-Show, Cancelled, Refund.
+these four buttons are the only way money moves.
+nothing is charged at booking time.
+nothing moves until one of these buttons is pressed.
+this is the central rule—make sure this is visible in the UI and also the Stripe pipeline is built around it.
+
+how the money buttons work (front-end behavior)
+
+Completed → charges the full booking amount now off the saved card.
+show spinner, disable button, success toast on capture; if it needs customer action (rare), show “Send Pay Link” to complete.
+
+No-Show → charges the no-show fee from policies.
+same UX (spinner/disable).
+if fee is 0, it just marks as no-show with no charge.
+
+Cancelled → charges the cancellation fee from policies.
+if fee is 0, it just cancels with no charge.
+
+Refund → if there was a charge, refund it (full or partial as supported).
+if no charge ever happened yet, Refund does nothing (UI still shows it but disabled or it no-ops with a tooltip “no payment to refund”).
+
+after any click, the card and charge status are reflected on the booking block (state chip updates).
+prevent double-clicks with disabled button + idempotent call.
+
+fees
+
+platform fee is 1% on whatever is charged.
+Stripe fees are also deducted by Stripe as normal.
+the booking/transactions view shows the breakdown (gross, platform fee, Stripe fee, net).
+
+account + data “umbrella”
+when a user (the owner) creates an account they set email + password + first + last (admins require a password; only owners can log in—no staff logins).
+creating a business creates a “bucket” for all related data: business profile, branding, services/categories, staff (for scheduling context, not for login), availability per service per staff, policies, notification templates, gift cards, customers, bookings.
+onboarding just fills that bucket in an orderly way; admin lets you change anything later.
+
+onboarding (step by step, same vibe but wired correctly)
+Step 1 — Business basics
+business name, description, DBA, legal name, industry.
+
+Step 2 — Booking website
+pick the subdomain (this becomes yourname.tithi.com).
+we validate it’s available and reserve it.
+
+Step 3 — Location & contacts
+timezone, phone, support email, website, full address.
+
+Step 4 — Team (scheduling only)
+add team members with names, roles, and colors; this is for availability and filtering in the booking flow.
+this team roster powers the availability matrix and the booking calendar, so every staff member’s schedule can be mapped to each service.
+overlapping availability needs to render cleanly: the booking UI shows parallel staff lanes and gracefully stacks overlaps while keeping every staff option visible, even when multiple staff share the same time blocks.
+staff records exist only so they can be selected when defining availability per service; they never get login access—owner only.
+Step 5 — Branding
+logo upload + brand color which themes the booking site.
+
+Step 6 — Services & categories
+must create at least one category first (name, description, color).
+services can only exist within a category.
+inside each category add services: name, description, duration, price, pre-appointment notes.
+categories are the parent; services are children and carry their own fields.
+the UI makes the hierarchy explicit so there’s no “loose” service without a category.
+everywhere in admin and booking flows, services are always treated as nested under their category; creation/edit screens do not allow “uncategorized” services.
+
+Step 7 — Availability
+for each service, the onboarding flow forces the owner to pick the staff members who actually deliver it and collect availability for each of them.
+repeat for every staff-service combination that applies; staff who don’t offer a service can be skipped.
+the engine uses these service-specific schedules to generate bookable slots by duration.
+it’s color-coded by staff in the booking UI and keeps overlaps readable when multiple staff are free at the same time.
+each service effectively has its own availability template that is filled out per staff member; onboarding blocks completion until every service has at least one staffed window.
+later, in admin, owners can adjust availability by service and by staff without affecting other services, so schedules stay scoped and predictable.
+
+Step 8 — Notifications
+make templates.
+pick channel (email, SMS, push), template name, category (confirmation, reminder, follow-up, cancellation, reschedule, completion), subject (if email), and the trigger (Booking Created, Booking Confirmed, 24-Hour Reminder, 1-Hour Reminder, Booking Cancelled, Rescheduled, Completed).
+
+we give you placeholders you can drop into the content: Customer Name, Service Name, Service Duration, Price, Booking Date, Booking Time, Business Name, Booking URL.
+these are dynamic at send time and always resolve to the correct data.
+the UI validates placeholders and lets you preview with sample booking data.
+onboarding steps earlier in the flow collect all the underlying data (business name, service names, durations, prices, policies, etc.), so default templates can be pre-filled with the right placeholders and values and owners don’t have to manually retype the same information over and over.
+
+Policies + Confirmation
+set textual policies (Cancellation Policy, No-Show Policy, Refund Policy, Cash Payment Policy) and set fee types/values for No-Show and Cancellation (flat or percent).
+these render as a single scrollable modal in checkout and require a checkbox consent.
+we snapshot the exact policy text and fee values so receipts match what the client saw.
+
+Gift Cards (optional)
+you can create gift cards.
+set expiration, choose fixed amount or percent discount, auto-generate a code.
+discounts apply at checkout and the final price updates live.
+for amount-type, balances are deducted when charges happen (not before).
+refunds can optionally restore balance (business setting).
+each gift card can be toggled active/inactive from the admin; inactive cards are treated as invalid in the booking flow, and any attempt to redeem them shows a clear error and keeps the pay button disabled.
+
+Payment Setup (Stripe)
+owner connects Stripe Express (we set it up behind the scenes).
+credit card methods to accept are configured here (cards by default).
+this also sets up the $11.99/month subscription per business and the Connect account to receive booking charges.
+we’ll show subscription state controls here too (see below).
+
+Go Live
+we generate the public Booking Page URL (subdomain.tithi.com) and the booking site is reachable.
+all data from onboarding feeds that site.
+the admin can edit anything later.
+
+subscription controls (business billing)
+in Account inside the admin you have subscription state:
+
+Trial: 7 days free; will switch to Active at day 7 unless paused or canceled before then.
+
+Active: charges $11.99/month.
+
+Paused: does not charge while paused.
+site can stay up (you pick), but we label it “Paused”.
+
+Canceled: no more charges, subdomain is deprovisioned and removed.
+
+buttons are Activate, Pause, Cancel, and if on day 0, Start Trial.
+we show next bill date and current state badge.
+
+booking flow (customer side, subdomain)
+the booking site shows the business name, description, address, what kind of business, etc., then shows categories with services under each.
+every service shows price, duration, description, and pre-appointment instructions.
+
+customer selects a service → goes to Availability.
+here they see the week/day view with slots that match the service duration, divided by staff members (color coded).
+they pick a time.
+
+Checkout (this is important):
+
+we collect customer name, email, phone (for the booking and for notifications).
+
+we show the Policies modal and require a consent checkbox.
+
+if they have a gift card/code, they enter it and see the updated final price.
+the UI always derives a single `final_price` from “base service price minus any valid gift card or discount” and that exact final amount is what the later money-board actions will charge—there is never a second, different total used at payment time.
+we save a card now using Stripe (we use a SetupIntent to store a payment method off-session).
+no charge yet.
+
+then the booking is created and confirmed as Pending with a paid card on file.
+
+the confirmation page shows everything: service, date/time, duration, price, instructions, policies (again), and we send the “booking received (no charge yet)” notification.
+
+admin past bookings (the money board)
+the Past Bookings page lists everything.
+each booking card shows: customer info, service, staff, scheduled time, amounts, and the four buttons:
+
+Completed → charge the full amount now off the saved card.
+
+No-Show → charge the no-show fee now (whatever the policy says; if 0 then it just marks no-show).
+
+Cancelled → charge the cancellation fee now (or 0—same logic).
+
+Refund → if a payment was actually made before, refund it; if not, it does nothing and the UI tells you “there’s nothing to refund.”
+
+when you click a button: the button disables, spinner shows, status chip updates after the backend confirms.
+we make every call idempotent so double-clicks won’t double-charge.
+visually, each booking is a card with the money-action buttons anchored at the top and a clean summary of the booking details below (service, all service metadata from onboarding, date/time, staff, price, customer name/email/phone).
+clicking into a card (or a “View details” affordance) opens a full-screen detail view that exposes the complete metadata and history for that booking while keeping the action buttons easy to reach.
+
+data moving around (frontend logistics, not too nerdy)
+
+the admin and booking sites just fetch and post JSON.
+everything is scoped to the selected business.
+
+onboarding/admin edits save to the business “bucket,” and that same data renders on the booking site.
+
+availability is generated server-side from the rules you set and it comes back as ready-to-render slots.
+we just place them on the calendar.
+
+notifications are templates you manage; when events happen (booking created, reminders, completed, etc.) the right template gets merged with the correct data and sent.
+nothing special you need to do in the frontend except provide the preview and the template editor UI.
+
+gift cards are checked on the server; we just show the recalculated price.
+
+security + access (frontend behaviors)
+
+Owner login uses email + password (admins must have passwords).
+only the owner has access; no staff logins.
+
+Customers don’t need passwords; they provide name/email/phone at checkout and we tie that to the booking.
+
+show a clear notice at checkout: “You’re not charged now.
+Your card is saved securely.
+You’ll be charged after your appointment is completed or if a fee applies (see policies).”
+
+what we show where (quick routing map)
+
+tithi.com → landing with the two buttons.
+
+tithi.com/login and /signup → owner auth.
+
+tithi.com/app/b/{businessId} → Admin (mirrors onboarding + Past Bookings + Account; default post-login landing).
+
+https://{subdomain}.tithi.com → Booking Flow for that business.
+
+wildcard DNS *.tithi.com + TLS (ACME) for tenant subdomains.
+reserve bad words and reserved names.
+
+1) tenancy & billing rules
+
+one business == one subscription ($11.99/mo).
+multiple businesses = multiple subscriptions.
+
+subscription states: Trial (7d), Active (billed), Paused (not billed), Canceled (not billed + subdomain deprovisioned).
+
+state switches in Account tab: buttons for Start Trial, Activate, Pause, Cancel; show next bill date and a badge.
+
+platform fee 1% applied to each actual charge (Completed/No-Show/Cancelled fees).
+Stripe fees also apply.
+
+2) identity & access
+
+Owner-only admin.
+no staff logins.
+owner uses email + password (recommend MFA).
+
+Customers don’t need passwords; they input name/email/phone at checkout (for booking + notifications).
+
+session handling: short-lived access token + refresh; logout everywhere; device list optional.
+
+3) onboarding → admin mirror (data packaging)
+
+Business basics (name, description, DBA, legal, industry).
+
+Booking website (subdomain).
+
+Location & contacts (timezone, phone, support email, website, address).
+
+Team (names/roles/colors) for scheduling only.
+
+Branding (logo upload, brand color).
+
+Services & categories (category: name/desc/color; service: name/desc/duration/price/instructions).
+
+Availability (per service per staff; add buffers later if needed).
+
+Notifications (templates with placeholders + triggers; validation + preview).
+
+Policies (text + fee config for no-show/cancel; consent checkbox required).
+
+Gift cards (amount or percent; expiry; randomized code; balances).
+
+Payment Setup (Stripe Express connect + accepted methods).
+
+Go Live (publishes subdomain.tithi.com).
+
+admin mirrors these screens with the same forms to edit anything after launch.
+
+4) booking flow (customer)
+
+catalog (business header + categories + services).
+
+pick service → availability by staff (color-coded) → select slot (duration-sized).
+
+checkout shows policies modal (must consent).
+gift code optional.
+
+card is saved, not charged (SetupIntent).
+booking status = Pending.
+
+confirmation screen shows all data and “no charge yet” message.
+
+5) “money board” (admin past bookings)
+
+each booking shows customer, service, staff, when, price, status chip, and four buttons: Completed, No-Show, Cancelled, Refund.
+
+buttons are idempotent, disabled after click, spinner shows, server decides the action:
+
+Completed → full charge now.
+
+No-Show → charge policy no-show fee now (or 0).
+
+Cancelled → charge policy cancellation fee now (or 0).
+
+Refund → only if a charge exists; if not, it no-ops and says “nothing to refund”.
+
+if a charge fails or needs SCA, booking shows an alert with Send Pay Link to finish on the customer’s device.
+
+6) payments & fees (how we wire it)
+
+at checkout we create a SetupIntent (save card for off-session).
+no PaymentIntent then.
+
+on button press we create a fresh PaymentIntent:
+
+destination charge to the business’s Connect account.
+
+application_fee_amount = 1% (platform fee).
+
+confirm off-session immediately.
+
+on success: update status chip, send receipt.
+
+on failure: mark “payment issue,” allow Send Pay Link (hosted page / Checkout Session).
+
+refunds: through Stripe; update status and send refund notice.
+
+gift cards: percent discount applied to total; amount-type balance deducted on charge, not on pending; optional balance restore on refund (setting).
+
+7) availability logic (so the calendar never lies)
+
+rules per service/staff → expanded to slots in the business timezone.
+
+overrides/blackouts handled; DST tested; prevent overlaps.
+
+availability capture during onboarding is a service-by-staff grid so the owner can quickly add schedules for every relevant combination; we block completion until each service has at least one staffed window.
+
+soft-hold a slot during checkout (short TTL) to stop double-booking.
+
+UI renders per-staff lanes with overlap indicators so simultaneous availability from multiple staff stays readable and still looks polished.
+in admin, the availability editor lets owners switch between services, see that service’s template on a calendar with each staff member in their own lane, and adjust or add rules without affecting other services.
+we support saving and reusing availability “templates” per service, plus a copy/paste affordance so that if two services share the same schedule, an owner can copy from one and apply it to another instead of re-entering everything.
+
+cache slot lists; invalidate on changes or new bookings.
+
+8) notifications (template logistics)
+
+channels: email, SMS, (push later).
+
+triggers we support: Booking Created, Confirmed, 24h, 1h, Cancelled, Rescheduled, Completed, Fee Charged, Refunded, Payment Issue.
+
+placeholders we guarantee: ${customer.
+name}, ${service.
+name}, ${service.
+duration}, ${service.
+price}, ${booking.
+date}, ${booking.
+time}, ${business.
+name}, ${booking.url}.
+
+we lint unknown placeholders at save, and preview with fake data.
+
+we snapshot a policy hash inside messages so what they saw is provable.
+
+9) policies (front/back handshake)
+
+single scrollable modal in checkout with all texts and fees.
+
+customer must check consent.
+we log timestamp, IP, user-agent, policy hash on the booking.
+
+no-show/cancel fees can be flat or percent; 0 is allowed.
+
+10) reporting (what owners see)
+
+per booking charge breakdown: gross, gift discount, platform fee (1%), Stripe fees, net to business.
+
+CSV export with Stripe IDs.
+filters by date/staff/service/status.
+
+11) error paths (what the UI does)
+
+network retry banners with “try again.”
+
+payment failed: show reason (friendly), offer Send Pay Link.
+
+gift code invalid/expired: red inline message, keep submit disabled.
+
+subdomain taken: instant validation with suggestions.
+
+12) speed & scale (frontend logistics)
+
+cache tenant config (branding, services) client-side; revalidate on focus or edit.
+
+slot views virtualized; keep API calls cheap (date-scoped).
+
+image uploads → signed URLs.
+
+static assets via CDN.
+
+react-query for caching + background refetch.
+
+13) security & privacy (visible UX bits)
+
+owner uses password sign-in (MFA recommended).
+
+customers see “card saved securely, not charged now” copy.
+
+cookie consent bar if analytics enabled.
+
+PII masking in lists (only show what’s needed).
+
+logout clears all sensitive caches.
+
+14) SEO, accessibility, localization
+
+booking site has SEO titles/og tags per service and business.
+
+WCAG basics: focus states, keyboardable, labels, color contrast.
+
+time/date formats respect the business timezone.
+
+copy prepared for i18n later (keys in UI layer).
+
+15) support tools (owner)
+
+“Resend confirmation,” “Resend receipt,” “Send pay link,” “Edit customer info,” “Add note to booking.”
+
+search bookings by customer, service, date, status.
+
+16) data lifecycle & exports
+
+downloadable ZIP: customers + bookings + policies + gift cards (owner export).
+
+business deletion path on Canceled: archive, then purge after retention window (and drop subdomain).
+
+how the data moves (quick pseudo-flow, the way you want it)
+
+Onboarding save
+Form → /api/business/{id}/section → JSON payload → saved under business bucket → booking site re-renders with the latest data
+
+Availability view
+Booking page → /api/availability?service=...&week=... → JSON: [{staffId, startAt, endAt}] → render slots by staff color
+
+Checkout
+
+Collect {name, email, phone} + (giftCode?)
+Show Policies → require consent checkbox (store policyHash)
+Call /api/bookings (serviceId, staffId, slot, customer, giftCode)
+← return setupIntent client_secret + bookingId
+Stripe Elements confirms SetupIntent (card saved)
+Show “Confirmation (Pending, no charge yet)”
+
+Admin buttons
+
+Click “Completed” (or “No-Show” / “Cancelled” / “Refund”)
+→ POST /api/admin/bookings/{bookingId}/{action} with idempotencyKey
+← returns {status: charged|fee_charged|refunded|cancelled_no_fee, receiptUrl?}
+Update chip; disable button; toast success
+If action_required → show “Send Pay Link”
+
+Notifications
+Backend emits event → matches templates → merges placeholders → sends (email/SMS)
+frontend just gives you the editor + preview + enable/disable.
+
+tiny final gaps now closed
+
+Refund pre-charge is a no-op with explanation; only enabled when a charge exists.
+
+Pay Link path is defined for any off-session failure/SCA.
+
+Gift cards deduct on charge and can restore on refund (toggle).
+
+DST/timezone behavior is specified so slots don’t drift.
+
+Wildcard subdomains + TLS + reserved names.
+
+Deletion lifecycle on subscription Canceled (subdomain removed).
+
+Logging/metrics (front-facing): we add basic UX traces (failed charge banners, retry clicks) to help support.
+
+Idempotent calls on every money button.
+
+Cache invalidation after edits (admin updates instantly reflect on booking site).
+
+# Tithi — Cursor Build Spec v1.0 (White‑Label Booking & Payments)
+
+**Goal**: Implement a multi‑tenant, white‑label booking and payments SaaS for service businesses (salons, clinics, studios).
+Tenants sign up, configure brand + services, accept bookings on a public site, and get paid via Stripe Connect.
+Platform charges $11.99/month **per business** (per‑tenant subscription).
+Payments for appointments support **manual capture**, **deposits + card‑on‑file**, **no‑show fees**, refunds, and basic dispute viewing.
+
+---
+
+## 0) High‑Level Summary
+
+* **Actors**: Platform Admin (internal), Business Owner/Admin (tenant), Staff, Customer.
+
+* **Surfaces**:
+
+  1.
+**Landing**: `tithi.com` (join + login)
+  2.
+**Tenant Admin**: manage services, staff, availability, notifications, gift cards, payments, bookings, analytics.
+
+  3.
+**Public Booking**: branded, per‑tenant site (`/b/{slug}`) + embeddable widget.
+
+* **Key Systems**: Multi‑tenant auth + RLS isolation; Availability engine; Booking lifecycle; Payments (Stripe Connect); Notifications (email/SMS); Gift cards; Subscriptions; Analytics; Webhooks & background jobs.
+
+* **Pricing**: Each tenant (business) = distinct subscription ($11.99/mo).
+Multiple businesses = multiple subscriptions.
+
+---
+
+## 1) Personas & Roles
+
+* **Platform Admin**: internal only; can view tenants, metrics.
+
+* **Tenant Owner/Admin**: full control of tenant config + bookings + payments.
+
+* **Staff**: can view own schedule and bookings; optional permissions to manage.
+
+* **Customer**: books appointments, pays, receives notifications.
+
+**Role model** (per tenant): `OWNER`, `ADMIN`, `STAFF`, `VIEW_ONLY`.
+
+---
+
+## 2) Core Features (MVP)
+
+1.
+**Onboarding Wizard (8 steps)**: Business details → Branding → Services & Categories → Staff → Availability rules → Notifications → Gift cards (optional) → Payments setup (Stripe Connect) & Plan subscription.
+
+2.
+**Admin App**: Edit all onboarding settings post‑launch; Bookings list (past/future), booking detail with actions; Payments tab; Gift cards; Notifications; Analytics.
+
+3.
+**Public Booking Site**: Category → Service → Staff (optional) → Date/time slot → Customer info → Payment → Confirmation.
+
+4.
+**Availability Engine**: Weekly templates + exceptions; buffers; lead times; max advance window; timezone‑aware; DST safe.
+
+5.
+**Payments**: Stripe Connect Express; manual capture (auth→capture), deposits + set up card on file, no‑show fee off‑session charge; refunds; subscription billing per tenant; webhooks.
+
+6.
+**Notifications**: Email/SMS confirmations, reminders, updates, cancellation/no‑show; templated + brandable.
+
+7.
+**Gift Cards**: Sell, store balance, redeem against bookings.
+
+8.
+**Security**: Tenant isolation via Postgres RLS; permissions; audit logs; rate limits.
+
+---
+
+## 3) Tech Stack (recommended)
+
+* **Frontend**: React + TypeScript (Next.
+js App Router), Tailwind, shadcn/ui, React Query, Zod, TanStack Table, Framer Motion.
+
+* **Backend**: Python (FastAPI) or Node (NestJS).
+*If backend already exists (Flask), mirror contracts below.
+*
+* **DB**: PostgreSQL (with RLS).
+Redis for queues/cache.
+
+* **Payments**: Stripe Connect (Express accounts) + Billing for subscriptions.
+
+* **Queues/Jobs**: Celery/RQ (Python) or BullMQ (Node).
+Cron via service scheduler.
+
+* **Notifications**: SendGrid (email) + Twilio (SMS) adapters behind an internal interface.
+
+* **Infra**: Monorepo; Docker; Fly.
+io/Render/Heroku or k8s.
+Object storage (S3) for assets.
+
+* **Auth**: JWT (short) + refresh tokens; magic links optional; 2FA optional.
+Tenant scoping via `tenant_id` in JWT claims.
+
+---
+
+## 4) Multi‑Tenant & Security
+
+* Each row in tenant‑owned tables includes `tenant_id UUID`.
+
+* **RLS** (Postgres): Policies restrict rows to users whose JWT `tenant_id` matches.
+
+* Shared tables: `tenants`, `plans`, `webhooks`, `products/prices` (Stripe IDs), etc.
+
+* **Audit**: immutable `audit_log` with actor, action, entity, diff, ip, ua.
+
+* **Rate limits**: per IP + per tenant for public APIs (booking/availability) and admin APIs.
+
+---
+
+## 5) Data Model (core tables)
+
+> Use snake_case.
+All tables: `id UUID PK, created_at, updated_at`.
+
+**tenants**: `id`, `slug`, `display_name`, `timezone`, `currency`, `brand_primary`, `brand_secondary`, `logo_url`, `stripe_connect_account_id`, `status (active|past_due|canceled)`, `trial_ends_at`.
+
+**users**: `id`, `email (uniq)`, `password_hash`, `name`, `phone`, `last_login_at`.
+
+**user_tenant_roles**: `user_id`, `tenant_id`, `role`.
+
+**categories**: `tenant_id`, `name`, `order`.
+
+**services**: `tenant_id`, `category_id`, `name`, `description`, `duration_min`, `buffer_before_min`, `buffer_after_min`, `price_cents`, `deposit_cents (nullable)`, `no_show_fee_cents`, `active`.
+
+**staff**: `tenant_id`, `name`, `email`, `phone`, `bio`, `photo_url`, `active`.
+
+**staff_services**: `tenant_id`, `staff_id`, `service_id` (who can perform what).
+
+**availability_rules**: `tenant_id`, `staff_id (nullable for global)`, `type (weekly|exception|closure)`, `weekday (0-6)`, `start_time`, `end_time`, `date (for exceptions)`, `capacity (default 1)`.
+
+**blackouts**: `tenant_id`, `staff_id (nullable)`, `start_ts`, `end_ts`, `reason`.
+
+**bookings**: `tenant_id`, `code`, `status (pending|authorized|completed|no_show|canceled|refunded|disputed)`, `service_id`, `staff_id`, `start_ts`, `end_ts`, `duration_min`, `customer_id`, `notes`, `source (public|admin)`.
+
+**customers**: `tenant_id`, `name`, `email`, `phone`, `stripe_customer_id`.
+
+**booking_payments**: `tenant_id`, `booking_id`, `strategy (manual_capture|deposit_card_on_file)`, `amount_authorized_cents`, `amount_captured_cents`, `deposit_cents`, `no_show_fee_cents`, `currency`, `stripe_payment_intent_id`, `stripe_setup_intent_id (nullable)`, `status (requires_action|authorized|captured|refunded|failed)`.
+
+**gift_cards**: `tenant_id`, `code`, `initial_balance_cents`, `balance_cents`, `purchaser_customer_id (nullable)`, `recipient_email`, `message`, `expires_at (nullable)`.
+
+**gift_card_ledger**: `tenant_id`, `gift_card_id`, `booking_id (nullable)`, `delta_cents`, `reason`.
+
+**notifications**: `tenant_id`, `type (email|sms)`, `template_key`, `subject`, `body_markdown`, `enabled`.
+
+**webhook_events**: `tenant_id (nullable)`, `provider`, `event_type`, `idempotency_key`, `payload_json`, `processed_at`.
+
+**subscriptions**: `tenant_id`, `stripe_customer_id`, `stripe_subscription_id`, `plan`, `status`, `renewal_at`.
+
+**audit_log**: `tenant_id`, `actor_user_id`, `action`, `entity`, `entity_id`, `diff_json`, `ip`, `ua`.
+
+> Add composite indexes on `(tenant_id, staff_id, start_ts)`, `(tenant_id, status, start_ts DESC)`, etc.
+
+**RLS Example**:
+
+```sql
+ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON bookings
+  USING (tenant_id = current_setting('app.
+tenant_id')::uuid);
+```
+
+Backend sets `SET app.
+tenant_id = '<uuid>'` per request (from JWT).
+
+---
+
+## 6) Payments Architecture (Stripe)
+
+**Connect**: Express accounts per tenant.
+Platform takes app fee via application fees or uses separate subscription via Stripe Billing.
+
+**Appointment strategies**:
+
+1.
+**Manual Capture**
+
+   * Create `PaymentIntent` with `capture_method='manual'`, amount = service price (minus gift cards applied), `on_behalf_of=acct`, `transfer_data[destination]=acct`.
+
+   * Confirm at booking: authenticate as needed; state → `authorized`.
+
+   * **Capture** happens when tenant marks booking **Completed** in Admin (or auto after service end if toggle enabled) **within auth window (≈7 days)**.
+
+2.
+**Deposit + Card on File**
+
+   * Charge `deposit_cents` now with a normal `PaymentIntent`.
+
+   * Create `SetupIntent` to save PaymentMethod for off‑session use (`setup_future_usage='off_session'`).
+Store `stripe_payment_method_id` on customer.
+
+   * At completion → new off‑session `PaymentIntent` for remaining balance.
+
+**No‑Show Fee**
+
+* If marked **No‑Show**, create a new off‑session `PaymentIntent` for `no_show_fee_cents` using saved PaymentMethod.
+
+**Refunds**
+
+* Full/partial via `POST /payments/{id}/refund` with reason; sync booking + ledger.
+
+**Disputes**
+
+* Webhook records dispute; basic UI shows status and links to Stripe.
+Evidence upload is out‑of‑scope MVP, just link.
+
+**Subscriptions (Platform fee)**
+
+* For each tenant, create Stripe Customer (platform), attach owner’s card, subscribe to `$11.99/mo`.
+Sync `subscriptions` table.
+
+**Webhooks (required)**
+
+* `payment_intent.
+succeeded`, `payment_intent.
+payment_failed`, `payment_intent.
+amount_capturable_updated`, `charge.
+refunded`, `charge.dispute.
+created`, `setup_intent.
+succeeded`, `customer.subscription.
+updated`, `invoice.payment_*`.
+
+**Idempotency**
+
+* All payment endpoints require `Idempotency-Key` header; persist keys per tenant.
+
+---
+
+## 7) Availability Engine
+
+* Inputs: staff weekly rules, exceptions/blackouts, service duration + buffers, tenant timezone, min lead time, max advance days, daily open hours (optional), staff capacity.
+
+* Output: 15‑min (configurable) slots that fit service + buffers without conflicts; omit past/lead time–violating slots; honor DST.
+
+* Slot generation performed on demand with short cache (Redis key by tenant+service+staff+date params).
+Invalidate on changes.
+
+---
+
+## 8) Booking Lifecycle
+
+States: `pending → authorized → completed → (captured) → refunded` or `no_show → (no_show_fee charged)` or `canceled` or `disputed`.
+
+```mermaid
+stateDiagram-v2
+[*] --> pending
+pending --> authorized: PI confirmed (manual) or deposit paid
+authorized --> completed: service done (admin action)
+completed --> captured: capture PI or charge remainder
+authorized --> no_show: admin marks no_show
+no_show --> charged_no_show: off-session PI
+pending --> canceled: admin/customer (policy)
+captured --> refunded
+authorized --> expired: auth window lapsed (auto cancel/collect remainder policy)
+```
+
+---
+
+## 9) API Design (v1)
+
+**Conventions**: REST+JSON; `Authorization: Bearer <jwt>`; `X-Idempotency-Key` optional/required on payment mutations; Pagination: `?
+limit=&cursor=`; Errors: `{ error: { code, message, details? } }`.
+
+### Auth
+
+* `POST /v1/auth/login` {email, password} → {access_token, refresh_token}
+* `POST /v1/auth/refresh` → {access_token}
+
+### Tenants
+
+* `GET /v1/tenants/me` → tenant profile
+* `PATCH /v1/tenants/me` → update branding, timezone, etc.
+
+### Services & Categories
+
+* `GET /v1/categories`
+* `POST /v1/categories`
+* `GET /v1/services?
+category_id` | `POST /v1/services` | `PATCH /v1/services/{id}` | `DELETE /v1/services/{id}`
+
+### Staff & Availability
+
+* `GET /v1/staff` | `POST /v1/staff` | `PATCH /v1/staff/{id}`
+* `GET /v1/staff/{id}/services` | `PUT /v1/staff/{id}/services`
+* `GET /v1/availability?
+service_id&staff_id?
+&date=YYYY-MM-DD`
+* `POST /v1/blackouts` (create time off)
+
+### Bookings (Admin)
+
+* `GET /v1/bookings?
+status&from&to&staff_id&customer_q` (past/future)
+* `GET /v1/bookings/{code}`
+* `POST /v1/bookings` (admin‑created)
+* `POST /v1/bookings/{code}/complete` → triggers capture/charge remainder
+* `POST /v1/bookings/{code}/no-show` → triggers no‑show fee PI
+* `POST /v1/bookings/{code}/cancel` (policy checks)
+
+### Public Booking
+
+* `GET /v1/public/tenants/{slug}/catalog` → categories, services, staff (public flags)
+* `GET /v1/public/tenants/{slug}/availability?
+service_id&staff_id?
+&date`
+* `POST /v1/public/tenants/{slug}/book`
+
+  * body: service_id, staff_id?, start_ts, customer {name,email,phone}, strategy, card details or payment_method_id, gift_card_code?
+
+* returns: booking code, payment status (requires_action/authorized/confirmed)
+
+### Customers
+
+* `GET /v1/customers?
+q=` | `POST /v1/customers` | `PATCH /v1/customers/{id}`
+
+### Payments
+
+* `GET /v1/payments?
+booking_code`
+* `POST /v1/payments/{payment_id}/capture`
+* `POST /v1/payments/{payment_id}/refund` {amount_cents, reason}
+
+### Gift Cards
+
+* `POST /v1/gift-cards` (sell)
+* `GET /v1/gift-cards?
+code` (balance lookup)
+* `POST /v1/gift-cards/{id}/void` (admin)
+
+### Notifications
+
+* `GET /v1/notifications/templates`
+* `PATCH /v1/notifications/templates/{key}` (enable/disable/content)
+
+### Webhooks
+
+* `POST /v1/webhooks/stripe` (unauthenticated but signed) → queues jobs
+
+**DTO Example** (TypeScript):
+
+```ts
+export type BookingStatus = 'pending'|'authorized'|'completed'|'captured'|'no_show'|'canceled'|'refunded'|'disputed';
+
+export interface CreatePublicBookingReq {
+service_id: string;
+staff_id?: string;
+start_ts: string; // ISO8601 UTC
+customer: { name: string; email: string; phone?: string };
+strategy: 'manual_capture'|'deposit_card_on_file';
+gift_card_code?: string;
+payment_method_id?: string; // from Stripe Elements or Payment Element
+}
+
+export interface Booking {
+code: string;
+status: BookingStatus;
+start_ts: string;
+end_ts: string;
+service: { id: string; name: string; price_cents: number };
+staff?: { id: string; name: string };
+customer: { id: string; name: string; email: string };
+payments: Array<{ id: string; status: string; amount_authorized_cents?: number; amount_captured_cents?: number }>
+}
+```
+
+---
+
+## 10) Webhooks & Jobs
+
+* **Stripe webhook** enqueues jobs by `event_type` (idempotent by `event.id`).
+
+* Jobs: send notifications; update payment/booking state; collapse retries with exponential backoff.
+
+* **Reminders**: T‑24h email/SMS reminder; T‑2h SMS optional; daily digest to staff.
+
+* **Auth expiry**: Sweep `authorized` PIs near expiry; notify admin to mark complete or re‑authorize (policy: auto‑capture at end time if toggle on and service occurred).
+
+---
+
+## 11) Notifications (templated)
+
+* **Templates** (per tenant, editable): `booking_confirmed`, `booking_reminder`, `booking_canceled`, `no_show_fee_charged`, `booking_completed_receipt`, `gift_card_delivered`.
+
+* Tokens: `{{tenant.
+name}}`, `{{customer.
+name}}`, `{{service.
+name}}`, `{{start_local}}`, `{{staff.
+name}}`, `{{amount}}`, `{{brand.colors}}`.
+
+---
+
+## 12) Onboarding Wizard (8 steps)
+
+1.
+**Business Details**: name, slug (unique), timezone, currency, address, phone, email.
+
+2.
+**Branding**: logo, primary/secondary colors, header image, welcome text.
+
+3.
+**Catalog**: categories; services (duration, buffers, price, deposit, no‑show fee).
+
+4.
+**Staff**: staff profiles; assign services; default capacity; individual calendars toggle.
+
+5.
+**Availability**: weekly schedule per staff; breaks; exceptions; blackout dates; lead time; max advance.
+
+6.
+**Notifications**: choose channels; edit templates; reminder cadence; sender IDs (verified).
+
+7.
+**Gift Cards**: enable; default amounts; expiry rules; delivery template.
+
+8.
+**Payments & Plan**: Connect onboarding; link bank; test $0.50 microcharge (optional); subscribe to $11.99/mo; go live.
+
+Each step autosaves; progress indicator; validation; “Preview Public Site” at any time.
+
+---
+
+## 13) Admin App UI (key pages)
+
+* **Dashboard**: today’s bookings, revenue, upcoming; alerts (expiring auths, disputes).
+
+* **Calendar**: staff day/week view; create/edit bookings; drag to reschedule.
+
+* **Bookings**: table (filters: status, date range, staff); row actions (Complete, No‑Show, Cancel, Refund, Message).
+
+* **Payments**: list of PaymentIntents/charges/refunds; capture buttons; links to Stripe dashboard.
+
+* **Catalog**: categories/services CRUD with ordering.
+
+* **Staff**: profiles, service mapping, availability.
+
+* **Customers**: search; history; saved PM indicator.
+
+* **Gift Cards**: sell, search, adjust, ledger.
+
+* **Notifications**: templates; toggles; test send.
+
+* **Settings**: branding, timezone, policies (cancellation window, no‑show fee defaults, deposits), public site domain/SEO.
+
+* **Analytics**: bookings by service/staff, revenue, no‑show rate.
+
+---
+
+## 14) Public Booking Site
+
+* **Routes**: `/b/{slug}` (home), `/b/{slug}/book`, `/b/{slug}/confirm/{code}`.
+
+* **Flow**: pick category → service → staff (optional) → date/time slot → customer info → payment → confirmation.
+
+* **Widget**: embeddable `<script>` to create booking iframe; styling inherits brand.
+
+* **SEO**: title/description from tenant; `robots` toggle.
+
+---
+
+## 15) Settings & Policies
+
+* **Cancellation**: free until X hours; otherwise charge Y or forfeit deposit.
+
+* **No‑Show**: charge configured `no_show_fee_cents` using saved PM; send receipt.
+
+* **Reschedule**: allowed until Z hours; preserves authorization if within window.
+
+---
+
+## 16) Gift Cards
+
+* **Sale**: standard PaymentIntent (charge now); email delivery with code + balance link.
+
+* **Redemption**: apply code during booking; reduce `amount_to_charge`; ledger entry.
+
+* **Balance Check**: public endpoint for customers.
+
+---
+
+## 17) Observability & Ops
+
+* Structured logs (JSON) with `tenant_id`, `request_id`, `user_id`.
+
+* Metrics: bookings created, auths, captures, refunds, no‑shows, reminder sends, delivery success.
+
+* Traces across API↔Stripe↔DB.
+
+---
+
+## 18) Config & Environments
+
+* `.
+env`: STRIPE_*, DATABASE_URL, REDIS_URL, JWT_SECRET, SENDGRID_KEY, TWILIO_SID/TOKEN, BASE_URL, PUBLIC_BASE_URL.
+
+* **Secrets** via runtime env; no secrets in repo.
+
+---
+
+## 19) Testing & Seed
+
+* **Seeds**: one demo tenant with catalog, staff, availability; several bookings across states; stripe test keys.
+
+* **Tests**:
+
+  * Unit: availability slot math; payment state reducers; RLS policy checks.
+
+  * Integration: public booking flow → PI auth; admin complete → capture; no‑show → off‑session charge.
+
+  * E2E (Playwright): public flow, admin actions, notifications delivered.
+
+---
+
+## 20) Project Layout (Monorepo)
+
+```
+/ apps
+  /web (Next.
+js)
+/api (FastAPI or NestJS)
+/ packages
+/ui (shared components)
+/types (zod/TS types shared)
+/config (eslint, tsconfig, tailwind)
+/ infra (Docker, compose, dev scripts)
+```
+
+---
+
+## 21) Key Components (Frontend)
+
+* Forms: react‑hook‑form + zod.
+
+* Data: React Query; optimistic updates for CRUD.
+
+* Tables: TanStack Table with column filters.
+
+* Calendar: FullCalendar or custom (day/week); time zone aware.
+
+* Payment: Stripe Elements (Payment Element) with Connect account context.
+
+---
+
+## 22) Example Flows (Pseudocode)
+
+### A) Public Booking (Manual Capture)
+
+```ts
+// 1) Get availability
+GET /v1/public/tenants/{slug}/availability?
+service_id=&date=
+// 2) Submit booking
+POST /v1/public/tenants/{slug}/book {
+service_id, staff_id, start_ts, customer, strategy:'manual_capture', payment_method_id
+}
+// server:
+create booking(status='pending');
+create PI(capture_method='manual', on_behalf_of=acct, transfer_data.
+dest=acct, amount=price);
+confirm PI; if requires_action → return client_secret; else → set booking.
+status='authorized'
+return { code, next_action }
+```
+
+### B) Admin Marks Completed → Capture
+
+```ts
+POST /v1/bookings/{code}/complete
+// server:
+if strategy==='manual_capture': capture PI (if capturable && within window);
+else if strategy==='deposit_card_on_file': create off-session PI for remainder;
+update booking.
+status='completed'; payment.
+status accordingly;
+trigger receipt notification
+```
+
+### C) Mark No‑Show → Charge Fee
+
+```ts
+POST /v1/bookings/{code}/no-show
+// server:
+if saved PM available: off-session PI for no_show_fee_cents; update statuses; notify
+else: mark payable, send payment link to customer
+```
+
+---
+
+## 23) Access Control Summary
+
+* Tenant‑scoped JWT; staff can only see own bookings if permission limited.
+
+* Public endpoints constrained by tenant slug and rate limits.
+
+---
+
+## 24) Accessibility & i18n
+
+* WCAG AA for public flows; keyboard navigation; form labels.
+
+* i18n scaffold (en base) with message catalogs; currency/locale formatting.
+
+---
+
+## 25) Definition of Done (MVP)
+
+* A new tenant can onboard end‑to‑end, subscribe, and go live.
+
+* A customer can discover availability, book, pay (manual capture or deposit), receive notifications.
+
+* Admin can complete/no‑show/cancel and cause correct payment actions.
+
+* Gift card purchase + redemption works.
+
+* RLS prevents cross‑tenant data leakage (verified tests).
+
+* Webhooks process idempotently; retries safe.
+
+---
+
+## 26) Acceptance Criteria (Spot Checks)
+
+* **Manual Capture**: booking authorized at creation; capture succeeds when marked completed; if auth expired, admin warned and re‑auth flow offered.
+
+* **Deposit Flow**: deposit charged now; card saved; remainder charged off‑session on completion; failure creates dunning task + link.
+
+* **No‑Show**: fee charged off‑session; receipt sent; booking flagged; analytics count increments.
+
+* **Availability**: slot never overlaps buffers; respects blackouts; DST day has correct counts.
+
+* **Refunds**: partial/full adjust ledger + customer receipt.
+
+---
+
+## 27) Implementation Notes
+
+* Always store times in UTC; render in tenant timezone.
+
+* Use `X-Idempotency-Key` on all payment mutations + booking creation.
+
+* Cache availability responses by (tenant, service, staff?, date) for 60s.
+
+* Link each `booking_payment` to Stripe object IDs for auditability.
+
+* Provide direct "Open in Stripe" links in Payments UI.
+
+---
+
+## 28) Nice‑to‑Have (Post‑MVP)
+
+* Packages/add‑ons; resources (rooms); memberships; tip capture; two‑way Google/Outlook calendar sync; marketplace mode.
+
+---
+
+**This spec is intentionally concrete so Cursor can scaffold the full stack, generate DTOs/types, pages, and endpoints.
+**

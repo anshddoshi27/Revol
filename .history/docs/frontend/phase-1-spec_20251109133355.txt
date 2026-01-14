@@ -1,0 +1,506 @@
+# 0. New Files Added in Phase 1
+
+| File | Purpose |
+| --- | --- |
+| `apps/web/src/components/auth/login-form.tsx` | Owner login form with email/phone toggle, password validation, and Dev Login shortcut. |
+| `apps/web/src/components/auth/signup-form.tsx` | Owner sign-up form capturing full name, email, phone, password confirmation, and helper copy. |
+| `apps/web/src/components/providers/app-providers.tsx` | Composes `FakeSessionProvider` and `ToastProvider` so all pages share fake auth state and toasts. |
+| `apps/web/src/components/ui/input.tsx` | Shared input element with consistent styling, error states, and accessibility attributes. |
+| `apps/web/src/components/ui/label.tsx` | Label component that supports inline helper text beneath field captions. |
+| `apps/web/src/components/ui/helper-text.tsx` | Helper/error/success text renderer used across forms. |
+| `apps/web/src/components/ui/toast.tsx` | Lightweight toast system for inline notifications during fake flows. |
+| `apps/web/src/components/ui/badge.tsx` | Reusable badge chip for status indicators on placeholders and hero copy. |
+| `apps/web/src/lib/fake-session.tsx` | In-memory fake session store with login/logout/devLogin actions for Phase 1. |
+| `apps/web/src/lib/validators.ts` | Zod validators and TypeScript types for login/sign-up forms (email, phone, password rules). |
+| `apps/web/src/app/login/page.tsx` | Next.js page shell that renders the login form with branded nav/footer. |
+| `apps/web/src/app/signup/page.tsx` | Owner account creation page using the shared UI primitives. |
+| `apps/web/src/app/app/page.tsx` | Admin placeholder (“Admin coming soon”) with navigation and fake logout. |
+| `apps/web/src/app/onboarding/page.tsx` | Onboarding placeholder page linking to admin preview; clarifies Phase 1 scope. |
+| `apps/web/src/app/not-found.tsx` | Custom 404 experience directing users back to landing. |
+| `apps/web/references/README.md` | Notes for design references and screenshot parity tracking. |
+| `docs/frontend/phase-1-spec.txt` | Phase 1 product + systems specification (this document). |
+
+# 1. Vision & Value Proposition
+
+Tithi is a multi-tenant, white-label booking and payments platform designed for service businesses that require granular control over scheduling, policies, and revenue capture. Phase 1 extends the Phase 0 marketing scaffold into working entry and authentication flows so downstream teams can align backend contracts to the real UX.
+
+- **Owner success** means a single account orchestrates multiple businesses, each with its own onboarding journey, branded booking site, manual payment controls, and subscription lifecycle. Owners must be able to join, sign in, preview admin placeholders, and understand how no-charge-at-booking flows will operate.
+- **Customer success** means transparent booking experiences on tenant subdomains: discover services, view availability by staff, consent to policies, authorize a card without immediate charges, and receive contextual notifications once the system is live.
+- **Non-goals for MVP**: staff logins, marketplace aggregation, immediate charges at booking, deposits beyond card-on-file flows, advanced resource management, and live payment capture outside the four admin money buttons.
+
+# 2. Personas & Surfaces
+
+## 2.1 Personas
+
+| Persona | Description | Primary Goals | Access Notes |
+| --- | --- | --- | --- |
+| Tenant Owner (Admin) | Business owner configuring catalog, availability, policies, payments, and subscription. | Complete onboarding, manage bookings and charges, monitor subscription states, edit tenant data post-launch. | Requires password-based auth; only role with admin access. |
+| Customer (Booker) | External end user booking via tenant-branded flow. | Discover services, select staff/time, authorize card, receive notifications. | No login required; supplies contact info at checkout. |
+
+## 2.2 Surfaces
+
+| Surface | Route(s) | Purpose | Journey Reference |
+| --- | --- | --- | --- |
+| Landing | `/` | Entry point with “Join Tithi Now” and “Login” CTAs; communicates manual capture principle. | Pre-onboarding |
+| Owner Auth | `/login`, `/signup` | Owner authentication and account creation with validation, helper copy, and dev-session QA hook. | Pre-onboarding |
+| Owner Admin | `/app`, `/app/b/{businessId}` (future) | Admin workspace mirroring onboarding steps plus “Money Board” and account controls. | Onboarding mirror & money controls |
+| Onboarding Placeholder | `/onboarding` | Placeholder until full wizard ships; verifies navigation and messaging. | Onboarding Step 0 |
+| Public Booking | `https://{subdomain}.tithi.com` (dev fallback `/public/{slug}`) | Customer-facing booking flow fed by onboarding data. | Customer journey |
+
+# 3. Core User Journeys (Narrative + Steps)
+
+## 3.1 Onboarding (8 steps)
+
+| Step | Inputs | Validations | Outputs / Persistence |
+| --- | --- | --- | --- |
+| 1. Business Basics | Business name, brief description, DBA, legal name, industry. | Required fields, max lengths, industry from controlled list. | Tenant record seeded with identity metadata. |
+| 2. Booking Website | Desired subdomain slug. | Regex `[a-z0-9-]{3,63}`, uniqueness, reserved-word blacklist, no leading/trailing hyphen. | Reserves slug, schedules DNS + TLS provisioning. |
+| 3. Location & Contacts | Timezone, phone, support email, website, full address. | Valid Olson TZ, phone format (E.164 or doc-approved local), email RFC-ish, URL optional. | Contact bundle stored to drive booking header and notifications. |
+| 4. Team (Scheduling only) | Staff name, role, color tag. | Name required, color hex validated, role optional; no login issued. | Staff entities created for availability mapping. |
+| 5. Branding | Logo upload, brand color. | File type/size, image ratio guidance; color hex format. | Assets stored (object storage) with branding config references. |
+| 6. Services & Categories | Category: name, description, color. Service: name, description, duration, price, pre-appointment instructions. | Non-empty names, duration in minutes, price ≥ 0, color hex; instructions optional. | Category + service records persisted with tenant scope. |
+| 7. Availability | For each service: assign staff, define weekly rules, exceptions, blackouts. | Ensure staff-service mapping exists, no overlaps, respect timezone, optional buffers. | Availability rules persisted; slot generator cache invalidated. |
+| 8. Notifications | Template name, channel (email/SMS/push), subject (email), category, trigger, body with placeholders. | Placeholder whitelist enforced, channel-specific requirements, character limits. | Notification templates stored versioned with enable/disable flags. |
+| Policies & Confirmation | Cancellation policy, no-show policy & fee (flat or percent), refund policy, cash policy. | Fee type/values validated, text length, percent ≤ 100. | Policy snapshot stored for checkout modal and booking evidence. |
+| Gift Cards (optional) | Code generation, amount or percent discount, expiration. | Unique code, amount ≥ 0, percent ≤ 100, expiry optional. | Gift card definition persisted with ledger entry seed. |
+| Payment Setup | Stripe Express onboarding, accepted payment methods, subscription initiation. | Stripe KYC completeness, accepted methods from allowed list. | Creates Connect account + Stripe Customer + subscription ($11.99/mo). |
+| Go Live | Publish booking URL, confirm readiness. | Subscription active/trial valid, onboarding completion checks. | Subdomain activated, booking flow accessible. |
+
+## 3.2 Public Booking Flow
+
+1. **Catalog:** Tenant header displays name, description, address, brand styling. Categories list services with price, duration, and instructions.
+2. **Select Service:** Customer chooses a service (optionally filtered by category).
+3. **Staff & Availability:** Calendar renders slots expanded from availability rules, color-coded by staff. Slot duration matches service duration and respects buffers/blackouts. Slot selection soft-holds inventory.
+4. **Checkout:** Collects customer name, email, phone, optional gift card code. Displays scrollable policies modal requiring checkbox consent. Stripe SetupIntent saves card (no charge). Gift card discount applied to pending total.
+5. **Confirmation:** Shows booking summary (service, staff, time, price, instructions, policies). Sends “booking received” notification using templates. Booking status = `pending`/`authorized` depending on SetupIntent result.
+
+## 3.3 Admin “Money Board”
+
+| Button | Behavior | Stripe Interaction | Booking/Payment Updates |
+| --- | --- | --- | --- |
+| Completed | Charge full booking amount when appointment is marked complete. | Capture existing manual PaymentIntent (or create new off-session PI if deposit flow). | Booking → `completed` then `captured`; payment ledger records capture & platform fee. |
+| No-Show | Charge configured no-show fee (flat or percent). | Create new off-session PI using saved payment method; amount = computed fee; apply 1% platform fee. | Booking → `no_show`; payment entry logs fee capture. |
+| Cancelled | Charge cancellation fee or mark without charge when fee = 0. | Create PI similar to no-show or skip if zero. | Booking → `canceled`; payment reflects fee capture or zero-fee transition. |
+| Refund | Refund previously captured amount (full or partial). | Stripe Refund API against captured charge; optionally restore gift card balance per tenant setting. | Booking → `refunded`; payment ledger notes refund reason and restored balance if applicable. |
+
+Each action is idempotent, disables UI button with spinner, and emits toasts/alerts when additional customer action (SCA) is required (“Send Pay Link” fallback).
+
+## 3.4 Subscription Controls
+
+| State | Description | Billing Behavior | Subdomain Behavior | UI Controls |
+| --- | --- | --- | --- | --- |
+| Trial | 7-day free period post-signup. | No charges until trial ends. | Subdomain live with “Trial” badge. | “Start Trial” (auto on creation), “Activate”, “Cancel”. |
+| Active | Paid subscription ($11.99/mo per business). | Monthly billing via Stripe Billing. | Subdomain live, booking flow accessible. | “Pause”, “Cancel”. |
+| Paused | Temporarily suspend billing. | Charges halted; next bill date extended. | Subdomain optionally remains up with “Paused” labeling (tenant choice). | “Resume” to return to Active. |
+| Canceled | Subscription terminated. | No further charges. | Subdomain deprovisioned, booking URL disabled, tenant archived after retention. | “Reactivate” unavailable; new onboarding required. |
+
+# 4. Business Logic Keys (Authoritative Rules)
+
+1. **No charge at checkout:** Booking checkout uses Stripe SetupIntent to store a card. PaymentIntent is created with `capture_method=manual` only when admin action occurs. Until then, funds are untouched.
+2. **Manual capture on admin action:** “Completed” captures the original authorization. “No-Show” and “Cancelled” create new off-session PaymentIntents using saved payment method. All charges include a 1% platform application fee; Stripe processing fees apply as usual.
+3. **Gift cards:** Support flat amount and percentage discounts. Balances deduct only when actual charges occur (not on authorization). Optional tenant setting restores gift card balance when issuing refunds.
+4. **Notifications:** Templates support dynamic placeholders `{customer.name}`, `{service.name}`, `{service.duration}`, `{service.price}`, `{booking.date}`, `{booking.time}`, `{business.name}`, `{booking.url}`. Triggers include booking created/confirmed, reminders (24 h, 1 h), cancellation, reschedule, completion, fee charged, refund, payment issues.
+5. **Policies modal + consent snapshot:** Checkout displays a single scrollable modal summarizing cancellation, no-show, refund, and cash policies. Submission requires a consent checkbox; backend stores hashed policy content, timestamp, IP, and user-agent per booking as legal evidence.
+
+# 5. Routing Map (Frontend)
+
+| Route | Surface | Purpose | Journey Link |
+| --- | --- | --- | --- |
+| `/` | Landing | Marketing hero, CTA buttons, manual capture explanation. | Pre-onboarding |
+| `/login` | Owner Auth | Email/phone toggle login form, password visibility toggle, disabled Google SSO, Dev Login QA path. | Onboarding Step 0 |
+| `/signup` | Owner Auth | Owner account creation: full name, email, phone, password+confirm validations. | Onboarding Step 0 |
+| `/app` | Admin Placeholder | “Admin coming soon” messaging, navigation to onboarding/home, sign-out control. | Future admin |
+| `/onboarding` | Onboarding Placeholder | Confirms onboarding wizard is forthcoming; routes to admin placeholder. | Onboarding Step 0 |
+| `/app/b/{businessId}` | Admin (future) | Tabs: Overview, Business, Website, Team, Branding, Services, Availability, Notifications, Policies, Gift Cards, Payment Setup, Account, Past Bookings. | Mirrors onboarding |
+| `https://{subdomain}.tithi.com` | Public Booking | Customer booking flow using tenant configuration. Dev fallback `/public/{slug}`. | Customer journey |
+
+# 6. Planned API Map (Backend Intent)
+
+| Method | Path | Purpose | Auth / Tenancy | Pagination / Filters | Idempotency |
+| --- | --- | --- | --- | --- | --- |
+| POST | /v1/auth/signup | Create owner account. | Public | — | — |
+| POST | /v1/auth/login | Owner login. | Public | — | — |
+| POST | /v1/auth/refresh | Refresh access token. | Refresh token | — | — |
+| GET | /v1/tenants/me | Fetch tenant profile + onboarding status. | Owner JWT (tenant-scoped) | — | — |
+| PATCH | /v1/tenants/me | Update branding/contact info. | Owner JWT | — | — |
+| POST | /v1/tenants/{id}/subscription | Manage subscription state transitions (activate/pause/cancel). | Owner JWT | — | Required |
+| GET | /v1/categories | List categories. | Owner JWT | order, status | — |
+| POST | /v1/categories | Create category. | Owner JWT | — | Required |
+| GET | /v1/services | List services. | Owner JWT | category_id, active | — |
+| POST | /v1/services | Create service. | Owner JWT | — | Required |
+| PATCH | /v1/services/{id} | Update service. | Owner JWT | — | Required |
+| GET | /v1/staff | List staff. | Owner JWT | active | — |
+| POST | /v1/staff | Create staff member. | Owner JWT | — | Required |
+| PUT | /v1/staff/{id}/services | Assign services to staff. | Owner JWT | — | Required |
+| GET | /v1/availability/rules | Fetch availability templates. | Owner JWT | staff_id, service_id | — |
+| POST | /v1/availability/rules | Create or update rule. | Owner JWT | — | Required |
+| GET | /v1/availability/slots | Expand slots for admin view. | Owner JWT | service_id, staff_id, week | Cacheable | — |
+| POST | /v1/blackouts | Create blackout/closure. | Owner JWT | — | Required |
+| GET | /v1/public/tenants/{slug}/catalog | Public catalog. | Public (slug) | — | Cache |
+| GET | /v1/public/tenants/{slug}/availability | Public slots. | Public (slug) | date, service_id, staff_id | Cache |
+| POST | /v1/public/tenants/{slug}/book | Create booking + SetupIntent. | Public (slug) | — | Required |
+| GET | /v1/bookings | List bookings. | Owner JWT | status, date range, staff, search | Cursor |
+| GET | /v1/bookings/{code} | Booking detail. | Owner JWT | — | — |
+| POST | /v1/bookings/{code}/complete | Trigger capture. | Owner JWT | — | Required |
+| POST | /v1/bookings/{code}/no-show | Charge no-show fee. | Owner JWT | — | Required |
+| POST | /v1/bookings/{code}/cancel | Apply cancellation policy. | Owner JWT | — | Required |
+| POST | /v1/payments/{id}/refund | Issue refund. | Owner JWT | — | Required |
+| GET | /v1/payments | Payment ledger listing. | Owner JWT | status, date range | Cursor |
+| POST | /v1/gift-cards | Issue/sell gift card. | Owner JWT | — | Required |
+| GET | /v1/gift-cards | Query gift card (by code). | Owner JWT / Customer | code | — |
+| POST | /v1/gift-cards/{id}/void | Void card. | Owner JWT | — | Required |
+| GET | /v1/notifications/templates | List templates. | Owner JWT | channel, category | — |
+| PATCH | /v1/notifications/templates/{key} | Update template content. | Owner JWT | — | Required |
+| POST | /v1/notifications/templates/{key}/preview | Render preview with sample data. | Owner JWT | — | — |
+| POST | /v1/webhooks/stripe | Stripe webhook ingestion. | HMAC signature | — | Event dedupe |
+
+# 7. Domain Model (High-Level Entities)
+
+| Entity | Fields (subset) | Type | Required? | Constraints / Notes |
+| --- | --- | --- | --- | --- |
+| Tenants | id (UUID), slug, display_name, timezone, brand_primary, brand_secondary, logo_url, status, trial_ends_at, stripe_connect_account_id | UUID / String | Yes | `slug` unique; `status` ∈ {trial, active, paused, canceled}; tenant scope root. |
+| Users | id, email, password_hash, first_name, last_name, phone, last_login_at | UUID / String | email, password | Email unique (global). |
+| UserTenantRoles | user_id, tenant_id, role | UUID | Yes | Composite unique (user_id, tenant_id); role ∈ {OWNER, ADMIN, STAFF, VIEW_ONLY}; MVP uses OWNER only. |
+| Categories | id, tenant_id, name, description, color_hex, order, active | UUID / String | name | `tenant_id` FK w/ RLS; `name` unique per tenant. |
+| Services | id, tenant_id, category_id, name, description, duration_min, price_cents, instructions, color_hex, active | Mixed | name, duration, price | Duration ≥ 5; price ≥ 0; optional buffers future fields. |
+| Staff | id, tenant_id, name, role, color_hex, bio, active | Mixed | name | No login credentials; scheduling only. |
+| StaffServices | tenant_id, staff_id, service_id | UUID | Yes | Composite unique; defines capability mapping. |
+| AvailabilityRules | id, tenant_id, staff_id?, service_id?, type (weekly/exception/closure), weekday, start_time, end_time, date, capacity | Mixed | type, start/end | No overlapping intervals per staff/service/day. |
+| Blackouts | id, tenant_id, staff_id?, start_ts, end_ts, reason | Mixed | start/end | Overrides availability. |
+| Customers | id, tenant_id, name, email, phone, stripe_customer_id | Mixed | name, email | Email optional? doc implies required. Stored per tenant. |
+| Bookings | id, tenant_id, code, status, service_id, staff_id, start_ts, end_ts, duration_min, customer_id, policy_hash, consent_ip, consent_user_agent, source | Mixed | status, service | `status` ∈ {pending, authorized, completed, captured, no_show, canceled, refunded, disputed, expired}. `code` unique per tenant. |
+| BookingPayments | id, tenant_id, booking_id, strategy (manual_capture|deposit_card_on_file future), amount_authorized_cents, amount_captured_cents, no_show_fee_cents, currency, stripe_payment_intent_id, stripe_setup_intent_id, status, last_error_code | Mixed | booking_id | `status` ∈ {requires_action, authorized, captured, refunded, failed}. |
+| GiftCards | id, tenant_id, code, initial_balance_cents, balance_cents, percent_discount?, expires_at, purchaser_customer_id, recipient_email, restore_on_refund | Mixed | code | `code` unique per tenant; percent mutually exclusive with amount. |
+| GiftCardLedger | id, tenant_id, gift_card_id, booking_id?, delta_cents, reason, occurred_at | Mixed | gift_card_id, delta | Negative delta for redemption, positive for top-up/refund. |
+| Notifications | id, tenant_id, template_key, channel, category, subject, body_markdown, placeholders, enabled | Mixed | template_key | `channel` ∈ {email, sms, push}, `category` ∈ {confirmation, reminder, follow_up, cancellation, reschedule, completion, fee_charged, refunded, payment_issue}. |
+| Subscriptions | id, tenant_id, stripe_customer_id, stripe_subscription_id, plan, status, renewal_at | Mixed | tenant_id | `status` matches controls; plan default $11.99/mo. |
+| WebhookEvents | id, tenant_id?, provider, event_type, event_id, payload_json, processed_at | Mixed | provider, event_id | `event_id` unique; tenant nullable for Connect onboarding events until mapped. |
+| AuditLog | id, tenant_id, actor_user_id, action, entity, entity_id, diff_json, ip, ua, created_at | Mixed | all | Immutable append-only log. |
+
+# 8. State Machines (Mermaid)
+
+## 8.1 Booking Lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending
+  pending --> authorized: SetupIntent confirmed / PI authorized
+  authorized --> completed: Service fulfilled (admin action)
+  completed --> captured: PaymentIntent capture succeeds
+  captured --> refunded: Refund issued
+  authorized --> no_show: Admin marks no-show
+  no_show --> charged_no_show: Off-session PI success
+  charged_no_show --> refunded: Refund no-show fee (optional)
+  pending --> canceled: Cancel before authorization
+  authorized --> canceled: Policy cancellation applied
+  canceled --> refunded: Refund if prior capture
+  authorized --> expired: Authorization window lapsed
+  expired --> canceled: Auto-cancel + notify
+```
+
+## 8.2 Payment Status
+
+```mermaid
+stateDiagram-v2
+  [*] --> initiated
+  initiated --> requires_action: SCA needed
+  requires_action --> authorized: Customer completes SCA
+  requires_action --> failed: Customer abandons or times out
+  initiated --> authorized: PI/SetupIntent confirmed
+  authorized --> captured: Admin capture (Completed button)
+  captured --> refunded: Refund API call succeeds
+  authorized --> failed: Stripe declines or Connect blocked
+```
+
+# 9. Data Movement & Pipelines (Sequence)
+
+Booking, admin capture, and webhook reconciliation depend on consistent data flow between the frontend, backend, and Stripe.
+
+```mermaid
+sequenceDiagram
+  participant Customer
+  participant BookingSite
+  participant API
+  participant Stripe
+  Customer->>BookingSite: Select service/staff slot
+  BookingSite->>API: POST /v1/public/tenants/{slug}/book (slot, customer, gift code)
+  API->>Stripe: Create SetupIntent (save card) & Booking (status=pending)
+  Stripe-->>API: setup_intent.client_secret
+  API-->>BookingSite: { bookingCode, status, clientSecret }
+  BookingSite->>Stripe: Confirm SetupIntent (card saved, no charge)
+  Stripe-->>BookingSite: requires_action or succeeded
+  BookingSite-->>API: PATCH booking (status=authorized) when success
+  API-->>Customer: Send “booking received” notification
+```
+
+```mermaid
+sequenceDiagram
+  participant Owner
+  participant AdminApp
+  participant API
+  participant Stripe
+  Owner->>AdminApp: Click “Completed” (with X-Idempotency-Key)
+  AdminApp->>API: POST /v1/bookings/{code}/complete
+  API->>Stripe: Capture PaymentIntent (transfer_data.destination = connect_account, application_fee_amount = 1%)
+  Stripe-->>API: Capture result (requires_action or succeeded)
+  API-->>AdminApp: { status, receiptUrl, platformFee }
+  API-->>Owner: Trigger notification & update booking status
+  Stripe->>API: Webhook payment_intent.succeeded / requires_action
+  API->>API: Update BookingPayments + enqueue follow-up tasks
+```
+
+# 10. Security & Tenancy
+
+- **Owner-only admin access:** The landing and auth flows enforce password-based owner login; staff do not authenticate in MVP.
+- **JWT + tenant scoping:** Backend should issue JWT containing `tenant_id`; each request sets `SET app.tenant_id = '<uuid>'` to activate Postgres RLS across tenant-owned tables.
+- **PII boundaries:** Customer PII is tenant-scoped and masked outside the owning tenant. Booking exports include only necessary PII.
+- **Subdomain rules:** Reserve wildcard `*.tithi.com`, auto-provision TLS via ACME, block reserved terms (e.g., `www`, `admin`, `support`, `billing`).
+
+# 11. Validation Rules (Canonical)
+
+| Field | Rule | Example | Error Copy |
+| --- | --- | --- | --- |
+| Email | RFC 5322-lite regex. | `owner@studio.com` | “Enter a valid email address.” |
+| Phone | Prefer E.164; allow `+1 555 010 2030` formatting with country code. | `+15550102030` | “Enter a valid phone number with country code if needed.” |
+| Password | ≥ 8 characters and at least one special character. | `Secure!123` | “Use 8+ characters and include at least one special character.” |
+| Subdomain | `[a-z0-9-]{3,63}`; unique; reserved list blocked. | `studio-nova` | “Choose a different subdomain—this one is not available.” |
+| Business name | 2–80 characters. | `Moonlight Aesthetics` | “Business name must be between 2 and 80 characters.” |
+| Category color | Hex `#RRGGBB`. | `#5B64FF` | “Enter a valid hex color code.” |
+| Service duration | Positive integer minutes. | `60` | “Duration must be at least 5 minutes.” |
+| Price | Non-negative integer cents. | `1199` | “Price must be zero or greater.” |
+| Gift card code | Uppercase alphanumeric 8–16 characters. | `NOVA-2025` | “Gift card code format is invalid.” |
+| Policy text | ≤ 10,000 characters. | — | “Policy text is too long.” |
+
+# 12. Error Taxonomy → UX Mapping
+
+| Error Code | When Raised | HTTP | UI Handling |
+| --- | --- | --- | --- |
+| invalid_credentials | Owner login fails. | 401 | Inline error under login form. |
+| slug_taken | Subdomain unavailable. | 409 | Inline message with suggestions. |
+| reserved_slug | Subdomain on reserved list. | 400 | Inline warning referencing reserved words. |
+| requires_action | Stripe indicates SCA needed during capture. | 402 | Booking card shows “Payment issue” banner + “Send Pay Link” button. |
+| payment_failed | Stripe declines capture or fee charge. | 402 | Red banner with retry guidance. |
+| invalid_gift_code | Gift code not found or expired. | 400 | Inline error, keep submit disabled. |
+| insufficient_balance | Gift card lacks funds. | 400 | Inline message, revert to full price. |
+| policy_not_consented | Checkout submitted without consent. | 400 | Highlight checkbox, show modal reminder. |
+| idempotency_conflict | Reused idempotency key with mismatched payload. | 409 | Toast: “Action already submitted.” |
+| not_found | Booking/service missing. | 404 | 404 page or toast notification. |
+
+# 13. Performance & Scale Expectations
+
+- **Pagination defaults:** Bookings and payments default to 25 items per page with cursor-based pagination sorted by `start_ts DESC`. Customers list can support search by name/email.
+- **Common filters:** Booking filters by status, date range, staff, customer query. Payments filter by status and date. Gift card ledger filters by code and date.
+- **Caching strategy:** Availability slots cached in Redis by `(tenant_id, service_id, staff_id?, week)` for 60 s. Invalidate on booking creation, availability edits, or blackout changes.
+- **Index hints:** `bookings (tenant_id, status, start_ts DESC)`, `staff_services (tenant_id, staff_id)`, `gift_cards (tenant_id, code)`, `availability_rules (tenant_id, staff_id, service_id)`.
+- **Rate limits:** Public booking endpoints 60 requests/min/IP. Admin payment actions 30 requests/min/tenant to prevent accidental double charges.
+
+# 14. Observability & Audit
+
+- **Structured logs:** `{timestamp, request_id, tenant_id, user_id, route, status, duration_ms}` for every API call; include Stripe object IDs on payment logs.
+- **Idempotency tracking:** Persist idempotency key + payload hash per booking action; reused key returns cached response.
+- **Metrics:** bookings created, SetupIntent successes/failures, PaymentIntent captures, refunds, platform fee totals, reminder deliveries, gift card redemptions, subscription state changes.
+- **Audit trail:** `AuditLog` records actor, entity, diff, IP, and user-agent for tenant configuration edits and money button actions.
+
+# 15. Data Lifecycle & Exports
+
+- **Soft deletes:** Services, staff, bookings use status flags; records retained for reporting.
+- **Retention:** On subscription cancellation, tenant is archived immediately and purged after configurable retention (e.g., 90 days) unless legal requirements dictate longer.
+- **Subdomain deprovisioning:** DNS + TLS revoked when status = canceled; booking site returns maintenance page.
+- **Exports:** Owner can download ZIP containing CSVs for customers, bookings (with Stripe IDs), policies (snapshot), and gift card ledger. Exports respect tenant scope and policy hashes for legal evidence.
+
+# 16. Seeds & Fixtures
+
+- **Demo tenant:** `Studio Nova` (`slug: novastudio`, timezone `America/New_York`).
+- **Catalog:** Categories `Hair`, `Spa`; services `Signature Cut` (60 min, $12000 cents, instructions “Arrive 10 minutes early”), `Hydra Facial` (75 min, $18000).
+- **Staff:** `Ava Thompson` (#5B64FF), `Jalen Rivera` (#57D0FF); assigned to relevant services.
+- **Availability:** Weekly rules Mon–Fri 09:00–17:00 with lunch blackout 12:00–13:00; upcoming holiday blackout.
+- **Bookings:** Sample records across `pending`, `authorized`, `captured`, `no_show`, `refunded`.
+- **Gift cards:** `WELCOME120` ($120 amount), `SELFCARE20` (20% discount).
+- **Notifications:** Templates for booking confirmed, 24-hour reminder, post-charge receipt populated with placeholders.
+- **Seed payload format (excerpt):**
+  ```json
+  {
+    "tenant": { "slug": "novastudio", "display_name": "Studio Nova", "timezone": "America/New_York" },
+    "services": [
+      { "id": "svc_cut", "name": "Signature Cut", "duration_min": 60, "price_cents": 12000 }
+    ],
+    "bookings": [
+      { "code": "NOV-2025-001", "status": "captured", "service_id": "svc_cut", "start_ts": "2025-12-01T14:00:00Z" }
+    ]
+  }
+  ```
+
+# 17. Open Questions & Assumptions
+
+1. **Phone mask & validation:** Spec allows “whatever is simpler”; current assumption is E.164 with light formatting. Confirm final mask and default country for production.
+2. **Policy fee computation:** Document references flat or percentage fees; confirm rounding strategy and whether percent applies to discounted total after gift cards.
+3. **Gift card refund behavior toggle:** Need authoritative decision on default (restore balance true/false) and UI placement (Policies vs Gift Cards tab).
+4. **Paused subscription site behavior:** Doc allows owner choice; backend must expose flag to keep booking site accessible or not.
+5. **Deposits flow timing:** Deposits noted as future; confirm when to expose `strategy = deposit_card_on_file`.
+
+# Appendices
+
+## A. DTO Examples (TypeScript)
+
+```ts
+export type BookingStatus =
+  | "pending"
+  | "authorized"
+  | "completed"
+  | "captured"
+  | "no_show"
+  | "canceled"
+  | "refunded"
+  | "disputed"
+  | "expired";
+
+export interface Booking {
+  id: string;
+  tenant_id: string;
+  code: string;
+  status: BookingStatus;
+  service: ServiceSummary;
+  staff?: StaffSummary | null;
+  customer: CustomerSummary;
+  start_ts: string; // ISO8601 UTC
+  end_ts: string;   // ISO8601 UTC
+  duration_min: number;
+  policy_hash: string;
+  consent_ip: string;
+  consent_user_agent: string;
+  payments: BookingPayment[];
+}
+
+export type PaymentStatus =
+  | "requires_action"
+  | "authorized"
+  | "captured"
+  | "refunded"
+  | "failed";
+
+export interface BookingPayment {
+  id: string;
+  booking_id: string;
+  tenant_id: string;
+  strategy: "manual_capture" | "deposit_card_on_file";
+  amount_authorized_cents: number;
+  amount_captured_cents: number;
+  no_show_fee_cents?: number | null;
+  currency: string;
+  stripe_payment_intent_id?: string;
+  stripe_setup_intent_id?: string;
+  status: PaymentStatus;
+  last_error_code?: string | null;
+}
+
+export interface CustomerSummary {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+}
+
+export interface ServiceSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  duration_min: number;
+  price_cents: number;
+}
+```
+
+## B. Sample Requests / Responses
+
+**POST /v1/public/tenants/{slug}/book — success**
+
+```json
+{
+  "service_id": "svc_cut",
+  "staff_id": "stf_ava",
+  "start_ts": "2025-03-10T15:00:00Z",
+  "customer": { "name": "Jordan Blake", "email": "jordan@example.com", "phone": "+15551234567" },
+  "gift_card_code": "SELFCARE20",
+  "policy_hash": "77eab94f",
+  "consent": { "ip": "203.0.113.5", "user_agent": "Mozilla/5.0" }
+}
+```
+
+```json
+{
+  "booking_code": "NOV-2025-1042",
+  "status": "authorized",
+  "setup_intent_client_secret": "seti_123_secret_ABC",
+  "requires_action": false
+}
+```
+
+**POST /v1/public/tenants/{slug}/book — requires action**
+
+```json
+{
+  "booking_code": "NOV-2025-1043",
+  "status": "requires_action",
+  "setup_intent_client_secret": "seti_456_secret_DEF",
+  "requires_action": true
+}
+```
+
+**POST /v1/bookings/{code}/complete — success**
+
+```json
+{
+  "status": "captured",
+  "captured_amount_cents": 18000,
+  "platform_fee_cents": 180,
+  "receipt_url": "https://dashboard.stripe.com/payments/pi_123"
+}
+```
+
+**POST /v1/bookings/{code}/complete — requires Send Pay Link**
+
+```json
+{
+  "error": {
+    "code": "requires_action",
+    "message": "Customer must complete authentication on their device.",
+    "next_step": { "type": "send_pay_link", "url": "https://pay.stripe.com/pm/abc123" }
+  }
+}
+```
+
+**GET /v1/public/tenants/{slug}/availability**
+
+```json
+{
+  "service_id": "svc_cut",
+  "week_start": "2025-03-10",
+  "timezone": "America/New_York",
+  "slots": [
+    {
+      "staff_id": "stf_ava",
+      "staff_name": "Ava Thompson",
+      "staff_color": "#5B64FF",
+      "start_ts": "2025-03-10T15:00:00Z",
+      "end_ts": "2025-03-10T16:00:00Z",
+      "capacity": 1
+    },
+    {
+      "staff_id": "stf_jalen",
+      "staff_name": "Jalen Rivera",
+      "staff_color": "#57D0FF",
+      "start_ts": "2025-03-10T17:00:00Z",
+      "end_ts": "2025-03-10T18:00:00Z",
+      "capacity": 1
+    }
+  ]
+}
+```
+
+## C. Idempotency & Money Buttons
+
+- **Headers:** All POST actions on bookings must include `X-Idempotency-Key` generated client-side (e.g., `complete-NOV-2025-1042-1710091200`).
+- **Persistence:** Backend stores key + payload hash in `booking_action_idempotency`. Replays with identical payload returns cached response; mismatched payload raises `idempotency_conflict`.
+- **Stripe alignment:** Use same idempotency key when calling Stripe capture/refund APIs to prevent duplicate charges.
+- **UI contract:** Buttons remain disabled while awaiting response; upon failure requiring action, re-enable with contextual guidance and optional “Send Pay Link” action.
+
+

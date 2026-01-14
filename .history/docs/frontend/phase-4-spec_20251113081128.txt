@@ -1,0 +1,70 @@
+# 0. New Files Added in Phase 4
+
+| File | Purpose |
+| --- | --- |
+| `apps/web/src/app/public/[slug]/page.tsx` | Entry point for per-business booking flows, handling hydration, dev seeding, and status screens. |
+| `apps/web/src/components/public-booking/booking-flow.tsx` | Full booking experience client component (catalog → availability → checkout → confirmation) with manual capture messaging. |
+| `apps/web/src/lib/availability-utils.ts` | Utilities to expand service availability into bookable slots and group them by day. |
+| `apps/web/src/lib/timezone.ts` | Timezone helpers for converting onboarding schedules into concrete UTC datetimes and formatting in tenant timezone. |
+
+# 0.1 Phase 4 Implementation Summary
+
+1. **Live Booking Flow**
+   - Surface `/public/{slug}` renders the real booking wizard: service catalog, staff-aware slot picker, checkout with policy consent, and confetti confirmation.
+   - Slot expansion respects onboarding/admin availability, staff assignments, service duration, and tenant timezone.
+   - Checkout enforces manual capture messaging, captures consent hash, requires card details (stored only), and displays policy modal.
+   - Gift card codes deduct amount/percent at checkout and update the fake gift card ledger, analytics, and booking financials.
+
+2. **Provider & Persistence Enhancements**
+   - `FakeBusinessProvider` now persists business + workspace snapshots in `localStorage` and exposes `recordPublicBooking` for booking creation + analytics recompute.
+   - Business objects carry a `previewUrl` (e.g., `/public/novastudio`) alongside the display domain; Go Live and admin UI link to the working preview while showing the branded URL.
+   - Seed/dev flows preload preview URLs and hydration normalizes legacy sessions lacking `previewUrl`.
+   - Launching onboarding clears previous fake state before writing the new business, ensuring repeated QA runs behave deterministically.
+
+3. **Admin & Onboarding Touches**
+   - Go Live step displays the branded domain but opens the local preview link in a new tab.
+   - Admin header button now opens the preview URL (title includes the branded domain for quick copy).
+   - Onboarding slug generation sanitizes inputs (fallback to business name), keeping front-end routing + display in sync.
+
+4. **Dev & QA Experience**
+   - Dev login (`owner@tithi.dev` / `Ready4Tithi!`) still boots Studio Nova but now persists preview data, so `/public/novastudio` works after reloads.
+   - Direct access to `/public/{slug}` hydrates from storage; missing/canceled businesses render graceful status screens with call-to-action back to landing.
+
+5. **Documentation**
+   - Spec captures booking flow behavior, persistence changes, and dev/testing expectations for backend alignment.
+
+# 1. Booking Flow Details
+
+| Step | Behavior | Notes |
+| --- | --- | --- |
+| Catalog | Lists categories + services from onboarding/admin catalog. | Each card shows duration, price, and instructions; manual capture reminder persists in header. |
+| Availability | Staff filter + 14-day slot grid generated from onboarding schedules. | Slots filtered by staff preference and trimmed to future times; timezone respected throughout. |
+| Checkout | Collects customer info, gift card codes, card details, and policy consent. | Gift cards validated against tenant config, card is saved only, policy modal accessible before confirmation. |
+| Confirmation | Confetti, recap, and manual capture summary. | Reinforces “charge happens later” rule and restates policies with next steps. |
+
+Core UX guarantees:
+- Card is always collected but **never charged** until admin money buttons act.
+- Policy hash + consent metadata stored on booking for future evidence.
+- Toasts communicate gift card application, validation errors, and success.
+
+# 2. Data & Fake Store Mutations
+
+- `recordPublicBooking` generates booking codes (slug-prefixed), appends authorization payment entries, and recalculates customers + analytics snapshots.
+- Gift card ledger entries append with negative deltas on redemption and rehydrate `generatedCodes` to keep QA codes reusable.
+- Workspace persistence ensures page refreshes preserve admin + booking state for dev/demo sessions.
+
+# 3. Routing & Linking
+
+- Display link: `https://{slug}.tithi.com` (sanitized subdomain).
+- Working preview: `/public/{slug}` (stored as `business.previewUrl`).
+- Admin header button + Go Live “Open booking page” open preview in new tab; aria-label/title include branded domain.
+- Status screens cover unknown slugs and canceled businesses.
+
+# 4. Dev / QA Notes
+
+- **Dev account**: `owner@tithi.dev` / `Ready4Tithi!` resets fake store on every login; `/public/novastudio` ready after seed load.
+- **Repeat onboarding**: Launch clears fake store before writing new business, so QA can run onboarding multiple times without stale data.
+- **Testing**: Run `npm run dev:web` and navigate to `/public/{slug}` after finishing onboarding to review the live booking flow.
+- **Gift cards**: Amount codes use cents, percent codes compute against service price; ledger reflects deductions immediately for QA.
+
+

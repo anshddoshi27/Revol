@@ -1,0 +1,3246 @@
+Tasks for Frontend
+
+Here’s the fully expanded Phase 0 (Contracts & Governance) section of the final task graph, written so a new engineer can pick it up and understand exactly what to do before Phase 1 can start. I’ve merged all the iterations and late-stage additions from your session into one clean, end-state description.
+
+Phase 0 — Contracts & Governance
+🎯 Phase Goal
+Before any feature work begins, the team must eliminate all “OPEN_QUESTION” gaps, lock down every API request/response DTO, and set platform-wide standards for analytics events, performance/a11y budgets, and responsive design tokens. Phase 1 (foundation & infrastructure) can only start once these artifacts exist and are signed off.
+
+T00 — API Contracts Addendum & Governance
+Depends on: none (kick-off task)
+ Consumes: every OPEN_QUESTION and MISSING_CONTRACT flagged in the requirements audit.
+ Produces:
+/docs/api-contracts-addendum.md — definitive request/response DTOs with field names, types, and sample payloads.
+
+
+/docs/pagination-filtering.md — standard query params (page, page_size, sort, filters) and error handling.
+
+
+/docs/payments-canonical.md — final “single path” for payments (intent/confirm vs. process).
+
+
+/docs/availability-rules.md — default/staff schedule model (recurring, breaks, DST-safe).
+
+
+Acceptance criteria:
+All previously open contracts resolved:
+
+
+/onboarding/register & /onboarding/check-subdomain bodies/responses
+
+
+Availability rules DTO
+
+
+/api/v1/customers DTO
+
+
+/api/v1/subscriptions DTO
+
+
+/api/payments/process schema
+
+
+Pagination & filtering params for list endpoints
+
+
+Idempotency: every create/update endpoint specifies Idempotency-Key behavior.
+
+
+Retry: standard 429 strategy (respect Retry-After) documented.
+
+
+Canonical payments flow chosen (intent/confirm vs process) and signed off.
+
+
+Observability: publish api_contracts.version_published event when doc finalized.
+
+
+North-star rationale: prevents drift and “blockers later”; gives frontend type-safety and backend stability.
+
+T39 — Analytics Event Taxonomy & PII Policy
+Depends on: T00
+ Consumes: observability and privacy requirements.
+ Produces:
+/docs/analytics-events.json — event names, payload fields & types, required/optional, PII flags, sampling rules.
+
+
+Data retention & privacy notes.
+
+
+Acceptance criteria:
+Every critical journey (onboarding, booking, payment, notifications, loyalty, automations) has events defined.
+
+
+No PII leaks (fields marked & stripped as needed).
+
+
+Sampling rules clear (e.g., 100% prod, 10% staging).
+
+
+Apps emit analytics.schema_loaded on boot to verify schema availability.
+
+
+Rationale: ensures observability coverage and compliance before any tracking code ships.
+
+T43 — Breakpoints & Typography Scale Tokens
+Depends on: none (can run parallel with T00/T39)
+ Produces:
+Tailwind config tokens /src/styles/tokens.ts (XS/SM/MD/LG/XL breakpoints + type scale).
+
+
+/docs/responsive.md — design guidance for developers & QA.
+
+
+Acceptance criteria:
+XS/SM/MD/LG/XL breakpoints and a full type scale codified.
+
+
+Visual regression baselines/screenshots for each primary route.
+
+
+Supports mobile-first; no horizontal scroll on XS.
+
+
+Rationale: unlocks mobile-first dev and later cross-browser QA (T37).
+
+✅ Phase Exit Criteria (Gate to Phase 1)
+Phase 0 is considered DONE when:
+T00 merged and signed off — no “OPEN_QUESTION” left, all DTOs final.
+
+
+T39 merged — full analytics taxonomy + PII rules accepted by both frontend & backend.
+
+
+T43 merged — responsive tokens & typography scale in Tailwind and documented.
+
+
+Budgets finalized:
+
+
+Performance: LCP p75 < 2.0 s (admin) / < 2.5 s (public), CLS p75 < 0.1, INP p75 < 200 ms, initial bundle < 500 KB.
+
+
+Accessibility: WCAG 2.1 AA baseline + Axe CI gate targets ≥ 98%.
+
+
+Retry/Idempotency strategy is documented and implemented in the API client skeleton.
+
+
+Observability: api_contracts.version_published & analytics.schema_loaded events fire successfully in dev.
+
+
+Once these are delivered, P1 (Foundation & Infrastructure — T01, T02, T02A, T03) can safely begin with no schema churn or unknown budgets.
+
+Would you like me to continue by fully expanding Phase 1 next (T01–T03 + T02A) so you can hand off the entire foundation phase?
+awesome — here’s Phase 1 (Foundation & Infrastructure) fully expanded, merged from the entire session so far (including all late edits like T02A and the status/branding nits). This is written so a fresh engineer can pick it up and execute without seeing prior chats.
+Tithi (1)
+Phase 1 — Foundation & Infrastructure
+Phase goal
+Stand up a production-grade frontend skeleton with a typed API client, auth, routing for multi-tenant paths/subdomains, and a theming system that enforces white-label branding. When Phase 1 exits, onboarding steps can be implemented without re-plumbing infra.
+
+T01 — Bootstrap Project & Typed API Client
+Context
+We need a single Axios-based client (or fetch wrapper) with:
+JWT bearer injection
+
+
+Uniform error shape (TithiError)
+
+
+Global idempotency helper
+
+
+Standardized 429 backoff
+
+
+Sentry + Web Vitals scaffolding
+
+
+Environment config (API base, Supabase, Stripe, Sentry DSN)
+
+
+Deliverables
+/src/api/client.ts with:
+
+
+base instance + interceptors (Authorization, Idempotency-Key, 429 retry using Retry-After)
+
+
+toTithiError(e): TithiError
+
+
+generateIdempotencyKey(): string
+
+
+/src/api/types/*.ts re-exporting DTOs from contracts
+
+
+/src/lib/env.ts (type-safe runtime env)
+
+
+/src/observability/{telemetry,webVitals,sentry}.ts
+
+
+Project scaffolding: routing shell, test setup (Vitest/Jest), Playwright/E2E harness, ESLint/Prettier, Husky pre-push
+
+
+Constraints
+Initial bundle < 500 KB (lazy-split routes/components)
+
+
+API latency budget < 500 ms p75 (surface in dev overlay)
+
+
+WCAG 2.1 AA: focus styles, color contrast
+
+
+Inputs → Outputs
+Inputs: env vars, contracts (from Phase 0), Sentry DSN (optional)
+
+
+Outputs: typed client, global error types, helpers
+
+
+Validation (AC)
+Auth header injected only when token present; token refresh path doesn’t loop
+
+
+429 responses respect Retry-After; jitter applied; max 3 retries
+
+
+All errors normalize to TithiError and are user-safe (no PII)
+
+
+Web Vitals emit FCP/LCP/CLS/INP on route transitions (feature-flagged)
+
+
+generateIdempotencyKey() used by all create/update calls
+
+
+Testing
+Unit: interceptors, error adapter, idempotency key format
+
+
+Integration: mock 401/403/429/5xx; ensure retries and error mapping
+
+
+E2E smoke: app boots with envs; network error banner shows TithiError detail
+
+
+Dependencies
+None (root of Phase 1)
+
+
+Executive rationale
+A stable, observable API layer prevents rework across every surface.
+North-star invariants
+No silent failures; every failure is typed and observable
+
+
+Idempotency on all mutating requests
+
+
+Rate-limit resilience by default
+
+
+Schema/DTO freeze note
+Uses DTOs signed in Phase 0; any drift fails CI via contract tests
+
+
+Observability hooks
+http.request, http.response, http.retry, http.error (schema from analytics taxonomy)
+
+
+Web Vitals send on route paint
+
+
+Error model enforcement
+Only TithiError crosses the API boundary
+
+
+401 triggers re-auth flow (no infinite loops)
+
+
+Idempotency & retry
+Idempotency-Key header set on POST/PUT/PATCH/DELETE
+
+
+429 backoff honors Retry-After; exponential with jitter otherwise
+
+
+
+T02 — Multi-Tenant Routing & Slug Resolution
+Context
+Support both path-based and subdomain tenants for admin and public booking. Provide a TenantContext so all children read the resolved tenant.
+Deliverables
+/src/routes with:
+
+
+Public booking: /v1/:slug/*
+
+
+Admin app: /admin/* (guards require tenant + auth)
+
+
+Redirector for subdomain cases (if applicable)
+
+
+/src/tenant/{TenantContext,useTenantSlug,requireTenantSlug}.ts
+
+
+Route guards that block until slug is known
+
+
+Constraints
+Zero extra renders on slug resolution (memoized provider)
+
+
+No tenant data leakage between routes (strict provider boundaries)
+
+
+Inputs → Outputs
+Inputs: location (host + path), contracts for tenant lookup if needed
+
+
+Outputs: resolved slug, tenantId?, context provider
+
+
+Validation (AC)
+Visiting /v1/{slug} renders public booking with that tenant
+
+
+Visiting /admin within a tenant scope routes correctly and blocks unauthenticated users
+
+
+Logs event tenant_resolved with {slug, source:"path|subdomain"}
+
+
+Deep-links survive refresh and SSR/SPA transitions
+
+
+Testing
+Unit: path parser, subdomain parser
+
+
+Integration: guard behavior with/without auth, slug changes
+
+
+E2E: direct nav to /v1/acme, then into checkout; reload; state persists
+
+
+Dependencies
+T01
+
+
+Executive rationale
+Correct tenant resolution is prerequisite for every page and for RLS-aligned calls.
+North-star invariants
+One (and only one) active tenant context at any time
+
+
+No cross-tenant state bleed
+
+
+Schema/DTO freeze note
+No DTOs added; relies on Phase 0 tenant contracts if fetching
+
+
+Observability hooks
+routing.tenant_resolved, routing.guard_blocked, routing.guard_passed
+
+
+Error model enforcement
+Missing/invalid slug → friendly 404 (public) / “Select a business” (owner)
+
+
+Idempotency & retry
+N/A (read path), but downstream API calls inherit T01 policy
+
+
+
+T02A — Auth & Sign-Up Flow (Landing → Sign Up → Onboarding Redirect)
+Context
+Provide a clean entry to the product. “Get Started” lands on sign-up; on success we redirect into Onboarding Step 1 with any known fields prefilled. Public booking URL is not linked from the marketing/landing home.
+Deliverables
+Routes: / (Landing), /auth/sign-up
+
+
+<SignUpForm>: fields — email, password, phone, first name, last name
+
+
+Validation: inline + server (duplicate/weak password)
+
+
+Success redirect to /onboarding/step-1 with prefilled fields
+
+
+Keyboard & screen-reader complete
+
+
+Perf budgets on / and /auth/sign-up
+
+
+Constraints
+LCP p75 < 2.0s on /
+
+
+AA contrast; visible focus; logical tab order
+
+
+No link to public booking from the homepage
+
+
+Inputs → Outputs
+Inputs: auth service (JWT), contracts for onboarding Step 1 fields
+
+
+Outputs: created user session, prefill payload to onboarding
+
+
+Validation (AC)
+Landing “Get Started” → navigates to Sign-Up
+
+
+Successful submit persists user and redirects to Step 1 with prefilled known fields
+
+
+Error states: duplicate email, weak password, network errors (TithiError toast + inline messages)
+
+
+Analytics: auth.signup_submit, auth.signup_success|error
+
+
+Testing
+Unit: field validators, focus management, a11y roles
+
+
+Integration: success/error flows, redirect with prefill state
+
+
+E2E: sign-up, reload on onboarding, fields remain
+
+
+Dependencies
+T01
+
+
+Executive rationale
+Removes ambiguity on entry path and prepares onboarding with context.
+North-star invariants
+Fast paint, clear path, zero confusion
+
+
+Accessible form by default
+
+
+Schema/DTO freeze note
+Reuses Phase 0 onboarding Step 1 DTOs; any drift blocks merge
+
+
+Observability hooks
+Auth events (above), plus onboarding.prefill_ready
+
+
+Error model enforcement
+Uniform TithiError mapping
+
+
+No raw server messages to user
+
+
+Idempotency & retry
+Sign-up POST uses idempotency key (email + timestamp hash) to avoid dupes
+
+
+
+T03 — Design System Tokens & Status Colors (White-Label Guardrails)
+Context
+Enforce the business’s primary color and status palette across components and public pages, with explicit white-label guarantees (no “Tithi” branding on customer-facing surfaces). Provide AA contrast enforcement and snapshot coverage for logo placement rules.
+Deliverables
+Tailwind theme extension (/tailwind.config.ts) and /src/styles/tokens.ts
+
+
+Primary color (tenant) + semantic tokens
+
+
+Status colors for pending|confirmed|attended|no-show|cancelled
+
+
+Atoms:
+
+
+<StatusBadge status=… />
+
+
+Global focus ring + reduced motion support
+
+
+Brand application utilities:
+
+
+applyTenantTheme(tenant); SSR-safe CSS variables
+
+
+Visual regression baselines (Playwright): public header/logo placements
+
+
+Constraints
+Contrast ≥ 4.5:1 for text/UI against backgrounds
+
+
+Zero runtime color calculations on every render; CSS variables preferred
+
+
+Public pages never show platform brand
+
+
+Inputs → Outputs
+Inputs: branding from Phase 0 contracts; palette spec; logo asset
+
+
+Outputs: tokens, utilities, atoms, snapshots
+
+
+Validation (AC)
+StatusBadge colors match the spec mapping
+
+
+AA contrast warnings for illegal combinations (build-time check + runtime dev warning)
+
+
+Snapshot tests enforce:
+
+
+Large logo on Public “Welcome” header
+
+
+Small logo top-left on all other booking pages
+
+
+White-label check: no “Tithi” strings in public DOM
+
+
+Testing
+Unit: token exports, StatusBadge variants
+
+
+Visual: snapshots for public routes (welcome/availability/checkout/confirmation)
+
+
+A11y: Axe pass for color/contrast on sample screens
+
+
+Dependencies
+None (can progress in parallel with T01/T02)
+
+
+Executive rationale
+Locked tokens + snapshots = stable visual identity and brand safety.
+North-star invariants
+Brand-true, accessible, and consistent on every surface
+
+
+Public pages are 100% business-branded
+
+
+Schema/DTO freeze note
+Consumes tenant theme fields defined in Phase 0; no new API
+
+
+Observability hooks
+branding.theme_applied (tenant id, primary color, contrast_ok: boolean)
+
+
+Error model enforcement
+Dev-only warnings when invalid contrast; never block user
+
+
+Idempotency & retry
+N/A
+
+
+
+Phase 1 exit criteria (gate to Phase 2)
+✅ T01: client, env, observability, idempotency, 429 retry in place
+
+
+✅ T02: tenant routing works for both admin and public; context isolation proven
+
+
+✅ T02A: auth + sign-up live; LCP p75 < 2.0s on /; onboarding prefill verified
+
+
+✅ T03: tokens + StatusBadge shipped; contrast ≥ 4.5:1 enforced; white-label snapshots pass
+
+
+✅ CI: unit + integration green; Playwright visual baselines recorded; Web Vitals emitting in dev
+
+
+✅ No “TBDs” remain from Phase 0 in these areas
+
+
+Want me to continue by fully expanding Phase 2 (Onboarding Core — T04–T07 + T07A) in the same structure next?
+🌟 Phase 2 Overview — “Onboarding Core”
+Goal: Build the first four steps of the 8-step onboarding wizard so a newly signed-up business can get to a working tenant with brand, services, and base availability.
+ Exit Criteria to advance to Phase 3 (Extended Onboarding):
+✅ Steps 1–4 are fully functional, accessible (WCAG 2.1 AA), and mobile-first.
+
+
+✅ Each step persists to backend APIs with proper idempotency, error handling, and retry-after on 429.
+
+
+✅ DTOs are stable or stubbed from T00 – API Contracts Addendum; no “OPEN_QUESTION” left unresolved.
+
+
+✅ Observability: events emitted (onboarding.step_complete, failures) validated against taxonomy (T39).
+
+
+✅ Performance: LCP p75 < 2.0 s on each step; bundle under 500 KB initial.
+
+
+✅ UX complete: keyboard nav, focus order, ARIA labels, error toasts via TithiError.
+
+
+✅ Branding/theming tokens (T03) applied; no “Tithi” leak on public surfaces.
+
+
+🏷️ T04 — Onboarding Step 1: Business Details
+Context
+ First step of the onboarding wizard. Captures business identity, location, contact info, staff pre-list and social links to seed later steps and public pages.
+Inputs / Consumes
+API: POST /onboarding/register, GET /onboarding/check-subdomain/{slug} (from T00 contracts).
+
+
+Depends on: T01 (API client), T02/T02A (routing & auth), T03 (design tokens).
+
+
+Outputs / Produces
+Page: /onboarding/details
+
+
+Form components: text inputs, address group, staff repeater, social link fields.
+
+
+Acceptance Criteria
+All required fields (name, timezone, slug) must validate and persist.
+
+
+Optional fields: DBA, industry, full address, website, phone, support email, social links.
+
+
+Staff list rows (role, name) autocolor; editable later.
+
+
+Buttons: Save & Continue / Back / Add Staff / Remove Staff.
+
+
+Subdomain checked live; error messages via TithiError.
+
+
+A11y: WCAG 2.1 AA, keyboard/focus order correct.
+
+
+Perf: LCP p75 < 2 s.
+
+
+Obs: onboarding.step1_complete fired with payload {tenant_id, step:1}.
+
+
+DoR
+DTOs stable from T00.
+
+
+Idempotency N/A (single create call).
+
+
+Retry-after on 429 implemented.
+
+
+Unit tests ≥ 90%, form E2E covered.
+
+
+
+🏷️ T05 — Onboarding Step 2: Logo & Brand Colors
+Context
+ Lets owner upload brand logo and choose primary color; drives white-label branding.
+Inputs / Consumes
+Image constraints (PNG/JPG/SVG, 640×560 rec.).
+
+
+Contrast rules & palette from T03.
+
+
+Outputs / Produces
+Page: /onboarding/logo-colors
+
+
+Components: LogoUploader (crop/preview), ColorPicker with AA contrast check.
+
+
+Acceptance Criteria
+Validates file type/size, previews with AA ≥ 4.5:1.
+
+
+Placement preview: large logo on Welcome header, small on other booking pages.
+
+
+Buttons: Upload, Crop, Remove, Pick Color, Preview, Save & Continue, Back.
+
+
+Snapshot tests verify white-label (no “Tithi”).
+
+
+Perf: LCP < 2 s.
+
+
+Obs: asset_upload_error, onboarding.step2_complete.
+
+
+DoR
+Props: <LogoUploader onFile(File)>.
+
+
+Errors: inline + toast.
+
+
+Idempotency N/A.
+
+
+Web Vitals & a11y gates set.
+
+
+
+🏷️ T06 — Onboarding Step 3: Services, Categories & Defaults
+Context
+ Owners define service catalog (categories, services, pricing, instructions). Seeds both admin and public booking.
+Inputs / Consumes
+API: POST /api/v1/services (Partial<Service>, idempotent).
+
+
+Depends on: T01, T04.
+
+
+Outputs / Produces
+Page: /onboarding/services
+
+
+Components: CategoryCRUD, ServiceCardEditor, ChipsConfigurator.
+
+
+Acceptance Criteria
+CRUD for categories and services (name, price, duration, desc, image).
+
+
+Special requests/notes setting (toggle, length limit, suggested chips).
+
+
+Pre-appointment instructions saved/displayed downstream.
+
+
+Buttons: Add Category, Add Service, Upload Image, Save Defaults, Save & Continue, Back.
+
+
+Persisted server response matches DTO.
+
+
+Inline validation & idempotency key present.
+
+
+Perf: LCP < 2 s.
+
+
+Obs: onboarding.step3_complete.
+
+
+DoR
+DTO sample available from T00.
+
+
+Retry-after on 429.
+
+
+Unit ≥ 90%, hooks ≥ 95%, E2E: add/edit service.
+
+
+
+🏷️ T07 — Onboarding Step 4: Default Availability
+Context
+ Business sets default schedule and staff availability.
+Inputs / Consumes
+API: /api/v1/availability/rules (from T07A) with recurring/DST support.
+
+
+Depends on: T06.
+
+
+Outputs / Produces
+Page: /onboarding/availability
+
+
+Components: AvailabilityCalendar (Day/Week/Month, copy week, breaks).
+
+
+Acceptance Criteria
+User can add recurring blocks, breaks; copy week; DST safe.
+
+
+Overlap detection & validation.
+
+
+Staff names/roles/colors visible.
+
+
+Buttons: Copy Week, Add Block, Save & Continue, Back.
+
+
+Perf: LCP < 2 s.
+
+
+Obs: onboarding.step4_complete.
+
+
+DoR
+DTO finalized via T07A.
+
+
+Idempotency on create/update.
+
+
+429 retry logic in client.
+
+
+Unit & E2E scheduler tests.
+
+
+
+🏷️ T07A — Availability Rules DTO Wiring
+Context
+ Backfills missing contract for default/staff schedules so Step 4 and admin scheduler work consistently.
+Inputs / Consumes
+Spec from T00 (/docs/availability-rules.md).
+
+
+Outputs / Produces
+TS types, validators, and API integration.
+
+
+Acceptance Criteria
+DTO covers recurring, breaks, DST safe.
+
+
+Validator rejects overlaps.
+
+
+Frontend compiles with new types; tests updated.
+
+
+DoR
+Approval from backend.
+
+
+Idempotency & retry rules set.
+
+
+Schema snapshot tests added.
+
+
+
+✅ Exit Criteria to Move to Phase 3
+All above tickets closed with passing unit/integration/E2E and Web Vitals/a11y budgets.
+
+
+Contracts locked and consumed (T00, T07A).
+
+
+Observability events (onboarding.*) validated against T39.
+
+
+Mobile + desktop breakpoints (T43) tested.
+
+
+Ready to implement Steps 5–8 (Notifications, Policies, Gift Cards, Payment Setup).
+T08 — Onboarding Step 5: Notifications (Templates, Quiet Hours, Caps)
+Context
+ Owners configure booking notifications before going live. We provide a templates editor with previews, quiet-hours, and a hard cap of 1 confirmation + up to 2 reminders (max 3 per booking). Placeholders must be validated and previewed.
+Tithi (1)
+Tithi (1)
+Inputs
+API: POST /api/v1/notifications/templates (and list/update once defined in contracts addendum).
+
+
+DTO: NotificationTemplate with variables & required_variables.
+
+
+Business timezone (for quiet hours) and social links (optional append).
+ Tithi (1)
+
+ Tithi (1)
+
+
+Outputs
+/onboarding/notifications page with a list (limit 3) and a rich editor + preview modal.
+
+
+Enforced placeholders list support: {customer_name}, {service_name}, {service_duration}, {price}, {booking_date}, {booking_time}, {business_name}, {address}, {staff_name}, {instructions}, {special_requests}, {cancel_policy}, {refund_policy}, {booking_link}, {ics_link}.
+ Tithi (1)
+
+
+Acceptance Criteria (AC)
+Can create/edit up to 3 templates total: 1 confirmation (+0 reminders) or 1 confirmation + 1–2 reminders; cannot exceed.
+
+
+Editor validates required_variables and blocks save when any are missing.
+
+
+Preview renders with sample data; sends a test (when backend permits).
+
+
+Quiet hours respected in scheduling UI; show policy note.
+
+
+Optional: append business social links to confirmation.
+ Tithi (1)
+
+ Tithi (1)
+
+
+Definition of Ready (DoR)
+Finalized NotificationTemplate schema + list/update endpoints (from contracts addendum).
+
+
+Quiet-hours rules & allowed send windows documented.
+
+
+Observability
+Events: notifications.template_create|update|delete, notifications.preview_sent, notifications.quiet_hours_violation.
+ Tithi (1)
+
+
+Performance
+Editor initial render TTI < 2.0s; template list fetch < 500ms.
+
+
+Idempotency
+Create/update use Idempotency-Key (front-end header helper); safe to retry on 429.
+
+
+Phase-4 Readiness Gate
+At least one confirmation template saved (or explicit skip set) and cap/validators enforced. This unblocks Public Checkout warnings & Admin Notifications management later.
+ Tithi (1)
+
+
+
+T09 — Onboarding Step 6: Booking Policies & Confirmation Message
+Context
+ Owners codify cancellation/no-show/refund policies and craft the confirmation message that surfaces in checkout and the final screen. Checkout must stop unless the policy is acknowledged.
+Tithi (1)
+Tithi (1)
+Inputs
+UI fields (policy editor): cancellation cutoff, no-show fee (percent/flat), refund presets, cash logistics copy.
+
+
+Message editor with quick-paste from service details/instructions/price/duration/selected availability.
+ Tithi (1)
+
+
+Outputs
+/onboarding/policies page with rich-text policy and confirmation message editors.
+
+
+A standardized checkout warning popup + acknowledgement checkbox contract to be enforced at checkout.
+ Tithi (1)
+
+
+Acceptance Criteria (AC)
+Policies saved; message preview displays exactly as in Public Confirmation.
+
+
+Checkout cannot proceed without explicit acknowledgement.
+
+
+Policy text is available to Public pages and Notifications.
+ Tithi (1)
+
+
+Definition of Ready (DoR)
+Policy fields and storage DTO confirmed; content length & allowed formatting documented.
+
+
+Observability
+Events: policies.save_success|error, checkout.policy_ack_required, checkout.policy_ack_confirmed.
+
+
+Performance
+Save action round-trip < 500ms; editor input latency under 50ms.
+
+
+Idempotency
+Save/update uses Idempotency-Key; debounced autosave is safe to retry.
+
+
+Phase-4 Readiness Gate
+Policies + confirmation message present and the acknowledgement contract is locked, enabling owner/admin & public checkout to honor/require it.
+ Tithi (1)
+
+
+
+T10 — Onboarding Step 7: Gift Cards (Optional)
+Context
+ Enable an optional gift-card program with denominations and lifecycle controls. Onboarding allows owners to set it up or skip.
+Tithi (1)
+Inputs
+API: coupons/gift-card endpoints (POST|PUT|DELETE /api/v1/promotions/coupons, validate/stats).
+
+
+Fields: denominations, expiration policy.
+ Tithi (1)
+
+
+Outputs
+/onboarding/gift-cards page: create denominations or Skip & Continue.
+
+
+Persisted configuration surfaced to Public Checkout (code validation) and Admin stats.
+ Tithi (1)
+
+
+Acceptance Criteria (AC)
+Can add at least one denomination (if enabled); expiration policy saved.
+
+
+Skip preserves ability to enable later in Admin.
+
+
+Validation endpoint wired for Public Checkout input.
+ Tithi (1)
+
+
+Definition of Ready (DoR)
+Coupon/gift-card DTOs (create/update/delete), validate & stats endpoints confirmed.
+
+
+Observability
+Events: giftcards.enable|disable, giftcards.denomination_create|update|delete.
+
+
+Performance
+List/CRUD operations < 500ms; form render TTI < 2.0s.
+
+
+Idempotency
+All create/update/delete operations include Idempotency-Key; client retries on 429 using Retry-After.
+
+
+Phase-4 Readiness Gate
+Either gift cards enabled with at least one denomination or explicitly skipped; Public Checkout validation path tested.
+ Tithi (1)
+
+
+
+T11 — Onboarding Step 8: Payments, Wallets & Subscription (GO LIVE)
+Context
+ Owners connect payment methods and business identity (KYC), choose supported wallets, accept platform subscription, and then GO LIVE. Rule: Cash bookings require a card-on-file for no-shows.
+Tithi (1)
+Tithi (1)
+Inputs
+Payments Setup Intent (card on file for $11.99/mo).
+
+
+Toggles: Cards, Apple Pay, Google Pay, PayPal, Cash (cash rule above).
+
+
+Business/KYC fields: legal/DBA, representative, payout destination, statement descriptor + phone, currency, tax display behavior.
+ Tithi (1)
+
+
+Outputs
+/onboarding/payments page with Stripe Elements mount + wallet toggles.
+
+
+Consent checkboxes + “Are you sure?” final modal, then GO LIVE success screen: “{Business Name} IS LIVE!!”, booking link, Copy Link, Go to Admin.
+ Tithi (1)
+
+
+Acceptance Criteria (AC)
+Setup Intent succeeds; subscription card stored; wallets toggles persisted.
+
+
+Cash requires card-on-file constraint enforced at save time.
+
+
+GO LIVE screen appears with working public booking link and admin link.
+
+
+3DS flows supported at checkout (prepared for Phase 5 reuse).
+ Tithi (1)
+
+
+Definition of Ready (DoR)
+Payments setup-intent contract finalized; wallet availability by region clarified; KYC fields + validation rules documented.
+
+
+Observability
+Events: payments.setup_intent_started|succeeded|failed, owner.subscription_card_saved, owner.go_live_success, wallets.toggle_update.
+
+
+Performance
+Payments UI LCP p75 < 2.0s; network to Stripe < 600ms median; no main-thread long tasks > 200ms.
+
+
+Idempotency
+All payment writes (setup intent, wallet updates) attach Idempotency-Key; safe retry on 429 with Retry-After backoff; track duplicate-submit protection on final GO LIVE.
+
+
+Phase-4 Readiness Gate
+Business is LIVE with payment method stored, KYC saved, and wallet rules enforced. Owners can now access Admin dashboards & Bookings.
+ Tithi (1)
+
+
+
+Phase 3 Exit Criteria → Phase 4 Entry
+To move on to Phase 4 (Owner Surfaces), the following must be true across T08–T11:
+Notifications: At least one confirmation template saved; total templates respect 1+≤2 cap; placeholders validate; quiet-hours policy set.
+ Tithi (1)
+
+
+Policies: Cancellation/no-show/refund policy saved and checkout acknowledgment wiring exported for use in Public Checkout.
+ Tithi (1)
+
+
+Gift Cards: Either enabled with denominations (and validation path tested) or explicitly skipped.
+ Tithi (1)
+
+
+Payments & GO LIVE: Setup-intent completed, wallets configured (cash rule enforced), KYC saved, GO LIVE page confirmed with booking link.
+ Tithi (1)
+
+
+
+P4 — Owner Surfaces (Admin + User surfaces)
+T12. Admin Shell (layout, nav, route frames)
+Context
+ Admin workspace for owners: persistent shell (sidebar + top bar), responsive routes for Dashboard, Bookings, Services, Customers, Analytics, Settings.
+Inputs
+Design tokens (primary color, status palette).
+
+
+Routes: /admin, /admin/{section}.
+
+
+Auth context (JWT), tenant resolution (slug).
+
+
+Outputs
+Shell layout component with aria landmarks.
+
+
+Responsive sidebar + top bar; active-state routing.
+
+
+Route frames with skeletons.
+
+
+Acceptance Criteria (AC)
+Shell renders on /admin/* with ARIA banner/navigation/main regions.
+
+
+Sidebar includes: Dashboard, Bookings, Services, Customers, Analytics, Settings (exact labels/order).
+
+
+Mobile: collapsible nav; keyboard trap avoided; focus returns to trigger.
+
+
+White-label: no “Tithi” branding visible in admin or public preview links.
+
+
+Definition of Ready (DoR)
+Nav labels, icons, and route paths fixed.
+
+
+Tenant slug resolution available.
+
+
+Token & theme tokens available.
+
+
+Observability
+admin.shell_view (slug, section).
+
+
+nav.item_click (item, slug).
+
+
+Performance
+Shell bundle ≤ 120 KB gz (code-split sections).
+
+
+First navigation TTI ≤ 2.0 s p75 (desktop).
+
+
+Idempotency
+N/A (read-only UI container).
+
+
+
+T13. Bookings List + Actions
+Context
+ Owners manage bookings (confirm/cancel/complete/no-show, reschedule), with real-time status and payment readiness.
+Inputs
+GET /api/v1/bookings (queryable).
+
+
+PUT /api/v1/bookings/{id}.
+
+
+POST /api/v1/bookings/{id}/confirm|cancel|complete.
+
+
+Shared pagination/filter spec.
+
+
+Outputs
+BookingTable with StatusBadge, row details drawer.
+
+
+Filters: status, date range, customer, service.
+
+
+Action bar (confirm/cancel/complete, reschedule, mark no-show).
+
+
+AC
+List paginates and preserves filters in URL.
+
+
+Actions update status inline; optimistic UI rolls back on error.
+
+
+Row expand shows: customer info, history, notes, notification log pointer.
+
+
+No-show and complete states are distinct.
+
+
+Errors follow TithiError schema; inline + toast.
+
+
+DoR
+Status enum + color mapping frozen.
+
+
+List params + pagination standard finalized.
+
+
+Observability
+bookings.list_view, bookings.action (action, booking_id, prev_status, next_status, slug).
+
+
+Error events mirrored to Sentry with error_code.
+
+
+Performance
+List API p75 ≤ 500 ms; table render ≤ 16 ms/frame avg.
+
+
+First page LCP ≤ 2.0 s p75.
+
+
+Idempotency
+All mutation requests send Idempotency-Key; safe on retries.
+
+
+
+T14. Attendance → Payment Flow
+Context
+ Payments are attendance-based. Completing attendance triggers canonical payment path.
+Inputs
+Payment intent + confirm endpoints; or /api/payments/process (canonicalized).
+
+
+Booking status transition to attended/complete.
+
+
+Outputs
+“Mark attended” flow that initiates payment.
+
+
+Payment status indicator and retry affordances.
+
+
+Error handling for 3DS, declines, 429 backoff.
+
+
+AC
+One canonical code path for Admin + Public (shared abstraction).
+
+
+Sends Idempotency-Key on intent/confirm.
+
+
+Honors Retry-After for 429; jittered retries (max 3).
+
+
+3DS flows supported; UI shows “action required” then success/fail.
+
+
+Payment success reconciles to booking row within 3 s.
+
+
+DoR
+Canonical payment spec selected; example payloads available.
+
+
+Booking↔Payment linking fields defined.
+
+
+Observability
+payments.intent_created|confirmed|failed, attendance.mark_complete.
+
+
+Reconciliation metric: payment_to_ui_latency_ms.
+
+
+Performance
+Payment initiation to “confirmed” UI median ≤ 2.5 s (cards).
+
+
+Zero duplicate charges during retries (verified by logs).
+
+
+Idempotency
+Required on all payment mutations; safe for user double-clicks and refresh.
+
+
+
+T15. Services CRUD (Owner)
+Context
+ Owners configure services (name, price, duration, category, image, instructions, quick chips, special-requests settings).
+Inputs
+GET/POST/PUT/DELETE /api/v1/services.
+
+
+Categories model (local or API).
+
+
+Image upload constraints (near-square).
+
+
+Outputs
+Services table + create/edit modal.
+
+
+Category CRUD; image uploader; validation.
+
+
+AC
+Create/update/delete works with server validation messages.
+
+
+Each service has category, price_cents, duration_minutes, is_active.
+
+
+Image preview + size/type validation.
+
+
+“Special requests” toggle + max length; “quick chips” list.
+
+
+DoR
+DTO examples finalized.
+
+
+Constraints (min/max price & duration) defined.
+
+
+Observability
+services.create|update|delete with service_id, slug.
+
+
+Image upload error rate alert.
+
+
+Performance
+List load ≤ 500 ms p75.
+
+
+Image upload ≤ 2 MB; transform async.
+
+
+Idempotency
+Create/update include Idempotency-Key.
+
+
+
+T16. Availability Admin
+Context
+ Admin scheduler mirrors onboarding Step 4; staff color coding; recurring rules; copy-week; DST-safe edits.
+Inputs
+Availability Rules DTO (final from contracts addendum).
+
+
+Staff list + colors.
+
+
+Outputs
+Calendar (day/week/month) with drag-create/resize blocks.
+
+
+Copy week & recurring patterns; overlap validation.
+
+
+AC
+Saving rules prevents overlaps; validates TZ boundaries and DST transitions.
+
+
+Staff colors visible in blocks and legend.
+
+
+Copy week preserves breaks.
+
+
+DoR
+DTO & validation rules published.
+
+
+Staff entities available.
+
+
+Observability
+availability.save_success|error, availability.copy_week.
+
+
+Performance
+Calendar interaction FPS ≥ 50 on mid-tier laptops.
+
+
+Save round-trip ≤ 600 ms p75.
+
+
+Idempotency
+Save operations idempotent by deterministic rule set + key.
+
+
+
+T17. Customers List (Owner)
+Context
+ Owner view of customer records (contact, history, preferences, notes).
+Inputs
+GET /api/v1/customers (DTO settled).
+
+
+Link to bookings list by customer.
+
+
+Outputs
+Table + detail drawer (history, notes).
+
+
+Filters and CSV export.
+
+
+AC
+List/filters paginate per standard; clicking a customer shows history (last N bookings).
+
+
+No PII leakage beyond schema; masking if required by policy.
+
+
+DoR
+Customer DTO & allowed fields finalized.
+
+
+GDPR/PII policy decided.
+
+
+Observability
+customers.list_view, customers.detail_view.
+
+
+Performance
+API p75 ≤ 500 ms; CSV export under 10k rows in < 5 s.
+
+
+Idempotency
+N/A (read-only for Phase 4). Notes editing (if enabled) must send Idempotency-Key.
+
+
+
+T19. Tithi User Dashboard (My Businesses + Previous Orders)
+Context
+ Unified dashboard for logged-in users (owners/customers). Quick access to owned businesses and past orders.
+Inputs
+GET /api/v1/tenants (user’s businesses).
+
+
+GET /api/v1/bookings (previous orders).
+
+
+(Optional) /api/v1/subscriptions status.
+
+
+Outputs
+Two-pane layout: My Businesses grid (logo, name, quick stats, subscription badge) and Previous Orders feed.
+
+
+CTAs: Create New Business, Go to Admin, Book Again.
+
+
+AC
+Empty states for both lists with helpful CTAs.
+
+
+Business cards deep-link to /admin.
+
+
+Orders show business logo/name, service, date, status, amount.
+
+
+DoR
+Subscriptions DTO either present or flagged “hidden” for v1.
+
+
+Booking list filter for “mine vs all” defined.
+
+
+Observability
+userdash.view, userdash.card_click (type: business|order).
+
+
+Performance
+LCP ≤ 2.0 s p75.
+
+
+API fan-out combined via batched requests.
+
+
+Idempotency
+N/A (read-mostly).
+
+
+
+T31. Admin Branding & Settings
+Context
+ Centralized branding/settings editor; must reflect across admin & public.
+Inputs
+PUT /api/v1/tenants/{id} (branding, policies, social links).
+
+
+Design tokens; logo upload constraints.
+
+
+Outputs
+/admin/settings/branding page (logo upload/crop, primary color, social links, policy toggles).
+
+
+“Preview public page” button.
+
+
+AC
+Updates persist and immediately reflect on public booking pages.
+
+
+Contrast AA enforced for chosen color; validation blocks non-compliant combos.
+
+
+Snapshot test verifies no “Tithi” branding on public.
+
+
+DoR
+Field list and limits finalized.
+
+
+Public header/logo placement rules set.
+
+
+Observability
+branding.save_success|error, branding.preview_opened.
+
+
+Performance
+Save latency ≤ 600 ms p75; image upload ≤ 2 MB.
+
+
+Idempotency
+PUT guarded by Idempotency-Key; safe on retries.
+
+
+
+T32. Staff Management (CRUD + Colors)
+Context
+ Manage staff (name, role, color), integrate with availability (colored blocks).
+Inputs
+/api/v1/staff/* DTOs (from contracts addendum).
+
+
+Availability calendar.
+
+
+Outputs
+Staff table + create/edit; color picker.
+
+
+Link to “edit work schedule” (Availability Admin).
+
+
+AC
+Create/update/delete staff; color appears in calendars.
+
+
+Validation: unique color per staff (per tenant) or allow collision with warning.
+
+
+Keyboard and reader-friendly tables.
+
+
+DoR
+Staff DTO finalized; color palette guidance set.
+
+
+Observability
+staff.create|update|delete, staff.color_changed.
+
+
+Performance
+Table render ≤ 16 ms/frame avg; API p75 ≤ 500 ms.
+
+
+Idempotency
+All mutations with Idempotency-Key.
+
+
+
+T33. Admin Dashboard Overview
+Context
+ At-a-glance KPIs + trends; quick actions; recent activity.
+Inputs
+Analytics endpoints (revenue, bookings, no-show, top customers).
+
+
+System status tile input (read models).
+
+
+Outputs
+KPI tiles, trend charts, recent activity list, export PNG/CSV.
+
+
+AC
+Loads under 500 ms p75 (API); skeleton → render.
+
+
+Exports work; numbers reconcile with list screens (±1%).
+
+
+Accessible charts (titles, descriptions, focusable datapoints).
+
+
+DoR
+KPI definitions finalized; time ranges fixed.
+
+
+Observability
+admin.dashboard_view, admin.dashboard_export.
+
+
+Performance
+Chart render < 300 ms median.
+
+
+Bundle chunk for charts ≤ 80 KB gz.
+
+
+Idempotency
+N/A (reporting only).
+
+
+
+T36. System Status Tile (Health & Monitoring)
+Context
+ Read-only service health (live/ready), metrics summary; should never block admin.
+Inputs
+/health/live, /health/ready, /metrics/summary (read models).
+
+
+Outputs
+Tile with green/amber/red state + tooltips; link to docs.
+
+
+AC
+Tile degrades gracefully on errors (shows “degraded” with tooltip).
+
+
+No blocking spinners; refresh button available.
+
+
+DoR
+Status thresholds documented.
+
+
+Observability
+ops.status_widget_viewed, ops.status_refresh_clicked.
+
+
+Performance
+Query ≤ 300 ms p75; UI render < 50 ms.
+
+
+Idempotency
+N/A (read-only).
+
+
+
+T41. Pagination & Filtering Standardization
+Context
+ One shared pattern for list screens (bookings, services, customers, staff, templates, coupons, automations).
+Inputs
+/docs/pagination-filtering.md spec.
+
+
+Affected list pages.
+
+
+Outputs
+usePagedQuery() hook + URL-synced filters; empty/loading/error patterns.
+
+
+Refactors on all P4 lists.
+
+
+AC
+All lists use shared hook; back/forward keeps state.
+
+
+Clean querystrings; no abandoned params.
+
+
+Empty-state illustrations + helpful CTAs.
+
+
+DoR
+Finalized param names and defaults.
+
+
+Hook API reviewed.
+
+
+Observability
+list.paginate, list.filter_apply, list.empty_state_view.
+
+
+Performance
+Paging API p75 ≤ 500 ms; client renders ≤ 16 ms/frame.
+
+
+Idempotency
+N/A (GETs only).
+
+
+
+Hand-off gate for Phase 4 → Phase 5
+Phase 4 is done when:
+Admin shell + all P4 surfaces above are implemented with passing AC and telemetry in place (T12, T13, T14, T15, T16, T17, T19, T31, T32, T33, T36, T41).
+
+
+Payments canonicalization is live in Admin (T14 uses shared abstraction you’ll reuse in P5 checkout).
+
+
+White-labeling verified (branding snapshots, no “Tithi” leakage on public preview).
+
+
+List screens standardized (T41) and reach perf targets.
+
+
+Observability events fire with zero schema violations across flows.
+
+
+A11y smoke on P4 routes meets WCAG 2.1 AA.
+
+
+Once these are met, Phase 5 (Public Booking: Welcome → Availability → Checkout → Confirmation) can start cleanly, reusing payments and theming primitives you’ve just stabilized.
+Phase 5 — Public Booking (Customer-Facing Flow)
+Phase goal. A fully branded, accessible, mobile-first public booking experience that lets a customer: pick a service → select a time in the business’s timezone → (optionally) apply a gift card → pay via supported methods with 3DS → receive a confirmation page + .ics. This phase is done when all four pages (Welcome, Availability, Checkout, Confirmation) meet ACs below and emit analytics/observability needed for Phase 6 (Notifications/Gift Cards Admin).
+Tithi (1)
+End criteria to move to Phase 6.
+Public routes /v1/{slug} implement Welcome → Availability → Checkout → Confirmation with white-label branding and business timezone display throughout.
+
+
+Gift card validation is enforced during checkout; policy acknowledgment is mandatory before payment; payment uses canonical intent/confirm with idempotency and 3DS.
+
+
+Telemetry events exist for step views, checkout submit/success/failure, and confirmation; Web Vitals budgets pass on p75.
+
+
+Confirmation page surfaces final message + .ics and exposes links used by notification templates.
+
+
+
+T20 — Public Booking: Welcome / Service Selection
+Context. Customer lands on /v1/{slug} to browse bookable services grouped by category with owner-defined images, chips, and pre-appointment instructions. Branding (logo, primary color) is applied; no “Tithi” marks (white-label).
+Tithi (1)
+Inputs.
+GET /v1/{slug}/services → Service[]
+
+
+Tenant branding (logo, primary color), social links
+
+
+Router slug resolution & theme tokens
+
+
+Outputs.
+Page rendering category rows → ServiceCards
+
+
+“Select” CTA navigates to Availability with carried service payload
+
+
+Acceptance Criteria (AC).
+Categories render as horizontal rows; each service shows image, name, price, duration, description, quick chips, and pre-appointment instructions.
+
+
+Header shows large logo on Welcome; color contrast meets AA.
+
+
+Empty, loading, and error states implemented.
+
+
+Keyboard and screen-reader navigation complete (landmarks, focus order, ARIA labels).
+
+
+Telemetry: booking.view_step with {step:"welcome"} on first paint.
+
+
+Definition of Ready (DoR).
+DTO examples for Service confirmed; brand tokens available; copy approved.
+
+
+Observability.
+Sentry route breadcrumbs; Web Vitals (LCP/CLS/INP) captured per route.
+
+
+Performance.
+p75 LCP < 2.5s, CLS < 0.1, INP < 200ms; initial route bundle respects budgets.
+
+
+Idempotency.
+Not applicable (read-only); cache GET with SWR semantics.
+
+
+
+T21 — Public Booking: Availability Selection
+Context. After choosing a service, the customer picks a time slot. Calendar reflects business timezone and staff color-coding; DST-safe.
+Tithi (1)
+Inputs.
+GET /api/v1/availability → AvailabilitySlot[] (service, date range, staff)
+
+
+Selected Service from T20; tenant timezone; staff colors
+
+
+Outputs.
+Slot-picker (day/week/month as needed) with staff labels; selected slot propagated to Checkout
+
+
+Acceptance Criteria (AC).
+Calendar indicates business timezone near the selector.
+
+
+Selecting a slot enables “Continue” to Checkout; disabled when none.
+
+
+Handles empty (no slots), loading, error, and DST transitions (no duplicate/missing hours).
+
+
+Telemetry: booking.view_step with {step:"availability"} and filters; booking.slot_select.
+
+
+DoR.
+AvailabilitySlot shape finalized; timezone utilities in place.
+
+
+Observability.
+Sentry on fetch failures; counter availability.api_error; event for slot select.
+
+
+Performance.
+Calendar interaction ≤ 16ms/frame average; fetch < 500ms p75 (server budget).
+
+
+Idempotency.
+Not applicable (read-only).
+
+
+
+T22 — Public Booking: Checkout (Gift Card + Payment + Policies)
+Context. Customer confirms summary, optionally applies gift card, acknowledges policies, and pays with Stripe (intent/confirm + 3DS). Block progression until policy acknowledgment. Enforce max 1 confirmation + up to 2 reminder notifications per booking (phase-wide invariant used later).
+Tithi (1)
+Inputs.
+POST /api/v1/promotions/validate (gift card)
+
+
+Payment: POST /api/v1/payments/intent → intent, then /api/v1/payments/intent/{id}/confirm
+
+
+POST /api/v1/bookings (create booking record) with Idempotency-Key
+
+
+Policies & confirmation message from onboarding (T09); special-requests field toggle/limit
+
+
+Outputs.
+Successful payment and created Booking
+
+
+Policy warning modal + acknowledgment state
+
+
+Error model surfaced (validation, network/429, server TithiError)
+
+
+Acceptance Criteria (AC).
+Summary shows business name/logo, service, staff, date/time (business TZ), price, any pre-appointment instructions, and special-requests input when enabled.
+
+
+Gift card flow: validate → apply discount → updated totals; invalid codes show inline error.
+
+
+Policy acknowledgment required (checkbox/modal); cannot pay until accepted.
+
+
+Payment supports card + wallets where enabled; 3DS challenge handled; retry/backoff on HTTP 429 using Retry-After.
+
+
+Create booking with Idempotency-Key; no duplicate bookings on refresh/retry.
+
+
+Telemetry: booking.checkout_submit, payments.intent_created, payments.confirm_success|error, booking.create_success|error.
+
+
+DoR.
+Confirmed DTOs for promotions.validate, payments intent/confirm, and bookings.create; policy copy finalized; Stripe PK configured.
+
+
+Observability.
+Sentry breadcrumbs across intent/confirm; business metrics counters: payments.success, payments.fail, giftcard.validated.
+
+
+Performance.
+Submit→confirmation median < 3s p50 (network permitting); bundle guarded by code-split of Stripe Elements.
+
+
+Idempotency.
+Required for bookings and payment intent creation via Idempotency-Key; safe retries on network failure.
+
+
+
+T23 — Public Booking: Confirmation (.ics + Share)
+Context. Final page echoes confirmation message from policies step, renders social links, and offers an .ics download so customers can add to calendar.
+Tithi (1)
+Inputs.
+Booking + Service + tenant details
+
+
+Confirmation message & social links; .ics generator
+
+
+Outputs.
+Confirmation screen with booking summary, confirmation text, buttons: “Download .ics”, “Share”, “Book another”
+
+
+Acceptance Criteria (AC).
+Confirmation message renders with safe formatting; includes date/time in business TZ.
+
+
+“Download .ics” generates valid VEVENT (UID, DTSTART with TZ, SUMMARY = {service} — {business}, LOCATION, DESCRIPTION).
+
+
+Social block displays configured links; copy link to clipboard works.
+
+
+Telemetry: booking.complete + ics.download.
+
+
+DoR.
+ICS utility available; branding snapshot baselines updated.
+
+
+Observability.
+Non-PII analytics payloads validated against taxonomy; Sentry error on ICS generation failure.
+
+
+Performance.
+Page interactive < 2s p75; ICS generation synchronous < 200ms.
+
+
+Idempotency.
+Stateless (read-only); ICS generation is pure from booking payload.
+
+
+
+T42 — Payments Canonicalization (Public parity with Admin)
+Context. Ensure Public Checkout (T22) and Admin Attendance→Payment share one abstraction for intents, confirms, webhooks, and UI states to prevent drift.
+Tithi (1)
+Inputs.
+/docs/payments-canonical.md; payments endpoints used in T14 & T22
+
+
+Outputs.
+Shared client/service module + React hooks (usePaymentIntent, usePaymentConfirm)
+
+
+Acceptance Criteria (AC).
+Both flows use the same code path; idempotency + 3DS behavior identical; webhook status updates reconcile UI.
+
+
+429/backoff honored; retries are safe; errors conform to TithiError.
+
+
+DoR.
+Contracts addendum signed; webhook event mapping documented.
+
+
+Observability.
+Unified events: payments.intent_created|confirm_success|confirm_error.
+
+
+Performance.
+No regressions; hook adds ≤ 5KB gzip to either route.
+
+
+Idempotency.
+Centralized helper generates/stores idempotency keys for create/confirm.
+
+
+
+Phase-level Observability, Perf, and A11y Gates
+A11y: WCAG 2.1 AA; Axe CI gate ≥ 98%; logical focus order; trapped focus in modals; labelled form controls.
+
+
+Performance: Public routes p75 LCP < 2.5s, CLS < 0.1, INP < 200ms; route bundles capped (< 250KB each), initial < 500KB.
+
+
+Branding: Large logo on Welcome; compact logo elsewhere; snapshot tests verify white-label (no platform marks).
+
+
+Events: booking.view_step, booking.slot_select, booking.checkout_submit, booking.create_success|error, payments.*, booking.complete.
+ Tithi (1)
+
+
+
+Phase 5 — Definition of Done (End Criteria)
+Functional: A customer can start at /v1/{slug}, choose a service, pick a time (business TZ displayed), apply a gift card, accept policies, pay (with 3DS), and see a confirmation screen with .ics.
+
+
+Branding/A11y: White-label branding applied; AA contrast; keyboard/reader complete.
+
+
+Reliability: All create/confirm operations are idempotent; 429 retry logic implemented.
+
+
+Telemetry: Step and payment events emitted; Sentry + Web Vitals wired; counters for success/failure.
+
+
+Performance: Budgets pass at p75 on real devices.
+
+
+Handoffs ready for Phase 6: Notification templates can safely reference placeholders (service, staff, date/time, address, instructions, policies, booking link, ics link); gift card usage tracked for admin stats.
+ Tithi (1)
+
+
+Phase 6 — Notifications, Gift Cards, Loyalty, Automations
+Phase goal. Enable owners to configure communications and incentives (notifications, gift cards, loyalty) and create simple rule-based automations. Everything must be observable, rate-limit safe, and white-label compliant.
+Tithi (1)
+Exit criteria to move to Phase 7 (Analytics).
+All Phase 6 UIs ship with working CRUD + validation and pass WCAG 2.1 AA audit (≥98% Axe).
+
+
+Notification cap rules enforced (1 confirmation + up to 2 reminders); placeholder validation; quiet hours respected end-to-end.
+
+
+Gift cards: codes generate/validate; usage tracked; stats export CSV; checkout integration.
+
+
+Loyalty: balances adjust on issue/redeem; checkout reflects eligible discounts; audit trail present.
+
+
+Automations: CRUD + “Run now (dry-run)” with idempotency; safe-guards prevent duplicate actions.
+
+
+Telemetry events conform to the analytics taxonomy with 0 schema errors in CI replay; list pages use the shared pagination standard.
+
+
+Web Vitals: LCP p75 ≤ 2.5s (public) / ≤ 2.0s (admin); INP p75 ≤ 200ms; CLS p75 ≤ 0.1.
+
+
+CI gates in place for tests, a11y, and perf; all Phase 6 screens pass.
+ Tithi (1)
+
+
+
+T24. Notifications Admin (List / Create / Update)
+Context. Business owners define the messages customers receive for a booking. Enforce max “3 per booking”: 1 confirmation + up to 2 reminders. Support placeholders + quiet hours; preview + send test.
+Tithi (1)
+Inputs.
+DTOs/endpoints (from Contracts Addendum):
+ GET/POST/PUT /api/v1/notifications/templates, POST /api/v1/notifications/preview
+
+
+NotificationTemplate shape: id,name,channel(type),body,variables,required_variables,quiet_hours,enabled.
+
+
+Analytics taxonomy (event names & payload schemas).
+ Tithi (1)
+
+
+Outputs.
+Route: /admin/notifications (table + editor drawer).
+
+
+Editor with: body, channel, variables panel, quiet hours, preview-send.
+
+
+Validation layer for placeholders & cap.
+
+
+Acceptance Criteria (AC).
+Cap enforced: exactly 1 “confirmation” template may be enabled; at most 2 “reminder” templates can be enabled concurrently.
+
+
+Placeholder check: saving is blocked unless all required_variables appear in the body; supported placeholders include:
+ {customer_name},{service_name},{service_duration},{price},{booking_date},{booking_time},{business_name},{address},{staff_name},{instructions},{special_requests},{cancel_policy},{refund_policy},{booking_link},{ics_link}.
+
+
+Quiet hours: preview/send blocked if target time violates configured quiet hours (show rationale).
+
+
+Test send works and surfaces channel-specific errors (e.g., SMS length).
+
+
+Lists are filterable (channel, enabled) and paginated; URL-synced.
+
+
+White-label: no “Tithi” branding on any customer-facing copy.
+
+
+Definition of Ready (DoR).
+Signed template DTOs + preview endpoint; allowed channels defined.
+
+
+Event names for notifications.template_update, notifications.preview_sent, notifications.quiet_hours_violation.
+
+
+Copy and default templates provided by content owner.
+ Tithi (1)
+
+
+Observability.
+Emit notifications.template_update (old→new diff size), notifications.preview_sent (channel, length), notifications.quiet_hours_violation (window id).
+
+
+Error tracking to Sentry with TithiError fields.
+
+
+Performance.
+Table first meaningful paint ≤ 2.0s (p75) on broadband; editor open ≤ 150ms median.
+
+
+Idempotency & Retry.
+POST/PUT include Idempotency-Key.
+
+
+Respect 429 Retry-After with jittered backoff.
+
+
+
+T25. Gift Cards Admin (Codes / Validation / Stats)
+Context. Owners sell and manage gift cards. Codes are validated at checkout; admin sees usage and can export stats.
+Tithi (1)
+Inputs.
+Endpoints: GET/POST/PUT/DELETE /api/v1/promotions/coupons, GET /api/v1/promotions/coupons/{id}/stats, POST /api/v1/promotions/validate.
+
+
+Fields: code,amount_cents,expires_at,enabled,usage_count,usage_limit,notes.
+ Tithi (1)
+
+
+Outputs.
+Route: /admin/gift-cards (table + “Generate Codes” modal + detail drawer).
+
+
+CSV export of usage stats; bulk enable/disable.
+
+
+Acceptance Criteria (AC).
+Create single or batch codes (length + alphabet selectable); collision-free generation with preview.
+
+
+Validate/disable works immediately; disabled or expired codes reject at checkout with clear UI error.
+
+
+Stats page shows issued, redeemed, remaining value; export CSV accurate to ±1 record over 24h.
+
+
+Pagination & filters (active/expired/disabled).
+
+
+Gift card field present on public Checkout; applies discount before payment; never produces negative totals.
+
+
+DoR.
+Coupon and validation schemas finalized; export format agreed.
+
+
+Event names: giftcard.create|update|disable|validate|redeem.
+
+
+Observability.
+Emit events above with tenant + coupon id; record validation latency and hit/miss rate.
+
+
+Performance.
+Code generation ≤ 200ms for batch of 100 (client roundtrip excluded).
+
+
+Table render ≤ 16ms per frame average.
+
+
+Idempotency & Retry.
+Batch creation guarded by Idempotency-Key to prevent duplicates.
+
+
+429 backoff honored.
+
+
+
+T34. Automations Admin (CRUD + Dry-Run “Run Now”)
+Context. Owners define simple automations (e.g., “send reminder X days before booking”, “auto-tag no-show customers”). Must be safe, auditable, and idempotent.
+Tithi (1)
+Inputs.
+Endpoints: GET/POST/PUT/DELETE /api/v1/automations, POST /api/v1/automations/{id}/run?mode=dry|live.
+
+
+Automation schema: id,name,trigger,conditions[],actions[],enabled,schedule.
+
+
+Shared list pagination standard.
+ Tithi (1)
+
+
+Outputs.
+Route: /admin/automations (table, builder editor, “Run now” button).
+
+
+Dry-run modal shows affected count and sample records; live run requires confirm.
+
+
+Acceptance Criteria (AC).
+Create/update/delete automation with validation of triggers/conditions/action compatibility (e.g., cannot send more than allowed reminders).
+
+
+Dry-run reports exactly which records would be touched; no writes occur.
+
+
+Live run is idempotent for the same scope window; duplicate actions are not re-applied.
+
+
+RBAC guard: only owner/admin roles can create or run.
+
+
+Pagination, filters (enabled, trigger type), and URL-sync.
+
+
+DoR.
+Trigger/action catalog documented (with schemas).
+
+
+Event names: automations.create|update|delete|run_started|run_completed (+ result counts).
+
+
+Observability.
+Emit run metrics: scanned, matched, acted, duration, error_count; store last-run status for each automation.
+
+
+Performance.
+UI interactions ≤ 200ms; dry-run response within SLA (backend), UI shows progress with cancel.
+
+
+Idempotency & Retry.
+All writes include Idempotency-Key.
+
+
+Run endpoints support de-duplication window; UI retries on 429.
+
+
+
+T35. Loyalty Module (Rules / Balances / Redeem)
+Context. Optional loyalty for repeat customers. Owners issue/redeem points or credits; checkout can consume eligible balance. Must obey privacy rules and be observable.
+Tithi (1)
+Inputs.
+Endpoints: GET/POST /api/v1/loyalty/rules, GET/POST /api/v1/loyalty/balances, POST /api/v1/loyalty/redeem.
+
+
+Rule schema (examples): earn per dollar, bonus for category, expiry policy.
+
+
+Analytics taxonomy + PII policy.
+ Tithi (1)
+
+
+Outputs.
+Route: /admin/loyalty (rules editor + customer balances table + issue/redeem modal).
+
+
+Checkout integration: apply loyalty credit before payment (if enabled).
+
+
+Acceptance Criteria (AC).
+Create/enable rules; issuing and redeeming updates balances atomically and shows in audit log.
+
+
+Checkout correctly reflects discount and never reduces below zero; loyalty + gift card stack rules honored.
+
+
+Expiry & ineligible scenarios are surfaced gracefully.
+
+
+CSV export for balances; filters & pagination present.
+
+
+UI copy contains no PII beyond customer name/email; admin-only views protected.
+
+
+DoR.
+Rule and balance DTOs signed; stacking rules clarified; i18n strings provided.
+
+
+Events: loyalty.rule_update, loyalty.issue, loyalty.redeem.
+
+
+Observability.
+Emit above events; add reconciliation metric comparing redeemed value vs ledger (±1%/24h window).
+
+
+Performance.
+Balances table initial load ≤ 500ms API; editor open ≤ 150ms median.
+
+
+Idempotency & Retry.
+Issue/redeem endpoints require Idempotency-Key.
+
+
+429 handling with backoff; UI protects against double-submit.
+
+
+
+T40. Notifications Event Hooks (End-to-End Wiring)
+Context. Ensure all notification actions produce analytics events with schema-validated payloads (no PII leakage). This connects Phase 6 to Phase 7 readiness.
+Tithi (1)
+Inputs.
+Event taxonomy file (names, fields, PII flags).
+
+
+Notification Admin actions & Preview API.
+
+
+Outputs.
+useTelemetry() integration on: template save, preview send, send attempt, quiet-hours violation.
+
+
+CI replay that validates event payloads against schema.
+
+
+Acceptance Criteria (AC).
+0 schema validation errors in CI replay; drop-rate <1%.
+
+
+Privacy linter blocks adding disallowed PII fields to payloads.
+
+
+Dashboards (P7) can consume these events (contract tests in repo).
+
+
+DoR.
+Taxonomy approved; SDK helper available; env keys set.
+
+
+Observability.
+Track event enqueue failures with backoff & alert threshold.
+
+
+Performance.
+Telemetry enqueue non-blocking; adds ≤ 10ms median overhead to UI actions.
+
+
+Idempotency & Retry.
+Client dedup key for re-emitted events on retry paths.
+
+
+
+Shared standards applied across Phase 6 tickets
+A11y: WCAG 2.1 AA; labeled controls; focus ring; modals trap focus; contrast ≥ 4.5:1.
+
+
+Perf: LCP/CLS/INP targets as above; tables virtualized for large lists; code-split drawers.
+
+
+Pagination/Filters: All list screens adopt usePagedQuery() and URL-synced filters.
+
+
+Security: JWT auth; role checks on admin routes; no customer PII in analytics payloads.
+
+
+Testing: Unit ≥90% components / ≥95% hooks; API integration ≥80%; E2E for:
+
+
+create+enforce notifications, gift card apply, loyalty redeem, automation dry-run/live.
+
+
+Branding: White-label guarantee; logo/color tokens applied; no “Tithi” on customer-facing flows.
+ Tithi (1)
+Phase 7 — Analytics (Goal & Exit)
+Phase Goal
+ Ship the owner-facing Analytics surfaces that visualize revenue, bookings, customers, and key KPIs (e.g., no-show rate, booking volume, top customers), with CSV export, sane filters, and observable event coverage. Data must reconcile with the backend analytics endpoints and emitted product events.
+Exit (must be true to move to Phase 8)
+Analytics pages render revenue/booking/customer metrics for selectable ranges and groupings.
+
+
+CSV export available for all charts/tables; PNG export for charts.
+
+
+Metrics reconcile (±1% over 24h) with event stream (per taxonomy).
+
+
+Web Vitals budgets met on Analytics routes; error budgets & retries defined.
+
+
+Observability hooks emit per the analytics taxonomy with 0 schema violations in CI replay.
+
+
+
+T18. Analytics (Owner) — Core KPIs & Panels
+Context
+ Owner needs at-a-glance KPIs and drillable charts for revenue, bookings, customers; supports CSV export. (Primary Analytics task.)
+Inputs
+Backend endpoints: /api/v1/analytics/revenue|bookings|customers (DTOs incl. RevenueAnalytics).
+
+
+Event taxonomy (names/fields) for reconciliation.
+
+
+Design primitives: AnalyticsPanel organism.
+
+
+Outputs
+/admin/analytics route with sections: KPIs, Revenue chart, Bookings chart, Top Customers table.
+
+
+CSV export buttons; PNG export on charts.
+
+
+Acceptance Criteria (AC)
+Shows Revenue, Booking Volume, No-Show Rate, Top Customers with correct units.
+
+
+Date range presets (7/30/90 days, YTD) + custom range.
+
+
+Group by day/week/month; timezone consistent with tenant.
+
+
+CSV exports include header row with field names.
+
+
+PNG export downloads current chart view.
+
+
+Empty/loading/error states implemented.
+
+
+DoR (Definition of Ready)
+Confirm field names & sample payloads for analytics endpoints.
+
+
+Final chart designs (axes, legends, tooltips).
+
+
+Event taxonomy loaded in app (for reconciliation task below).
+
+
+Observability
+analytics.view, analytics.export_csv, analytics.export_png (payload: widget_id, range, group_by).
+
+
+Perf
+First chart data fetch < 500ms p75; route LCP p75 < 2.0s.
+
+
+Idempotency
+Exports are GET/derivative; ensure duplicate clicks produce identical files for the same query params.
+
+
+
+T18.1 Analytics Filters & Grouping
+Context
+ Productivity hinges on quick slicing/dicing.
+Inputs
+Query params spec for lists/analytics (pagination/filtering standard).
+
+
+Tenant timezone & locale.
+
+
+Outputs
+Shared filter bar: range presets, custom date picker, group by (day/week/month), service filter, staff filter.
+
+
+URL-synced state.
+
+
+AC
+Filters persist via URL; back/forward restore state.
+
+
+Tenants see their timezone reflected in axes/ticks.
+
+
+Service/staff filters narrow both charts and tables.
+
+
+DoR
+Finalized param names for endpoints; list/filtering standard available.
+
+
+Observability
+analytics.filter_apply (range, group_by, filters_count).
+
+
+Perf
+Filter change → refreshed chart in < 200ms client render after network.
+
+
+Idempotency
+N/A (GETs). Cache same query key.
+
+
+
+T18.2 Top Customers & Drill-downs
+Context
+ Identify and drill into high-value customers.
+Inputs
+/api/v1/analytics/customers (fields: customer, bookings_count, spend_cents, last_seen).
+
+
+Owner Customers list route for drill-through.
+
+
+Outputs
+Table with sort (spend, bookings, last seen) + “View Customer” action.
+
+
+AC
+Sorting stable & deterministic.
+
+
+Clicking a row opens Customer detail drawer/page showing history.
+
+
+DoR
+DTO fields confirmed; link target ready.
+
+
+Observability
+analytics.top_customers_row_click.
+
+
+Perf
+Sort/paginate without re-fetch when possible (server-side allowed if needed).
+
+
+Idempotency
+N/A.
+
+
+
+T18.3 Exports & Sharing (CSV/PNG)
+Context
+ Owners need data out for finance ops & presentations.
+Inputs
+Chart/table data models.
+
+
+File generation utilities.
+
+
+Outputs
+CSV for each table; CSV for chart series; PNG of chart canvas.
+
+
+AC
+File names include business slug, widget, ISO date range.
+
+
+CSV uses comma delimiter, UTF-8 BOM, RFC4180 quoting.
+
+
+PNG export matches on-screen legend/filters.
+
+
+DoR
+Confirm field order & localization rules (numbers/currency unlocalized in CSV).
+
+
+Observability
+analytics.export_* with success/error and file_size.
+
+
+Perf
+Export builds in < 1s for 10k rows.
+
+
+Idempotency
+Same query → identical CSV bytes.
+
+
+
+T18.4 Data Wiring & Contracts Compliance
+Context
+ Strong typing and error handling on all analytics calls.
+Inputs
+Analytics endpoints + DTO typings.
+
+
+Global TithiError handling.
+
+
+Outputs
+/src/api/analytics.ts with typed functions & tests.
+
+
+Retry for transient 429 using Retry-After.
+
+
+AC
+All functions typed; no any.
+
+
+429 respected; exponential backoff with jitter.
+
+
+TithiError surfaced to UI toasts; inline messaging on panels.
+
+
+DoR
+DTOs & examples checked in.
+
+
+Retry/backoff policy documented.
+
+
+Observability
+api.analytics.request|success|error (status, retry_count).
+
+
+Perf
+Batch requests where feasible; avoid N+1 calls.
+
+
+Idempotency
+GETs cached by query key for session.
+
+
+
+T18.5 Reconciliation & Data Quality (DQ)
+Context
+ Build trust: UI totals must match backend/event stream.
+Inputs
+Event taxonomy (names, fields, PII policy).
+
+
+Backend analytics definitions.
+
+
+Outputs
+Nightly CI replay test comparing sampled event aggregates vs. endpoint totals.
+
+
+UI badge if data freshness is degraded (e.g., >15 min lag).
+
+
+AC
+±1% tolerance over 24h window for revenue & booking counts.
+
+
+CI gate fails on schema violations or >1% drift.
+
+
+Freshness indicator visible when backend marks data stale.
+
+
+DoR
+Event schemas finalized; sample payloads available.
+
+
+Observability
+analytics.reconcile_pass|fail with deltas.
+
+
+Perf
+CI job < 5 min runtime on sample set.
+
+
+Idempotency
+CI job safe to re-run; produces same report for same input set.
+
+
+
+T18.6 Caching & Loading States
+Context
+ Keep the Analytics UX snappy and clear while loading.
+Inputs
+Chosen cache strategy (SWR/RTK Query/etc.).
+
+
+Skeleton components.
+
+
+Outputs
+Cache keys per (widget, range, group_by, filters).
+
+
+Skeletons & error boundaries.
+
+
+AC
+Repeat visits within 10 min use warm cache; “Refresh” forces re-fetch.
+
+
+Offline state shows last known data with badge.
+
+
+DoR
+Cache TTL decisions signed off.
+
+
+Observability
+analytics.cache_hit|miss|stale.
+
+
+Perf
+Cache hit render < 100ms.
+
+
+Idempotency
+Cache invalidation deterministic via same key composition.
+
+
+
+T18.7 Access Control & Privacy
+Context
+ Enforce tenant isolation and avoid PII leaks in analytics.
+Inputs
+Auth roles; PII policy from taxonomy.
+
+
+Outputs
+Server calls always include tenant scope; UI hides PII where not needed.
+
+
+AC
+No cross-tenant data in UI/network logs.
+
+
+CSV excludes restricted PII columns by role.
+
+
+SSO sign-out clears cached analytics.
+
+
+DoR
+Role matrix & PII flags confirmed.
+
+
+Observability
+security.pii_field_blocked, auth.role_denied.
+
+
+Perf
+Negligible overhead from role gating.
+
+
+Idempotency
+N/A.
+
+
+
+T18.8 Tests & QA Matrix (Analytics)
+Context
+ Guarantee correctness and guard against regressions.
+Inputs
+Playwright setup; Axe a11y tooling; Web Vitals CI.
+
+
+Outputs
+Unit tests (components 90%+), hooks 95%+, API 80%+.
+
+
+E2E: load analytics, apply filters, export CSV/PNG, drill to customer.
+
+
+AC
+Visual regression snapshots for charts and KPI tiles.
+
+
+Axe score ≥ 98% on analytics route.
+
+
+Web Vitals thresholds met on CI run.
+
+
+DoR
+Baseline screenshots recorded.
+
+
+Observability
+CI emits qa.analytics_suite_pass|fail.
+
+
+Perf
+E2E suite < 4 min.
+
+
+Idempotency
+Tests seed deterministic fixtures; repeatable outputs.
+
+
+
+Phase 7 — Done / Move to Phase 8 Checklist
+/admin/analytics shipped with KPIs + Revenue/Bookings charts + Top Customers table.
+
+
+Filters (range/group_by/service/staff) URL-synced and persisted.
+
+
+CSV & PNG export working, named correctly, correct columns.
+
+
+Reconciliation CI green, drift ≤ ±1%; freshness badge wired.
+
+
+All analytics API calls typed, retried on 429, and cached; empty/loading/error states present.
+
+
+A11y ≥ 98% Axe; LCP p75 < 2.0s on analytics route; INP p75 < 200ms.
+
+
+Observability: events emitted per taxonomy with 0 schema errors; dashboards show usage.
+
+
+Access control and PII redaction validated.
+
+
+QA matrix passed on desktop + mobile targets.
+
+
+If you want, I can drop these as canvas tickets (one block per task with copy-ready AC & DoR you can paste into Jira/Linear).
+Phase 8 — Goal & Exit Criteria
+Goal: Ship a production-grade frontend that consistently meets WCAG 2.1 AA, Web Vitals targets, browser/device coverage, stable pagination/filtering, canonicalized payments flow, and fully wired telemetry with schema guarantees.
+Exit criteria to move to Phase 9:
+Axe CI ≥ 98% per route; no keyboard traps; all interactive controls labeled.
+
+
+Web Vitals thresholds met: Public: LCP p75 < 2.5s, CLS p75 < 0.1, INP p75 < 200ms. Admin: LCP p75 < 2.0s.
+
+
+Initial bundle < 500KB; major route bundles < 250KB.
+
+
+i18n foundation in place (ICU messages; locale, currency, timezone correctness throughout booking).
+
+
+Cross-browser matrix green on Chromium/Firefox/WebKit + iOS/Android emulations; flake < 2%.
+
+
+Event taxonomy enforced at runtime; 0 schema validation errors in CI replay; event drop rate < 1%.
+
+
+Shared pagination/filtering implemented across lists; URL-synced and idempotent.
+
+
+Canonical payments abstraction used across Public Checkout and Admin Attendance; idempotent + 3DS + 429/backoff proven in tests.
+
+
+
+T26 — A11y & Perf Hardening (P8)
+Context. Bake in WCAG 2.1 AA compliance and Web Vitals budgets across all critical routes; enforce visual regression for branding placement.
+Inputs.
+WCAG 2.1 AA targets & contrast ≥ 4.5:1
+
+
+Route performance budgets (LCP/CLS/INP), bundle caps
+
+
+Branding placement rules (large logo on Welcome; small logo elsewhere)
+
+
+Outputs.
+Axe CI pipeline & per-route audits
+
+
+Lighthouse/Web-Vitals CI checks
+
+
+Route-split & prefetch configuration, lazy loads, code-splitting
+
+
+Visual regression snapshots for branding/header
+
+
+Acceptance Criteria (AC).
+Axe score ≥ 98% on every route; no keyboard traps; all form fields programmatically labeled.
+
+
+Public: LCP p75 < 2.5s, CLS p75 < 0.1, INP p75 < 200ms. Admin: LCP p75 < 2.0s.
+
+
+Initial bundle < 500KB; each major route bundle < 250KB.
+
+
+Visual snapshots prevent white-label regressions (logo size/placement).
+
+
+Definition of Ready (DoR).
+Routes enumerated; critical user journeys listed.
+
+
+Budget thresholds documented and agreed.
+
+
+Test data & fixtures for empty/loading/error states.
+
+
+Observability.
+Emit perf.vitals_pass|fail, a11y.audit_pass|fail with route + thresholds.
+
+
+Performance.
+Preconnect for Stripe/Supabase; route-level code-split; image lazy-loading & fixed dimensions.
+
+
+Idempotency.
+N/A (read-only), ensure perf tests re-runnable without side-effects.
+
+
+
+T27 — Observability & Analytics Wiring (P8)
+Context. Provide a single useTelemetry() hook that validates event payloads against the approved taxonomy; wire Sentry & sampling.
+Inputs.
+Event taxonomy (names, schemas, PII flags)
+
+
+Sentry DSN; sampling rules
+
+
+Outputs.
+useTelemetry() with runtime schema validation
+
+
+CI replay that asserts 0 schema errors
+
+
+Sentry + Web Vitals integration
+
+
+AC.
+0 invalid events in CI replay; event drop rate < 1% in staging.
+
+
+Critical flows emit: onboarding step views/submits, public booking step views, checkout submits, payment success/failure, notifications preview/send, loyalty issue/redeem, automations run.
+
+
+PII flags respected (no sensitive fields in telemetry).
+
+
+DoR.
+Finalized analytics-events.json + retention rules.
+
+
+Redaction policy decided.
+
+
+Observability.
+analytics.schema_loaded, telemetry.emit_failed, sampling metrics exposed.
+
+
+Performance.
+Telemetry is non-blocking; network idle penalty < 10ms median per event.
+
+
+Idempotency.
+Client dedupe for duplicate emits within 1s window.
+
+
+
+T28 — Test Suite & CI Gates (P8)
+Context. Raise quality bars across unit, hooks, API integration, E2E, and visual regression.
+Inputs.
+Coverage targets: components 90%+, hooks 95%+, API 80%+
+
+
+End-to-end flows: Onboarding, Booking, Attendance→Payment, Notifications, Loyalty, Automations
+
+
+Outputs.
+Jest/Vitest suites; Playwright E2E; Percy/Chromatic snapshots
+
+
+Coverage thresholds enforced in CI
+
+
+AC.
+All coverage bars pass; red builds on regressions.
+
+
+E2E green for all named flows; fixtures for 3DS and 429 simulations.
+
+
+Branding snapshots locked.
+
+
+DoR.
+Stable seed data; mock servers for payments/notifications.
+
+
+Observability.
+qa.ci_pass|fail, flaky test tracker.
+
+
+Performance.
+CI completes within agreed SLA; test parallelism configured.
+
+
+Idempotency.
+Tests re-runnable; data reset hooks per spec.
+
+
+
+T37 — Cross-Browser & Mobile QA Gates (P8)
+Context. Guarantee consistent UX on modern desktop & mobile.
+Inputs.
+Responsive tokens & breakpoints
+
+
+Device matrix: Chromium, WebKit, Firefox; iOS Safari/Chrome Mobile
+
+
+Outputs.
+Playwright matrix job with screenshots
+
+
+Device-specific bug tracker tags
+
+
+AC.
+All key routes pass smoke on matrix; screenshot diffs approved.
+
+
+Flake rate < 2%.
+
+
+DoR.
+Route list + viewports; baseline screenshots.
+
+
+Observability.
+qa.matrix_run with pass/fail counts & flake rate.
+
+
+Performance.
+Mobile first paint meets budgets; no horizontal scroll on XS.
+
+
+Idempotency.
+Runs produce deterministic screenshots (fixed times/IDs).
+
+
+
+T38 — i18n Foundation (P8)
+Context. Localize strings and normalize date/time/currency; show tenant timezone consistently in booking.
+Inputs.
+ICU message catalog
+
+
+Tenant currency & timezone data
+
+
+Outputs.
+formatCurrency, formatDate, locale detector
+
+
+RTL-safety lint rules
+
+
+AC.
+100% of user-visible strings externalized to ICU.
+
+
+Dates/times reflect tenant timezone on Welcome/Availability/Checkout/Confirmation.
+
+
+Currency localized by tenant.
+
+
+RTL sanity check passes.
+
+
+DoR.
+Baseline language (en) frozen; extraction pipeline in place.
+
+
+Observability.
+i18n.locale_resolved, missing-key logger (should be 0).
+
+
+Performance.
+i18n bundle tree-shaken; lazy-load non-default locales.
+
+
+Idempotency.
+N/A.
+
+
+
+T41 — Pagination & Filtering Standardization (P8)
+Context. One shared pattern for list pages (bookings, services, customers, staff, templates, coupons, automations).
+Inputs.
+Pagination/filtering spec
+
+
+List endpoints & query param contracts
+
+
+Outputs.
+usePagedQuery() + URL-synced filters
+
+
+Uniform empty/loading/error states
+
+
+AC.
+All lists use the shared hook; refresh is idempotent and stable.
+
+
+Filter state serializes to URL and back.
+
+
+Back/forward navigation restores list state exactly.
+
+
+DoR.
+Confirmed param names, defaults, and sorting semantics.
+
+
+Observability.
+list.paginate, list.filter_apply with list name + timing.
+
+
+Performance.
+Page < 500ms API budget; infinite scroll optional with prefetch.
+
+
+Idempotency.
+Page/filer transitions are repeatable; no duplicate fetches (dedupe keying).
+
+
+
+T42 — Payments Canonicalization (P8)
+Context. Unify Admin Attendance→Payment and Public Checkout behind one abstraction; enforce idempotency and 3DS handling.
+Inputs.
+Canonical payments doc
+
+
+Payment intent/confirm endpoints; webhook behaviors
+
+
+Outputs.
+Payments SDK wrapper (single code path)
+
+
+Retry/backoff policy for 429 using Retry-After
+
+
+3DS modal flow + webhook reconciliation
+
+
+AC.
+Both Admin and Public routes call the same abstraction.
+
+
+Idempotency-Key present on all creates/updates; safe retries proven.
+
+
+3DS success/cancel/error paths covered by E2E; UI reconciles webhook updates.
+
+
+Ledger reconciliation checks pass.
+
+
+DoR.
+Chosen canonical path; test cards & webhook simulator.
+
+
+Observability.
+payments.intent_created|confirmed|failed, latency histograms.
+
+
+Performance.
+Added latency from wrapper < 10ms.
+
+
+Idempotency.
+Strictly enforced for all mutation calls.
+
+
+
+T43 — Breakpoints & Typography Scale Tokens (P8)
+Context. Centralize responsive breakpoints & type scale; prevent layout and readability drift.
+Inputs.
+Tailwind config
+
+
+Route layouts
+
+
+Outputs.
+/src/styles/tokens.ts and Tailwind theme extension
+
+
+/docs/responsive.md with examples
+
+
+AC.
+XS/SM/MD/LG/XL breakpoints codified; pages conform with grid-based layouts.
+
+
+Snapshot baselines per route; no horizontal scroll on XS.
+
+
+DoR.
+Inventory of components with size variants.
+
+
+Observability.
+Optional ui.responsive_snapshot_updated when baselines change.
+
+
+Performance.
+No added client JS; CSS tokens only.
+
+
+Idempotency.
+N/A.
+
+
+
+Phase 8 Completion → Phase 9 Readiness
+When T26, T27, T28, T37, T38, T41, T42, T43 are all green and the Exit criteria at top are satisfied, Phase 8 is complete and you’re cleared to enter Phase 9 (Release & growth initiatives). If you want, I can drop these as canvas tickets (one block per task with copy-ready AC/DoR) so you can assign immediately.
+

@@ -1,0 +1,13 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d1b52"/>
+      <stop offset="50%" stop-color="#3145ff"/>
+      <stop offset="100%" stop-color="#120828"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <text x="120" y="310" fill="#ffffff" font-family="Plus Jakarta Sans, Inter, sans-serif" font-size="120" font-weight="600">Tithi</text>
+  <text x="120" y="400" fill="#c7d2fe" font-family="Plus Jakarta Sans, Inter, sans-serif" font-size="38">Transform your booking process with our revolutionary platform</text>
+</svg>
+

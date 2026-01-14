@@ -1,0 +1,111 @@
+# 0. New Files Added in Phase 2
+
+| File | Purpose |
+| --- | --- |
+| `apps/web/src/lib/fake-business.tsx` | In-memory store for a single owner business, booking link, and subscription status once onboarding completes. |
+| `apps/web/src/lib/onboarding-context.tsx` | Central reducer + context managing onboarding state, progress, and fake persistence across steps. |
+| `apps/web/src/components/onboarding/*` | End-to-end onboarding wizard components (shell, step forms, previews, confetti). |
+| `apps/web/src/app/app/page.tsx` | Redirect shim that routes owners to `/app/b/{businessId}` once onboarding finishes or back to onboarding otherwise. |
+| `apps/web/src/app/app/b/[businessId]/page.tsx` | Admin overview surface powered by fake state; mirrors onboarding data and explains upcoming money board flows. |
+| `docs/frontend/phase-2-spec.txt` | This Phase 2 product + implementation specification. |
+
+# 0.1 Phase 2 Implementation Summary
+
+1. **Full Onboarding Wizard**
+   - Replaced the placeholder `/onboarding` page with a 12-step wizard sourced from `frontend logistics.txt`. Steps span Business basics → Go Live, respecting layout, copy, tokens, and validation rules.
+   - Added progress navigation, autosave across steps, and enforced one-business-per-owner via `FakeBusinessProvider`.
+2. **Data Capture & Previews**
+   - Business identity, subdomain reservation (regex + reserved words), location/contact info, scheduling-only team, and branding (logo preview optimized for 960×1280 portrait, mobile-first service grid).
+   - Services are strictly nested inside categories. Staff assignments flow into availability where per-service, per-staff weekly slots are captured with overlap-friendly preview.
+   - Notifications editor ships with placeholder linting, sample preview, channel/trigger controls, and template enablement toggles.
+   - Policies modal builder supports flat/percent fees, consent messaging, and scrollable preview. Gift cards (optional) include amount vs percent discounts, expiration toggles, and code generation.
+3. **Payments & Launch**
+   - Payment setup simulates Stripe Connect onboarding, accepted method toggles (cards mandatory), and subscription states (trial/active/paused/canceled) with trial/bill date projections.
+   - Go Live screen fires confetti, surfaces the booking link, highlights onboarding stats, and transitions to admin while instantiating the fake business record.
+4. **Admin Shell**
+   - Added `/app/b/{businessId}` overview showing key onboarding outputs, switches disabled for single-business guardrails, policy snapshots, gift card status, and roadmap hints for the upcoming money board.
+   - `/app` now redirects owners to onboarding or their business automatically.
+5. **Context Providers**
+   - `OnboardingProvider` centralizes wizard state, exposes `generateBusinessFromState`, and wires booking link creation. `FakeBusinessProvider` stores the live workspace metadata for downstream surfaces.
+
+# 1. Vision Alignment
+
+Phase 2 delivers the owner onboarding flow exactly as specified in `frontend logistics.txt`, ensuring Stripe-first manual capture behavior is explicit before backend integration. The wizard captures all data required to drive the future booking site, money board, notifications, and subscription flows. Admin remains fake but now reflects real configuration, bridging the gap until backend endpoints connect.
+
+# 2. Routed Surfaces
+
+| Route | Purpose | Notes |
+| --- | --- | --- |
+| `/onboarding` | 12-step wizard, post-signup landing | Redirects to `/login` if unauthenticated, to `/app/b/{businessId}` if business already exists. |
+| `/app` | Guarded redirect | Sends owners to onboarding (no business) or `/app/b/{businessId}` (live business). |
+| `/app/b/{businessId}` | Admin overview placeholder | Mirrors onboarding data, surfaces booking link, and outlines upcoming features. |
+
+Business switcher is present but disabled—Phase 2 enforces one business per owner.
+
+# 3. Onboarding Wizard (Detail)
+
+1. **Business** – name, description (240 char), DBA, legal, industry (datalist). Live character counters and helper copy per spec.
+2. **Website** – subdomain validation (`[a-z0-9-]{3,63}`, reserved words) with asynchronous fake availability reservation. Shows URL preview and reserved messaging.
+3. **Location & Contacts** – Olson timezone check, E.164-style phone, support email, optional website, structured address.
+4. **Team** – scheduling-only staff with color picker, edit/remove controls, and availability guidance. Requires ≥1 member.
+5. **Branding** – portrait-first logo upload (960×1280 recommended), aspect ratio warning, theme color selector, mobile booking preview showing services as tinted rectangles per category.
+6. **Services & Categories** – strict parent-child creation. Services capture description, duration, price, instructions, and staff assignments. Inline editing/removal and summary counts.
+7. **Availability** – per-service/per-staff weekly slots, validation for start/end, overlapping preview by day (color-coded). Only staff assigned to the service can be scheduled.
+8. **Notifications** – templated editor with channel, trigger, subject (email), placeholder insertion chips, linting for unknown tokens, enable/disable toggles, and sample preview.
+9. **Policies** – cancellation, no-show, refund, and cash policies with flat/percent fees, preview modal snapshot, and consent notes.
+10. **Gift Cards** (optional) – toggle, amount vs percent configuration, expiration control, code generation.
+11. **Payment Setup** – Stripe Connect simulation, accepted payment methods (cards locked on), subscription state controls, trial/next-bill projections, and Connect status messaging.
+12. **Go Live** – Confetti overlay, booking link, summary stats, admin launch CTA. Completes onboarding, stores fake business record, and redirects to admin.
+
+Navigation enforces step order while allowing backward/previous-step edits; future steps remain disabled until the prior step is active or complete.
+
+# 4. Validation & Edge Cases
+
+- **Subdomains**: Regex guard, reserved list, and lowercase normalization prior to booking link generation.
+- **Availability**: Each service with assigned staff must have at least one slot before continuing; start time must precede end time.
+- **Placeholders**: Notifications step blocks unknown `${...}` tokens and surfaces lint errors inline.
+- **Fees**: Percent fees capped at 100; flat values limited to ≥0. Policies preview updates in real time.
+- **Gift Cards**: Code generator avoids ambiguous characters; amount/percent toggles enforce value bounds; expiration optional.
+- **Payments**: Card method cannot be disabled; Connect completion seeds trial/next bill (7-day default).
+- **Single Business**: `FakeBusinessProvider` ignores duplicate creations; admin and onboarding guard against multi-business attempts.
+
+# 5. Admin Overview (Phase 2)
+
+`/app/b/{businessId}` reflects onboarding outputs:
+
+- Overview cards (location, service volume, subscription state) and next steps callouts.
+- Policy snapshot, gift card status, upcoming roadmap sections (money board, payments, notifications).
+- Booking link button opens the public URL; switcher banner reminds owners multi-business is forthcoming.
+- Sign out leverages existing fake session provider.
+
+Future backend work will replace fake data with real API calls, preserving component contracts defined here.
+
+# 6. Data & Context
+
+- `OnboardingProvider`: holds `business`, `website`, `location`, `team`, `branding`, `services`, `availability`, `notifications`, `policies`, `giftCards`, `paymentSetup`, `bookingUrl`, and progress arrays with setter helpers.
+- `FakeBusinessProvider`: stores `FakeBusiness` (id, slug, bookingUrl, subscription status, bill dates) once onboarding completes.
+- Both providers wrap `AppProviders`, ensuring state availability for onboarding and admin surfaces.
+
+# 7. Outstanding Items & Next Steps
+
+- Implement backend APIs to persist onboarding data, Stripe Connect state, and booking link provisioning.
+- Replace fake session/business providers with authenticated tenant-aware stores.
+- Wire public booking flow (`https://{subdomain}.tithi.com`) once backend endpoints exist.
+- Ship the money board (Completed/No-Show/Cancel/Refund) with Stripe Connect captures and ledger.
+- Add multi-business support (business picker) alongside real subscription management.
+
+# 8. Testing & Dev Notes
+
+- State currently persists in-memory per session. Refresh resets onboarding progress; fake flows assume uninterrupted completion during design reviews.
+- `npm run dev` launches the Next.js app; no additional build steps required. Confetti uses lightweight CSS animations (no extra dependency).
+- All UI adheres to `frontend logistics.txt` spacing, tokens, and copy; hero previews stay mobile-first while scaling to desktop.
+
+# 9. Deliverable Checklist (Phase 2)
+
+- [x] Owner lands in onboarding immediately after signup; admin available only post-launch.
+- [x] 12-step wizard capturing all data required by future booking/admin flows.
+- [x] Confetti & admin CTA on completion with generated booking link.
+- [x] Admin overview reflecting onboarding data and manual capture emphasis.
+- [x] Updated documentation (this spec) and context providers for fake persistence.
+
+

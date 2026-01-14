@@ -1,0 +1,3157 @@
+Auth and tenancy
+
+Ground rules (your clarified model)
+
+One user = one business.
+
+Only one login per business (the “owner” account).
+
+No staff authentication; in real life, a receptionist would just use the owner’s credentials.
+
+No dashboard/tenant picker – after login, the owner goes straight to their admin view.
+
+Customers never sign in. They just fill name / phone / email when booking; that data is stored on the booking and visible in the owner’s “past bookings” view.
+
+With that in mind, here’s the updated breakdown of what I’d do for auth & tenancy.
+
+1. Auth style: Sessions vs JWTs
+What the app actually needs
+
+A simple, secure way for the owner to log in.
+
+Authenticated API calls from the frontend to:
+
+fetch bookings,
+
+manage services/availability,
+
+see past bookings, etc.
+
+Public booking flow that does not require login (just form submissions).
+
+Options
+
+Option A – Traditional server sessions
+
+Browser stores a session cookie.
+
+Backend keeps a session row (user_id, expiry, etc.).
+
+Pros:
+
+Very easy mental model.
+
+Easy to kill all sessions.
+
+Cons:
+
+More awkward if you ever want:
+
+mobile apps,
+
+fully decoupled API,
+
+serverless / edge compute.
+
+Not aligned with Supabase’s “JWT + RLS” sweet spot.
+
+Option B – JWT-based auth (Supabase style)
+
+On login, Supabase issues:
+
+a short-lived access token (JWT),
+
+a refresh token.
+
+Frontend attaches access token to requests.
+
+DB uses JWT + RLS to only return the current user’s data.
+
+Pros:
+
+Built-in with Supabase.
+
+Works great for SPAs and APIs.
+
+Plays perfectly with Postgres RLS for isolation.
+
+Cons:
+
+Token/refresh flow is conceptually more complex than just “session cookie.”
+
+What I’d choose for Tithi
+
+👉 JWT-based auth using Supabase Auth.
+
+Why:
+
+You’re already committing to Supabase and Postgres.
+
+You still want a clean API surface & good security story.
+
+Even though you only have one owner per business, you still have many businesses/users, so per-user isolation matters.
+
+We can keep the mental model simple:
+
+owner logs in → frontend gets Supabase session → calls APIs as that user.
+
+2. Refresh strategy
+Options
+
+Option A – Long-lived single token, no refresh
+
+Access token lives for days/weeks.
+
+Easier, but if it leaks, attacker has a lot of time.
+
+Option B – Short-lived access token + long-lived refresh token
+
+Access token: 5–15 minutes.
+
+Refresh token: 30–90 days.
+
+Frontend silently refreshes in the background.
+
+If you revoke the refresh token, attacker can’t keep renewing.
+
+What I’d choose for Tithi
+
+👉 Short-lived access tokens + longer-lived refresh tokens (Supabase default).
+
+Why:
+
+You get good security with almost no extra work, because Supabase already handles this pattern.
+
+The owner’s experience is still smooth:
+
+They stay logged in for a long time (thanks to refresh token).
+
+If something looks wrong, we can invalidate refresh tokens (e.g., on password reset).
+
+3. MFA (Multi-Factor Authentication)
+Why MFA slows v1
+
+Even a basic MFA setup comes with a lot of extra surface area:
+
+Extra flows:
+
+Enable MFA.
+
+Verify a 6-digit code on login.
+
+Disable MFA.
+
+Reset/recover if user loses their device.
+
+Data to manage:
+
+TOTP secrets or phone numbers.
+
+Backup codes for recovery.
+
+Logs of failed attempts.
+
+Edge cases:
+
+What happens after too many failed codes?
+
+What if user changes their phone number?
+
+How does support help them recover?
+
+That’s all on top of normal login/password flows you already have to get right.
+
+What I’d choose for Tithi
+
+👉 Skip MFA for v1.
+
+Tithi v1 is small-surface: one owner per business, no staff accounts, no client logins.
+
+You can get very decent security from:
+
+strong passwords,
+
+short-lived access tokens,
+
+secure Stripe integration (Stripe stores card data, not you).
+
+In a later phase, when you want “serious security hardening,” we can:
+
+add an mfa_methods table,
+
+implement TOTP/email OTP,
+
+expose it in the admin UI.
+
+For now, it is more important to ship a working product than to build full enterprise-style auth.
+
+4. Tenant isolation: how to separate businesses
+
+Your reality:
+
+Each user owns exactly one business.
+
+No user ever needs to switch businesses.
+
+But there are many users, each with their own data.
+
+So “multi-tenant” for you basically means “each user must only ever see their own rows.”
+
+Options
+
+Option A – App-level filtering
+
+Every query manually filters by user_id:
+
+SELECT * FROM bookings WHERE user_id = current_user_id.
+
+Pros:
+
+Simple to understand.
+
+Cons:
+
+If you forget WHERE user_id = ... even once, you can leak data.
+
+As features grow, this risk increases.
+
+Option B – Postgres RLS (Row-Level Security)
+
+Every table that belongs to an owner has user_id.
+
+You define policies like:
+
+USING (user_id = auth.uid())
+
+Postgres itself refuses to return rows for other users, even if you write a bad query.
+
+Pros:
+
+Very strong safety net.
+
+Designed to work with Supabase (this is their main pattern).
+
+Cons:
+
+Initial policy setup is an extra step.
+
+What I’d choose for Tithi
+
+👉 Use Postgres RLS with user_id as the isolation key.
+
+Concrete shape:
+
+users table (Supabase auth users).
+
+businesses table with a user_id column (1–1).
+
+services, availability_rules, bookings, etc. all have user_id.
+
+RLS policy: user_id = auth.uid() on each of these tables.
+
+This keeps your model extremely simple:
+
+No tenant picker.
+
+No “active tenant” concept.
+
+Just “rows belong to user X, and Postgres will only show user X their own rows.”
+
+5. Enforcing tenant context in code
+
+Given the above, the “tenant context” is basically just:
+
+“Which user is making this request?”
+
+Since one user = one business, we do not need any extra tension around tenant IDs.
+
+How it works
+
+The frontend uses Supabase Auth → requests include a JWT with sub = user_id.
+
+RLS policies use auth.uid() to get that user_id.
+
+Each table that stores private admin data includes user_id.
+
+Examples:
+
+businesses: one row per user.
+
+bookings: each booking has user_id referencing the owner.
+
+Everything you do in code is now:
+
+“Just query the table; RLS ensures the rows belong to the logged-in user.”
+
+No need for:
+
+explicit tenant headers,
+
+active tenant switching,
+
+complicated scoping logic.
+
+6. Roles & staff accounts
+
+Your clarified stance:
+
+No staff logins, full stop.
+
+If a receptionist needs access, they’ll just use the owner’s credentials.
+
+Staff exist only for defining availability / performing services, not as authenticated users.
+
+Options
+
+Option A – Overengineering roles
+
+Create roles, user_tenant_roles, etc. now.
+
+Model owners and staff as separate users in auth, etc.
+
+Pros:
+
+Very flexible later for permissioning.
+
+Cons:
+
+Completely unnecessary for your current, real-world usage model.
+
+Adds conceptual complexity without immediate payoff.
+
+Option B – Single owner + “staff as data only”
+
+users table: only owner accounts.
+
+businesses table: one per user.
+
+staff table: contains staff members for that business:
+
+name, color, calendar, etc.
+
+linked via user_id or business_id.
+
+Staff never authenticate; they are just entities for availability and bookings.
+
+What I’d choose for Tithi
+
+👉 Option B – owner-only auth; staff are just rows, not users.
+
+Why:
+
+Matches exactly how you expect real users to behave.
+
+Avoids a bunch of role/permission complexity.
+
+Still lets you:
+
+assign bookings to a specific staff member,
+
+define availability by staff,
+
+show “Staff A’s calendar” in the admin view.
+
+So the only “role” we really care about is implicit: authenticated user = owner.
+
+7. Session & device management
+
+Your model:
+
+One owner per business.
+
+A receptionist might share the same login.
+
+We don’t need enterprise “session dashboards” on day one.
+
+Options
+
+Option A – Minimal v1
+
+Use Supabase Auth sessions as-is.
+
+Provide:
+
+login,
+
+logout,
+
+password reset.
+
+No visible UI for “active devices.”
+
+Option B – Fully-fledged device/session management
+
+Table of active refresh tokens/sessions.
+
+UI listing devices, IP, last seen.
+
+“Log out of all other devices” button.
+
+What I’d choose for Tithi
+
+👉 Minimal v1, but store enough data for future improvements.
+
+Let Supabase handle session + refresh token storage internally.
+
+You don’t need a “devices” screen now.
+
+If you later want to:
+
+tighten security,
+
+show sessions,
+
+or support “log out everywhere,”
+you can layer that on when it becomes a real need.
+
+Final shape for auth & tenancy in Tithi v1
+
+Putting it all together, here’s the clean, updated plan that matches your clarified app:
+
+Auth style
+
+Use Supabase Auth with JWTs.
+
+One users row per owner.
+
+Login → directly to admin view.
+
+Refresh strategy
+
+Short-lived access tokens + long-lived refresh tokens (Supabase default).
+
+Owner enjoys “stay logged in” behavior without giving up too much security.
+
+MFA
+
+Not in v1.
+
+Can be added later as a dedicated “security upgrade” phase.
+
+Tenant isolation
+
+Each important table (businesses, services, availability, bookings, etc.) gets a user_id column.
+
+Use Postgres RLS so auth.uid() can only see its own rows.
+
+Tenant context in code
+
+No tenant picker; no multiple businesses per user.
+
+Backend just trusts auth.uid() and RLS guarantees isolation.
+
+Roles & staff
+
+Only owners authenticate.
+
+staff exist only as data tied to the owner’s business, for availability and bookings.
+
+No extra role tables required.
+
+Sessions/devices
+
+Use Supabase’s session + refresh system.
+
+Provide basic login/logout/password reset in UI; skip session device listing for v1.
+
+If you want, next we can turn this into:
+
+a short “Auth & Tenancy Spec” doc you can paste into your repo (like docs/backend/auth_and_tenancy.md), written in super clear non-coder language so you + Cursor + any engineer are all aligned.
+
+
+------------
+
+Database Modeling
+One owner = one account = one business
+
+Only the owner can log into admin (no staff logins)
+
+No dashboard; login → straight to admin view
+
+Customers never sign in; they just give name / phone / email at checkout
+
+Card is saved at booking, but no money moves until the owner clicks Completed / No-Show / Cancelled / Refund on the Past Bookings page
+
+frontend logistics
+
+I’ll give you:
+
+The core entities + how they relate
+
+Recommended enums
+
+Table-by-table schema (with relationships, indexes, soft delete / versioning)
+
+How RLS ties it all together
+
+1. Core entities & relationships
+
+With your updated reality, I’d simplify tenancy like this:
+
+auth.users (Supabase) — the owner login.
+
+businesses — exactly one row per user.
+
+service_categories — group services for the catalog.
+
+services — what customers actually book.
+
+staff — purely “data staff,” used for availability & assignment; no auth.
+
+availability_rules — “staff X can do service Y at these times.”
+
+customers — name/email/phone + Stripe customer link.
+
+bookings — the appointment itself (service + staff + time + customer).
+
+booking_payments — how/when money moved for that booking.
+
+policies — the editable policies for that business (no-show, cancel, refund, cash).
+
+policy_snapshots (embedded on booking) — freeze what the customer agreed to.
+
+gift_cards + gift_card_ledger — balances & movements.
+
+notification_templates — what the owner configures in onboarding/admin.
+
+notification_events — log of actual sends.
+
+Key idea: every tenant-owned table has user_id (auth.uid) and business_id, but RLS uses user_id as the isolation key. Business is just the “bucket” under that owner.
+
+2. Recommended enums
+
+You can use Postgres enums or text + CHECK constraints. I’d do enums for clarity:
+
+CREATE TYPE booking_status AS ENUM (
+  'pending',      -- created, card saved, no money moved yet
+  'scheduled',    -- same as pending but used if you want semantic diff
+  'completed',
+  'no_show',
+  'cancelled',
+  'refunded'
+);
+
+CREATE TYPE payment_status AS ENUM (
+  'none',             -- no card saved / no payment expected
+  'card_saved',       -- SetupIntent succeeded, card on file
+  'charge_pending',   -- we are trying to charge
+  'charged',          -- money captured
+  'refunded',
+  'failed'
+);
+
+CREATE TYPE money_action AS ENUM (
+  'none',
+  'completed_charge',   -- Completed button
+  'no_show_fee',
+  'cancel_fee',
+  'refund'
+);
+
+CREATE TYPE notification_channel AS ENUM ('email', 'sms');
+CREATE TYPE notification_category AS ENUM (
+  'confirmation',
+  'reminder',
+  'follow_up',
+  'cancellation',
+  'reschedule',
+  'completion'
+);
+
+CREATE TYPE notification_trigger AS ENUM (
+  'booking_created',
+  'booking_confirmed',
+  'reminder_24h',
+  'reminder_1h',
+  'booking_cancelled',
+  'booking_rescheduled',
+  'booking_completed',
+  'fee_charged',
+  'refunded'
+);
+
+CREATE TYPE discount_type AS ENUM ('amount', 'percent');
+
+3. Table-by-table schema
+
+I’ll describe each table with key columns, relationships, indexes, and soft-delete/versioning notes.
+
+3.1 businesses
+
+Purpose: bucket for everything under one owner.
+
+Columns (core)
+
+id uuid pk
+
+user_id uuid not null — references auth.users(id)
+
+name text not null
+
+dba_name text — DBA
+
+legal_name text
+
+industry text
+
+subdomain text unique not null — used for {subdomain}.tithi.com
+
+timezone text not null
+
+phone text
+
+support_email text
+
+website_url text
+
+street text, city text, state text, postal_code text, country text
+
+brand_primary_color text
+
+brand_secondary_color text
+
+logo_url text
+
+stripe_connect_account_id text
+
+stripe_subscription_id text — for the $11.99/mo plan
+
+subscription_status text — 'trial' | 'active' | 'paused' | 'canceled'
+
+trial_ends_at timestamptz
+
+created_at, updated_at timestamptz
+
+deleted_at timestamptz (nullable; soft delete flag)
+
+Constraints / indices
+
+UNIQUE (user_id) — enforce one business per owner.
+
+UNIQUE (subdomain) — one booking site per subdomain.
+
+Index on (user_id) for RLS speed.
+
+Soft delete / versioning
+
+Business is soft-deleted by setting deleted_at.
+
+RLS policy should also check deleted_at IS NULL.
+
+3.2 service_categories
+
+Purpose: groups of services (haircuts vs color, etc.).
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+name text not null
+
+description text
+
+color text
+
+sort_order int — for UI ordering
+
+is_active boolean default true
+
+created_at, updated_at, deleted_at
+
+Relationships
+
+business_id → businesses(id)
+
+user_id must match business.user_id (you can enforce via trigger or rely on app).
+
+Indexes
+
+(user_id, business_id)
+
+(user_id, sort_order) for admin listing.
+
+Soft delete
+
+Use deleted_at + is_active; RLS filters deleted_at IS NULL for normal queries.
+
+3.3 services
+
+Purpose: the actual bookable things.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+category_id uuid not null
+
+name text not null
+
+description text
+
+duration_min int not null
+
+price_cents int not null
+
+pre_appointment_instructions text
+
+is_active boolean default true
+
+created_at, updated_at, deleted_at
+
+Relationships
+
+category_id → service_categories(id)
+
+business_id / user_id → businesses(id) and auth.users(id).
+
+Indexes
+
+(user_id, business_id, category_id)
+
+(user_id, is_active) for catalog queries.
+
+3.4 staff
+
+Purpose: staff as data only (names, roles, colors). No login.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+name text not null
+
+role text — e.g. “stylist”, “therapist”
+
+color text — for calendar lane color
+
+notes text
+
+is_active boolean default true
+
+created_at, updated_at, deleted_at
+
+Indexes
+
+(user_id, business_id, is_active)
+
+3.5 staff_services
+
+Purpose: which staff can perform which services.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+staff_id uuid not null
+
+service_id uuid not null
+
+created_at
+
+Constraints
+
+UNIQUE (staff_id, service_id) — no duplicates.
+
+Foreign keys → staff(id), services(id).
+
+Indexes
+
+(user_id, staff_id)
+
+(user_id, service_id)
+
+3.6 availability_rules
+
+I’d follow your onboarding flow: availability is per service per staff, not generic shifts.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+staff_id uuid not null
+
+service_id uuid not null
+
+rule_type text not null — 'weekly' | 'exception' | 'closure'
+
+weekday smallint — 0–6, for weekly rules
+
+start_time time not null — time in business timezone
+
+end_time time not null
+
+date date — for exceptions/closures
+
+capacity int default 1 — if you ever support multiple at once
+
+created_at, updated_at, deleted_at
+
+Usage
+
+Slot engine: for a given service_id and date, load rules for that service & staff, then generate slots.
+
+Indexes
+
+(user_id, service_id, staff_id, weekday)
+
+(user_id, staff_id, date) for exceptions.
+
+3.7 customers
+
+Purpose: people booking appointments; no login.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+name text not null
+
+email text not null
+
+phone text
+
+stripe_customer_id text — link to Stripe
+
+created_at, updated_at
+
+Indexes
+
+(user_id, email)
+
+(user_id, phone)
+
+(user_id, name) (for simple LIKE search in admin).
+
+3.8 bookings
+
+Purpose: the core appointment record.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+customer_id uuid not null
+
+service_id uuid not null
+
+staff_id uuid not null
+
+status booking_status not null default 'pending'
+
+start_at timestamptz not null — UTC
+
+end_at timestamptz not null
+
+duration_min int not null
+
+price_cents int not null — base price at time of booking
+
+final_price_cents int not null — after gift cards / discounts
+
+gift_card_id uuid (nullable)
+
+gift_card_amount_applied_cents int default 0
+
+notes text — internal notes
+
+source text not null default 'public' — 'public' | 'admin'
+
+policy_snapshot jsonb not null — text & fee numbers as seen on checkout
+
+consent_at timestamptz — when they checked “I agree”
+
+consent_ip text
+
+consent_user_agent text
+
+payment_status payment_status not null default 'card_saved'
+
+last_money_action money_action not null default 'none'
+
+created_at, updated_at, deleted_at
+
+Relationships
+
+FK to customers, services, staff, businesses.
+
+Indexes
+
+(user_id, business_id, start_at DESC) — main “calendar / past bookings” queries.
+
+(user_id, status, start_at DESC) — filter by status quickly.
+
+(user_id, customer_id, start_at DESC) — customer history.
+
+Why embed policy_snapshot?
+
+Each booking keeps the exact policy text & fee values that the customer agreed to, so you never have “policy changed later” disputes.
+
+3.9 booking_payments
+
+Purpose: track how money moves for each booking and wire it to Stripe.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+booking_id uuid not null
+
+stripe_setup_intent_id text — card saved at checkout
+
+stripe_payment_intent_id text — for a specific charge (completed/no-show/cancel)
+
+last_payment_intent_id text — if you want to track latest
+
+amount_cents int not null — amount of this transaction
+
+money_action money_action not null — why this was created
+
+status payment_status not null
+
+application_fee_cents int — your 1% platform fee
+
+stripe_fee_cents int
+
+net_amount_cents int — remainder to the business
+
+currency text default 'usd'
+
+created_at, updated_at
+
+Behavior:
+
+At checkout: create row with status='card_saved', stripe_setup_intent_id set, amount_cents = final_price_cents (for reference).
+
+When owner presses:
+
+Completed → create new booking_payments row with money_action='completed_charge', amount_cents = final price (minus gift), status ends at 'charged'.
+
+No-Show → new row with money_action='no_show_fee', amount_cents = no-show fee calculated from policy snapshot.
+
+Cancelled → new row with money_action='cancel_fee', amount_cents = cancel fee.
+
+Refund → new row with money_action='refund', amount_cents = refund amount (positive int), status='refunded'.
+
+bookings.payment_status & bookings.last_money_action are updated as a denormalized summary for quick display.
+
+Indexes
+
+(user_id, booking_id)
+
+(user_id, created_at DESC)
+
+UNIQUE (stripe_payment_intent_id) to avoid duplicates.
+
+Idempotency key table (optional) if you want to be extra safe.
+
+3.10 policies
+
+Purpose: what owners configure in onboarding/admin for cancellation/no-show/refund/cash.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+version int not null — bump on change
+
+cancellation_policy_text text
+
+no_show_policy_text text
+
+refund_policy_text text
+
+cash_policy_text text
+
+no_show_fee_type discount_type default 'amount'
+
+no_show_fee_amount_cents int default 0
+
+no_show_fee_percent numeric(5,2) default 0.0
+
+cancel_fee_type discount_type default 'amount'
+
+cancel_fee_amount_cents int default 0
+
+cancel_fee_percent numeric(5,2) default 0.0
+
+is_active boolean default true
+
+created_at, updated_at
+
+Usage
+
+The “current” policy is the row with highest version AND is_active = true.
+
+When a booking is created, you copy text and numeric values into bookings.policy_snapshot.
+
+Indexes
+
+(user_id, business_id, is_active, version DESC)
+
+3.11 gift_cards
+
+Purpose: generate/store cards with balance.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+code text not null
+
+discount_type discount_type not null — 'amount' | 'percent'
+
+initial_amount_cents int not null
+
+current_balance_cents int not null — only used for amount type
+
+percent_off numeric(5,2) — only used for percent type
+
+expires_at timestamptz
+
+is_active boolean default true
+
+created_at, updated_at, deleted_at
+
+Constraints / indexes
+
+UNIQUE (user_id, code) — codes unique per business.
+
+Index (user_id, code) for lookup during checkout.
+
+Index (user_id, expires_at) for cleanup.
+
+3.12 gift_card_ledger
+
+Purpose: audit changes to card balances.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+gift_card_id uuid not null
+
+booking_id uuid — nullable (purchase / admin adjustment may not have booking)
+
+delta_cents int not null — positive = added, negative = consumed
+
+reason text — 'purchase' | 'redemption' | 'refund_restore' | 'admin_adjust'
+
+created_at
+
+Indexes
+
+(user_id, gift_card_id, created_at).
+
+3.13 notification_templates
+
+Purpose: onboarding step where owner configures templates + placeholders.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+name text not null — internal label
+
+channel notification_channel not null
+
+category notification_category not null
+
+trigger notification_trigger not null
+
+subject text — email only
+
+body_markdown text not null — with placeholders like ${customer.name}
+
+is_enabled boolean default true
+
+created_at, updated_at, deleted_at
+
+Placeholders
+
+You support placeholders like:
+
+${customer.name}
+
+${service.name}
+
+${service.duration}
+
+${service.price}
+
+${booking.date}
+
+${booking.time}
+
+${business.name}
+
+${booking.url}
+
+At save time, the frontend can lint for unknown ${…} patterns; backend at send time fills them from bookings, customers, services, businesses.
+
+Indexes
+
+(user_id, trigger, is_enabled)
+
+(user_id, category)
+
+3.14 notification_events
+
+Purpose: log sends for debugging/support.
+
+Columns
+
+id uuid pk
+
+user_id uuid not null
+
+business_id uuid not null
+
+booking_id uuid (nullable)
+
+template_id uuid (nullable if you ever send a system message)
+
+channel notification_channel not null
+
+to_address text not null — email or phone
+
+status text not null — 'queued' | 'sent' | 'failed'
+
+provider_message_id text
+
+error_message text
+
+sent_at timestamptz
+
+created_at
+
+Indexes
+
+(user_id, booking_id)
+
+(user_id, to_address, created_at DESC)
+
+4. RLS, soft delete, and indexes (strategy)
+RLS pattern (Supabase)
+
+On every tenant-owned table, do:
+
+Add user_id uuid not null.
+
+Policy:
+
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "user_owns_row" ON services
+USING (
+  user_id = auth.uid()
+  AND deleted_at IS NULL  -- when applicable
+);
+
+
+Same pattern for businesses, staff, availability_rules, customers, bookings, booking_payments, gift_cards, notification_templates, etc.
+
+This keeps your mental model super simple:
+
+“If auth.uid() doesn’t match row.user_id, Postgres won’t show you the row, even if your query is wrong.”
+
+Given your “one user = one business” rule, you do not need separate tenant IDs or business pickers to enforce isolation.
+
+Soft delete
+
+For most configuration tables (services, staff, categories, gift cards, notification templates):
+
+Add deleted_at timestamptz.
+
+Treat deleted_at IS NOT NULL as hidden from normal queries.
+
+Only allow “hard delete” for truly destructive actions (like business offboarding).
+
+For bookings, I’d avoid soft delete entirely except for GDPR/account deletion; usually you never delete bookings, you just mark statuses.
+
+Index strategy summary
+
+Always index user_id on every multi-row table (fast RLS scans).
+
+Time-series tables:
+
+bookings(user_id, start_at DESC)
+
+booking_payments(user_id, created_at DESC)
+
+notification_events(user_id, created_at DESC)
+
+Lookups:
+
+customers(user_id, email), (user_id, phone)
+
+gift_cards(user_id, code)
+
+Availability:
+
+availability_rules(user_id, service_id, staff_id, weekday)
+
+Policies:
+
+policies(user_id, business_id, is_active, version DESC)
+
+This gives you fast queries that match your actual UI:
+
+Past bookings paginated by date.
+
+Search bookings by status & date.
+
+Look up customers by email/phone.
+
+Apply gift cards in checkout.
+
+Generate slots by service/staff/day.
+
+What you should actually do next
+
+Lock in this simplified tenant model
+
+Add user_id + RLS to all tables.
+
+Enforce UNIQUE (user_id) on businesses.
+
+Create the core tables in Supabase in roughly this order:
+
+businesses, service_categories, services
+
+staff, staff_services, availability_rules
+
+customers, bookings, booking_payments
+
+policies, gift_cards, gift_card_ledger
+
+notification_templates, notification_events
+
+Wire onboarding → these tables exactly in the order of your 8 steps.
+
+Wire booking flow:
+
+Use services + availability_rules to build slots.
+
+On checkout: create customer, booking, booking_payments (card saved), embed policy_snapshot.
+
+Wire the Past Bookings page:
+
+List from bookings ordered by start_at DESC, joined to customers, services, staff, booking_payments.
+
+Buttons call endpoints that create new booking_payments rows and update bookings.status + payment_status.
+
+-------------
+Stripe & billing specifics
+Yes — Stripe Connect absolutely can power the payments in your booking flow, and the way we’ve set things up is specifically to make that work.
+
+Let me spell out how it fits together in Tithi with your current design.
+
+1. What “Stripe Connect powers their booking payments” actually means
+
+For each business on Tithi, you will:
+
+Create a Stripe Connect account for them during onboarding.
+
+Store that as businesses.stripe_connect_account_id.
+
+Then, in the public booking flow when a client books:
+
+Tithi (your platform Stripe account) creates a SetupIntent or PaymentMethod for that client’s card.
+
+When the owner later clicks Completed / No-show / Cancel (fee) on the money board, you create a PaymentIntent that:
+
+Runs under your platform Stripe account,
+
+But uses the connected account as the destination for funds.
+
+So the business isn’t managing Stripe manually — Tithi is the app, Stripe is the rail.
+
+Yes, that is exactly how Stripe Connect is meant to be used for multi-tenant SaaS platforms.
+
+2. How this works step-by-step in your booking flow
+
+Using the schema we designed:
+
+During onboarding
+
+You send them through Stripe’s Connect onboarding (hosted flow).
+
+When Stripe finishes, you save:
+
+businesses.stripe_connect_account_id = 'acct_...'
+
+Now Tithi knows:
+
+“For this business, all payments should route through this connected Stripe account.”
+
+During client booking (no money yet)
+
+On your public booking page:
+
+Customer picks service, time, etc.
+
+You:
+
+Create/find a customers row in your DB.
+
+Create a bookings row with:
+
+price_cents = base service price
+
+final_price_cents = base minus any gift card/discount
+
+Create a Stripe SetupIntent to save the card:
+
+You can attach it to a Stripe Customer that represents this client for that business.
+
+Store in booking_payments:
+
+stripe_setup_intent_id
+
+payment_status = 'card_saved'
+
+amount_cents = final_price_cents (reference)
+
+At this point:
+
+Payment is not charged.
+
+Card is ready to be charged later when the owner decides what to do.
+
+This matches your requirement: “money moves only when the owner clicks a button on the Past Bookings / money board.”
+
+When the owner clicks a button in the admin money board
+
+Say the owner hits Completed on a booking.
+
+Backend:
+
+Looks up:
+
+the booking,
+
+its final_price_cents,
+
+the associated stripe_setup_intent_id / PaymentMethod.
+
+Creates a PaymentIntent using:
+
+amount = final_price_cents
+
+currency = 'usd'
+
+customer = the Stripe customer for that client
+
+payment_method = saved card
+
+Connect-specific fields:
+
+on_behalf_of = business.stripe_connect_account_id
+
+transfer_data[destination] = business.stripe_connect_account_id
+
+application_fee_amount = platform_fee_cents (your 1%)
+
+Confirms the PaymentIntent.
+
+Writes a new booking_payments row:
+
+booking_id = ...
+
+stripe_payment_intent_id = 'pi_...'
+
+amount_cents = final_price_cents
+
+money_action = 'completed_charge'
+
+status = 'charged'
+
+application_fee_cents, stripe_fee_cents, net_amount_cents
+
+Updates bookings:
+
+status = 'completed'
+
+payment_status = 'charged'
+
+last_money_action = 'completed_charge'
+
+Result:
+
+Client’s card is charged via Stripe.
+
+Business gets paid into their connected Stripe account.
+
+You collect your platform fee automatically.
+
+All of this is triggered from your booking flow + money board, no separate Stripe UI needed.
+
+The exact same pattern works for:
+
+No-show fee → PaymentIntent with amount_cents = calculated no-show fee from policy_snapshot.
+
+Cancel fee → same idea.
+
+Refund → create a Stripe refund for the original PaymentIntent and log it in booking_payments as money_action = 'refund'.
+
+3. Does this truly “let them use Stripe to power their payments page”?
+
+Yes, in practice that means:
+
+The public booking flow on Tithi:
+
+Collects card details securely using Stripe elements or similar.
+
+Saves the card and then charges it later.
+
+The business owner:
+
+Never has to configure Stripe manually outside onboarding.
+
+Has all payments tied to their account so money goes to them, not you.
+
+You:
+
+Are compliant with Stripe’s Connect platform model.
+
+Take a clean per-transaction fee without manually moving money.
+
+As long as:
+
+Each business has a valid stripe_connect_account_id, and
+
+Your payment code always uses that when creating PaymentIntents,
+
+…then Stripe Connect is powering their booking payments exactly the way you want.
+
+If you want, I can next sketch the exact fields you should store for Stripe per business and per booking (including where to put stripe_customer_id, default payment method, etc.) so you have a concrete implementation checklist.
+Alright, here’s the “Stripe wiring spec” so you can literally see what to store where and how it all ties into your booking flow + Connect.
+
+I’ll break it into:
+
+Fields to store per business
+
+Fields to store per customer
+
+Fields to store per booking
+
+Fields to store per booking_payment
+
+Optional but nice-to-have fields
+
+Implementation checklist by flow
+
+1. Stripe fields on businesses (owner-level)
+
+These are about the owner’s Stripe Connect account + subscription.
+
+Add to businesses:
+
+stripe_connect_account_id text
+
+The ID from Connect onboarding, e.g. acct_123.
+
+Used in every PaymentIntent: on_behalf_of + transfer_data[destination].
+
+stripe_customer_id text (optional but useful)
+
+A Stripe Customer representing the business owner themselves, if you bill them (e.g., subscriptions directly).
+
+Not required if you only use Stripe Billing with your own customer records, but nice if you charge them “off-session”.
+
+stripe_subscription_id text
+
+The subscription for Tithi’s $11.99/mo plan.
+
+Created during onboarding when they enter their own card for Tithi.
+
+stripe_price_id text
+
+The price ID for your plan (e.g., price_abc123).
+
+Not strictly required per business if it’s constant in code, but helpful if you ever support multiple plans.
+
+stripe_default_payment_method_id text (optional)
+
+The payment method you use to bill them for your SaaS fee.
+
+Can also be fetched from the subscription in Stripe instead of storing here, but caching it is convenient.
+
+These fields let you:
+
+Know which Connect account to send booking revenue to.
+
+Know how you bill the business owner for your platform fee (subscription).
+
+2. Stripe fields on customers (client-level)
+
+These are about clients who book appointments, not the owner.
+
+Add to customers:
+
+stripe_customer_id text
+
+One Stripe Customer per (Tithi-)customer per business.
+
+Lets you save multiple PaymentMethods (cards) for that client.
+
+Used when creating SetupIntents and PaymentIntents.
+
+You don’t need to store payment methods per customer in your DB; you can fetch them from Stripe when needed. But if you want to pin a default:
+
+stripe_default_payment_method_id text (optional)
+
+If you want “preferred card” behavior.
+
+3. Stripe fields on bookings (appointment-level)
+
+Keep bookings Stripe-related fields minimal. The heavy Stripe detail lives in booking_payments.
+
+You already have:
+
+price_cents int — base price
+
+final_price_cents int — after gift card/discount
+
+gift_card_id uuid
+
+gift_card_amount_applied_cents int
+
+payment_status payment_status
+
+last_money_action money_action
+
+You don’t need SetupIntent/PaymentIntent directly on bookings, because those belong in booking_payments. That keeps the booking “clean”: it knows what should be charged, not all the Stripe plumbing.
+
+So for bookings, you’re good with:
+
+Amounts: price_cents, final_price_cents
+
+Discount source: gift_card_*
+
+Summary state: payment_status, last_money_action
+
+4. Stripe fields on booking_payments (money-level)
+
+This is where we store every Stripe object tied to a booking + why it exists.
+
+On booking_payments:
+
+stripe_setup_intent_id text
+
+The SetupIntent used to save the card at checkout.
+
+Usually created at booking time (public flow).
+
+Only one is typically needed, but you might recreate in some edge cases.
+
+stripe_payment_intent_id text
+
+The PaymentIntent for this specific money event:
+
+Completed charge
+
+No-show fee
+
+Cancellation fee
+
+Refund
+
+stripe_refund_id text (optional but nice)
+
+If this row corresponds to a refund, store the Stripe Refund ID.
+
+amount_cents int not null
+
+The amount of this transaction (positive int).
+
+For refunds, still store as positive int and use money_action = 'refund' to indicate direction.
+
+money_action money_action not null
+
+'completed_charge' | 'no_show_fee' | 'cancel_fee' | 'refund' | ...
+
+status payment_status not null
+
+'card_saved' | 'charge_pending' | 'charged' | 'refunded' | 'failed' etc.
+
+application_fee_cents int
+
+The fee you took as platform (e.g., 1% of amount_cents).
+
+stripe_fee_cents int
+
+The fee Stripe took (you can fetch from Stripe’s balance transaction, or leave null if you don’t care initially).
+
+net_amount_cents int
+
+Money that actually went to the business (amount - fees).
+
+currency text default 'usd'
+
+These fields make it trivial to:
+
+Reconcile with Stripe’s dashboard.
+
+Show “Money timeline” per booking.
+
+Know exactly what was charged/refunded and why.
+
+5. Optional extra fields (only if you want them)
+
+On booking_payments:
+
+stripe_payment_method_id text
+
+If you need to know exactly which card was used for a given charge.
+
+Not strictly needed if you just look it up in Stripe using the PaymentIntent.
+
+On gift_cards:
+
+stripe_payment_intent_id text
+
+If you sell gift cards via Stripe (clients pay to buy a card).
+
+Lets you tie gift card purchase revenue to the right Stripe charge.
+
+These are nice for deeper analytics / support, but not mandatory for a solid v1.
+
+6. Implementation checklist by flow
+
+Here’s the concrete “do this in code” flow, now that fields are settled.
+
+A. Business onboarding (owner signup → live account)
+
+Owner signs up → only auth.users exists.
+
+Onboarding steps gather:
+
+Business info
+
+Branding
+
+Categories + services
+
+Staff
+
+Availability
+
+Policies
+
+Stripe Connect onboarding:
+
+Create / connect Stripe account → get connect_account_id.
+
+Save to draft or hold in memory until final commit.
+
+Stripe subscription for Tithi:
+
+Create Stripe Customer for business owner (if needed).
+
+Create Subscription using stripe_price_id.
+
+Save:
+
+stripe_customer_id
+
+stripe_subscription_id
+
+stripe_default_payment_method_id (optional)
+
+Final onboarding step:
+
+In a transaction:
+
+Create businesses row with:
+
+user_id
+
+stripe_connect_account_id
+
+stripe_customer_id / stripe_subscription_id
+
+all business details
+
+Insert:
+
+service_categories
+
+services
+
+staff + staff_services
+
+availability_rules
+
+policies
+
+notification_templates
+
+Show confetti screen:
+
+“Business is live”
+
+Booking URL (from subdomain)
+
+Button → Admin view.
+
+B. Client booking flow (public page, card saved only)
+
+Client picks service, date/time, staff (or “any”).
+
+Backend:
+
+Create/find customers row for this business:
+
+If no stripe_customer_id yet:
+
+Create Stripe Customer under your platform.
+
+Save customers.stripe_customer_id.
+
+Create a SetupIntent:
+
+customer = customers.stripe_customer_id
+
+payment_method_types = ['card']
+
+usage = 'off_session' (since you’re going to charge later).
+
+Frontend:
+
+Use Stripe Elements to collect card.
+
+Confirm SetupIntent, get success.
+
+Backend:
+
+Create bookings row:
+
+price_cents from services.price_cents
+
+final_price_cents after gift card
+
+gift_card_* fields if used
+
+policy_snapshot from current policies
+
+status = 'pending'
+
+payment_status = 'card_saved'
+
+Create booking_payments row:
+
+stripe_setup_intent_id
+
+amount_cents = final_price_cents
+
+money_action = 'none'
+
+status = 'card_saved'
+
+Now you’re in your comfortable state: booking exists, card saved, no money moved.
+
+C. Admin money board actions (charge/refund)
+1. Completed
+
+When owner clicks Completed on a booking card:
+
+Backend fetches:
+
+booking (to get final_price_cents, customer_id, business_id)
+
+business.stripe_connect_account_id
+
+customers.stripe_customer_id
+
+Payment method from Stripe (using SetupIntent or saved default).
+
+Create a PaymentIntent on your platform account:
+
+amount = booking.final_price_cents
+
+currency = 'usd'
+
+customer = customers.stripe_customer_id
+
+payment_method = <from SetupIntent>
+
+confirm = true
+
+on_behalf_of = business.stripe_connect_account_id
+
+transfer_data[destination] = business.stripe_connect_account_id
+
+application_fee_amount = platform_fee_cents
+
+On success:
+
+Create booking_payments row:
+
+stripe_payment_intent_id
+
+amount_cents = final_price_cents
+
+money_action = 'completed_charge'
+
+status = 'charged'
+
+Update bookings:
+
+status = 'completed'
+
+payment_status = 'charged'
+
+last_money_action = 'completed_charge'
+
+Same exact pattern, different money_action and amount for:
+
+No-show fee:
+
+Amount comes from policy_snapshot.no_show_fee_*.
+
+money_action = 'no_show_fee'.
+
+Cancellation fee:
+
+Amount comes from policy_snapshot.cancel_fee_*.
+
+money_action = 'cancel_fee'.
+
+2. Refund
+
+When owner hits Refund:
+
+Look up the original booking_payments row (with status = 'charged').
+
+Call Stripe refunds.create({ payment_intent: 'pi_...' }).
+
+Insert a new booking_payments row:
+
+stripe_refund_id
+
+amount_cents = refunded amount
+
+money_action = 'refund'
+
+status = 'refunded'
+
+Update bookings:
+
+status = 'refunded' (or keep completed but with payment_status = 'refunded', depending on your UX).
+
+payment_status = 'refunded'
+
+last_money_action = 'refund'
+
+That’s the full Stripe wiring:
+
+Where each ID lives.
+
+Which tables care about Stripe.
+
+How Connect powers payments in your booking flow.
+
+How that meshes with your onboarding + money board design.
+
+If you want, next I can write the actual Supabase table definitions (SQL) for customers and booking_payments with these Stripe fields baked in, plus a sample query the admin view would run to render the money board cards.
+
+1. Stripe & billing specifics — what to use
+
+What I think you should do
+
+Use Stripe Billing for the $11.99/month Tithi subscription (per business).
+
+Use Stripe Connect (Express) for appointment payments going to the business.
+
+Use SetupIntents + PaymentMethods at checkout to save the customer’s card.
+
+Use PaymentIntents only when the owner hits:
+
+Completed
+
+No-Show
+
+Cancelled
+
+Refund
+
+Why this fits Tithi
+
+You’ve already defined that no money moves at checkout – card is just “saved securely” and charges only happen when the owner clicks a button in Past Bookings. 
+
+frontend logistics
+
+That maps perfectly to SetupIntent now, PaymentIntent later.
+
+Billing vs. appointments:
+
+Tithi’s own revenue (11.99/month) is just a normal Stripe Billing subscription on the platform account.
+
+Customer appointments are destination charges to the connected account (the business) with a 1% application fee back to you, exactly like you described. 
+
+frontend logistics
+
+With your updated rule “one owner can only have one business”, you can keep it simple:
+
+1 users row ↔ 1 business row ↔ 1 Stripe Connect account ↔ 1 platform subscription.
+
+So concretely:
+
+Platform side
+
+1 Stripe Product: tithi_monthly
+
+1 Stripe Price: $11.99 / month
+
+Owner finishes onboarding → you start that subscription.
+
+Business side (appointments)
+
+For each business you store:
+
+stripe_connect_account_id
+
+Every booking charge uses:
+
+payment_intent.on_behalf_of = stripe_connect_account_id
+
+transfer_data[destination] = stripe_connect_account_id
+
+application_fee_amount = round(0.01 * charge_amount_in_cents)
+
+2. Source-of-truth for payment flows
+
+(manual capture vs deposit vs card-on-file)
+
+What I think you should choose for v1
+
+👉 Pick a single strategy: “card-on-file then charge later” (no manual capture auth, no deposits in v1).
+
+More specifically:
+
+At checkout (customer):
+
+Compute a single final_price for the booking (base service price minus any gift card/discount). 
+
+frontend logistics
+
+Create a Stripe Customer for this person (per business).
+
+Create a SetupIntent and confirm it to save the card.
+
+Create a booking row with:
+
+status = pending
+
+stripe_customer_id
+
+stripe_setup_intent_id
+
+final_price_cents
+
+No PaymentIntent here. No charge yet.
+
+When owner clicks a money button in Past Bookings:
+
+Completed → create a PaymentIntent for final_price_cents using the saved card (off-session).
+
+No-Show → create a PaymentIntent for the no-show fee, calculated from the stored policy snapshot.
+
+Cancelled → create a PaymentIntent for the cancellation fee (often 0, then it’s just a status change).
+
+Refund → create a refund if there is an actual charge.
+
+Each PaymentIntent uses:
+
+on_behalf_of + transfer_data[destination] = business Connect account
+
+application_fee_amount = 1% of amount (your platform cut)
+
+Why this is the best fit
+
+Your UX says “Customers see: card is stored, you’re not charged now, you’ll be charged after your appointment or if a fee applies” – that is exactly a SetupIntent-only booking with off-session charges later. 
+
+frontend logistics
+
+Manual capture flows (auth → capture) introduce:
+
+7-day auth windows
+
+Edge cases when auth expires
+
+More complexity than you need for v1.
+
+Deposit flows add more decisions (how big, when to charge remainder, what happens on no-show) that you do not need before you launch.
+
+So: make “card-on-file then charge via buttons” the canonical, single source-of-truth for your payment flow. You can always layer “deposit” or “auth at booking” later if you want advanced knobs.
+
+3. Connect account creation path, subscription IDs, webhooks, idempotency
+a) Connect account creation path
+
+Flow I’d use:
+
+Owner goes through onboarding.
+
+On the Payment Setup step:
+
+Backend:
+
+Creates a Stripe Customer for the owner (on the platform account).
+
+Creates a Stripe Connect Express account for their business.
+
+Generates an Account Link URL for Stripe onboarding.
+
+Frontend:
+
+Redirects the owner to Stripe Express onboarding.
+
+When they return to Tithi via refresh_url:
+
+Backend checks the Connect account is details_submitted = true.
+
+Then creates a Stripe Billing subscription for that owner’s card:
+
+Product = tithi_monthly
+
+Price = 11.99/mo
+
+Save:
+
+stripe_connect_account_id
+
+stripe_customer_id
+
+stripe_subscription_id
+
+Only once both are done:
+
+Mark business as live.
+
+Show the “Go Live” confirmation, booking URL, and drop them into admin. 
+
+frontend logistics
+
+Because you only allow one business per owner, you can keep it very strict: no “pick which business to open,” no business switcher.
+
+b) Subscription product/price IDs
+
+In your backend config (env or constants), define:
+
+TITHI_PLAN_PRODUCT_ID = "prod_xxx"
+
+TITHI_PLAN_PRICE_ID = "price_xxx"
+
+Every time you need to create a subscription, you always use TITHI_PLAN_PRICE_ID and never hard-code amounts in code.
+
+Store per business:
+
+stripe_subscription_id
+
+subscription_status (trial, active, paused, canceled)
+
+next_bill_at
+
+This maps cleanly to the “Trial, Active, Paused, Canceled” states you wrote into the frontend logistics. 
+
+frontend logistics
+
+c) Webhook events to handle
+
+For v1, I’d handle:
+
+Platform billing side (your subscription):
+
+customer.subscription.updated
+
+Update subscription_status and next_bill_at.
+
+If status becomes canceled, mark business as canceled and deprovision the subdomain (like you specified).
+
+invoice.payment_succeeded
+
+Mark invoice as paid; maybe log usage/analytics.
+
+invoice.payment_failed
+
+Mark business as past_due or show a banner in admin.
+
+Appointment payments side (Connect):
+
+payment_intent.succeeded
+
+Mark the booking payment as captured (or fee_charged).
+
+Update booking status: completed, no_show_fee_charged, etc.
+
+Trigger “receipt” and “booking completed/fee charged” notifications.
+
+payment_intent.payment_failed
+
+Mark booking payment as failed.
+
+Show “Payment issue” on the booking card and allow Send Pay Link.
+
+charge.refunded
+
+Mark booking as refunded and update your ledger.
+
+charge.dispute.created
+
+Flag booking as disputed, show in admin with a link to Stripe.
+
+setup_intent.succeeded
+
+Confirm that the card is saved for that booking’s customer.
+
+You can start with these and expand later; they cover 95% of what Tithi actually needs.
+
+d) Idempotency requirements
+
+What I’d do:
+
+For all “money board” actions (Completed, No-Show, Cancelled, Refund):
+
+Frontend generates a UUID as idempotencyKey.
+
+Sends to backend header: X-Idempotency-Key: <uuid>.
+
+Backend:
+
+Checks if that key has been used for this booking+action.
+
+If not, stores it and calls Stripe with the same idempotency key.
+
+If yes, returns the previously saved result and does not create a second charge.
+
+Also store stripe_payment_intent_id / stripe_refund_id per booking payment record so you can prove what happened.
+
+This matches what your UX wants:
+
+Buttons disable + show spinner after click.
+
+Double-clicks or retrying the same API call cannot double-charge. 
+
+frontend logistics
+
+4. Policy fee math & invoices/receipts
+a) How to model policy fees (flat vs percent)
+
+Based on your policies step: 
+
+frontend logistics
+
+For each business, store:
+
+no_show_fee_type = 'flat' | 'percent'
+
+no_show_fee_value
+
+cancel_fee_type = 'flat' | 'percent'
+
+cancel_fee_value
+
+And at booking time you snapshot:
+
+no_show_fee_type_at_booking
+
+no_show_fee_value_at_booking
+
+cancel_fee_type_at_booking
+
+cancel_fee_value_at_booking
+
+policy_text_hash (a hash of their written policy text)
+
+So if they change their policy later, old bookings still follow what the customer actually agreed to.
+
+Calculation example:
+
+base_price_cents (after gift card/discount is applied).
+
+If no-show:
+
+If type = flat → fee_cents = value_cents.
+
+If type = percent → fee_cents = round(base_price_cents * value / 100).
+
+For cancellations, same logic.
+
+Then you create a PaymentIntent with amount = fee_cents.
+
+b) Invoices & receipts
+
+You do not need a full internal invoice system right now. I’d do:
+
+Let Stripe send the official receipt email to the customer.
+
+In Tithi, store simple payment records per booking:
+
+booking_id
+
+type = completed_charge, no_show_fee, cancel_fee, refund
+
+amount_gross_cents
+
+discount_cents (from gift card)
+
+platform_fee_cents (1%)
+
+stripe_fee_cents (estimate or webhook value)
+
+amount_net_to_business_cents
+
+stripe_payment_intent_id / stripe_refund_id
+
+receipt_url (from Stripe, if available)
+
+The Past Bookings “details” view can show a mini “receipt/ledger” with:
+
+Service name
+
+Base price
+
+Gift card discount
+
+No-show / cancel fee if applicable
+
+Platform fee
+
+Stripe fee
+
+Net to business
+
+This gives owners the transparency you described (gross → fees → net) without you building a full invoice engine.
+
+TL;DR choices for Tithi
+
+Stripe & billing:
+
+Stripe Billing for $11.99/month subscription per business.
+
+Stripe Connect Express per business.
+
+SetupIntents to save cards; PaymentIntents only on admin actions.
+
+Payment source-of-truth:
+
+Single v1 strategy = card-on-file + off-session charge when owner clicks (no manual capture, no deposit flows yet).
+
+Connect path & tooling:
+
+Create Connect + Customer + Subscription on Payment Setup step.
+
+Handle webhooks for subscriptions + payments.
+
+Use strict idempotency for every money button.
+
+Policy fee & receipts:
+
+Model no-show/cancel as flat/percent, snapshot per booking, compute fee from final_price.
+
+Let Stripe send receipts; store a lean payments ledger & show breakdown in Past Bookings.
+
+If you want, next step I can:
+
+turn this into a concrete Stripe integration checklist (endpoint list + exact objects per step) tailored to your Supabase/Flask stack so you can just hand it to Cursor or start coding against it.
+
+
+---------------
+
+API Contracts
+0. Ground rules I’m locking in for your build
+
+I’m treating these as non-negotiable:
+
+One owner account → one business. No multi-business switcher (you can keep the schema future-proof, but UX is single-business).
+
+Only the owner can log in. No staff accounts, no staff roles for auth. Staff exist only to map availability and show in booking UI.
+
+When owner logs in → go straight to Admin (overview mirroring onboarding). No dashboard screen.
+
+Customers never sign in. They only give name, email, phone at checkout.
+
+Card is saved at booking (SetupIntent), charged later only when the owner hits:
+Completed / No-Show / Cancelled / Refund on Past Bookings.
+
+You do want Past Bookings in the admin, but you do not need “orders” or a customer account history UI.
+
+Keep RLS (Row Level Security) if you’re already heading that way; just treat business_id = tenant_id even though you’re only allowing one per user right now. That keeps you safe and future-proof.
+
+1. API contracts – what you actually need (and nothing extra)
+
+You do not need the huge enterprise API surface in the spec. For your v1 Tithi with one business per owner, I’d implement just these groups:
+
+1.1 Auth & owner
+
+POST /auth/signup
+
+Body: { email, password, first_name, last_name }
+
+Creates user + “empty” business onboarding context.
+
+Response: { access_token, owner: { id, email, name } }
+
+POST /auth/login
+
+Body: { email, password }
+
+Response: { access_token, owner: { id, email, name }, business: { id, status } }
+
+Frontend then immediately routes to /app/b/{businessId} (admin).
+
+Status codes:
+
+200 success
+
+400 validation
+
+401 wrong credentials
+Errors format:
+
+{ "error": { "code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect." } }
+
+1.2 Onboarding/admin sections (mirror each tab)
+
+Use one sectioned endpoint instead of a million tiny ones:
+
+PUT /business/onboarding/step-1-business
+
+PUT /business/onboarding/step-2-branding
+
+PUT /business/onboarding/step-3-services
+
+PUT /business/onboarding/step-4-availability
+
+PUT /business/onboarding/step-5-notifications
+
+PUT /business/onboarding/step-6-policies
+
+PUT /business/onboarding/step-7-gift-cards
+
+POST /business/onboarding/step-8-payment-setup
+
+Each body is roughly the exact JSON your forms already hold: business name, subdomain, staff list, categories, services, availability grid, notification templates, policies, gift card configs, etc. (All of that is already laid out in the logistics file; just mirror it 1:1.) 
+
+frontend logistics
+
+Admin uses the same endpoints to edit later (same shapes, just overwriting existing data).
+
+Status codes: 200 on success, 400 on validation, 409 for conflicts (e.g. subdomain taken).
+
+1.3 Public booking & checkout
+
+GET /public/{subdomain}/catalog
+
+Returns business header + categories → services (with prices, durations, descriptions, instructions) + staff summaries.
+
+GET /public/{subdomain}/availability?service_id=...&date=YYYY-MM-DD
+
+Returns slots as:
+[{ staff_id, staff_name, start_at, end_at }] — already filtered to that service and business timezone.
+
+POST /public/{subdomain}/bookings
+
+Body:
+
+{
+  "service_id": "svc_123",
+  "staff_id": "stf_123",
+  "start_at": "2025-11-16T14:00:00Z",
+  "customer": { "name": "Aksh", "email": "x@y.com", "phone": "..." },
+  "gift_card_code": "WINTER20"
+}
+
+
+Backend responsibilities in this one call:
+
+Validate slot still free.
+
+Validate gift card & compute final_price.
+
+Create booking row (status = pending, holds final_price, policy snapshot, customer info).
+
+Create Stripe Customer if needed.
+
+Create SetupIntent to save card.
+
+Return { booking_id, booking_code, client_secret_for_setup_intent }.
+
+Frontend then uses the client secret with Stripe Elements to collect card and confirm the SetupIntent.
+
+No PaymentIntent here. You are just saving the card.
+
+1.4 Money board actions (admin Past Bookings)
+
+Four simple endpoints, one per button:
+
+POST /admin/bookings/{id}/complete
+
+POST /admin/bookings/{id}/no-show
+
+POST /admin/bookings/{id}/cancel
+
+POST /admin/bookings/{id}/refund
+
+Each:
+
+Requires header X-Idempotency-Key (details in next section).
+
+Backend:
+
+Looks up booking (business-scoped via RLS).
+
+Calculates the correct amount:
+
+Complete → full final_price.
+
+No-Show → no_show_fee (0 allowed).
+
+Cancel → cancellation_fee (0 allowed).
+
+Refund → amount of previous charge (full for v1).
+
+Creates a PaymentIntent (or Refund) on behalf of the business’s Connect account.
+
+Updates booking status + a payment record.
+
+Returns:
+
+{
+  "status": "CHARGED",
+  "charge_amount": 8900,
+  "currency": "usd",
+  "stripe_payment_intent_id": "pi_xxx",
+  "receipt_url": "https://..."
+}
+
+1.5 Past bookings list
+
+GET /admin/bookings?status=&from=&to=&page_token=
+
+Returns:
+
+{
+  "items": [
+    {
+      "id": "bkg_123",
+      "code": "TITHI-2095",
+      "status": "pending",
+      "service": { "name": "Haircut", "duration_min": 45, "price_cents": 8900 },
+      "staff": { "name": "Jess" },
+      "start_at": "2025-11-20T15:00:00Z",
+      "customer": { "name": "Aksh", "email": "x@y.com", "phone": "..." },
+      "final_price_cents": 7120,
+      "gift_discount_cents": 1780,
+      "last_payment_status": "none|charged|refunded"
+    }
+  ],
+  "next_page_token": "abc123"
+}
+
+
+Filtering: status (pending/completed/no_show/canceled/refunded), from, to.
+Pagination: next_page_token cursor.
+
+2. Idempotency, pagination, filtering, rate limits – what to do
+2.1 Idempotency: only where money or bookings are created
+
+Use an X-Idempotency-Key header on just these:
+
+POST /public/{subdomain}/bookings
+
+POST /admin/bookings/{id}/complete
+
+POST /admin/bookings/{id}/no-show
+
+POST /admin/bookings/{id}/cancel
+
+POST /admin/bookings/{id}/refund
+
+Backend logic:
+
+Store a small idempotency_keys table:
+id, owner_id, route, key, response_json, created_at.
+
+On request:
+
+If (owner_id, route, key) exists → return the stored response instead of executing again.
+
+Else → run normally, then save response_json and key.
+
+Why: if the owner double-clicks a money button or their browser retries, no double charges.
+
+No need for idempotency on every little PUT /business/onboarding/...—worst case those just overwrite the same data.
+
+2.2 Pagination & filtering
+
+You only need pagination on:
+
+GET /admin/bookings
+
+(optionally) GET /admin/customers if you add a customers list.
+
+Use cursor-based:
+
+Request: ?limit=20&cursor=abc123
+
+Response: next_page_token which the frontend passes back as cursor.
+
+Filtering:
+
+Simple: status, from, to, staff_id, service_id.
+
+Don’t overcomplicate v1; a few query params is enough.
+
+2.3 Rate limits
+
+Where it matters:
+
+Public availability & booking endpoints:
+
+e.g. limit by IP: 60 requests / minute for availability; 10 bookings / minute.
+
+Admin money actions:
+
+30 requests / minute per owner (realistically they hit a few per minute at most).
+
+Rate limiting protects you from abuse, not typically legit customers.
+
+3. Booking creation + payment authorization: what you should do
+
+Your product decision is actually clear:
+
+Do not authorize any money at booking time.
+Save the card, charge only when the business hits a money button.
+
+So the answer to “should booking creation and payment authorization be one transaction?” is:
+
+There is NO payment authorization at booking time.
+
+The only thing you do at booking is:
+
+Create booking row.
+
+Save card with a SetupIntent.
+
+Real charges happen later, per admin action, via separate PaymentIntents.
+
+You still want booking creation + SetupIntent to behave atomically from the user’s perspective:
+
+Recommended flow:
+
+Customer fills checkout form.
+
+Frontend calls POST /public/{subdomain}/bookings with booking data (no card details yet).
+
+Backend:
+
+Validates everything.
+
+Creates booking row status pending.
+
+Creates customer in Stripe (or reuses).
+
+Creates SetupIntent with that customer.
+
+Returns client_secret for SetupIntent + booking_id.
+
+Frontend uses Stripe Elements to confirm SetupIntent.
+
+If SetupIntent fails (card declined / 3DS fail):
+
+Frontend shows error, allows retry.
+
+You keep the booking as pending_no_card or delete it after a timeout. Either way, the user never sees “confirmed” unless the SetupIntent succeeds.
+
+On success:
+
+Either Stripe webhook or the front-end callback tells your backend to mark booking.card_status = "saved" (still no charge).
+
+Show the “Booking received – card saved, no charge yet” confirmation screen.
+
+So: no single DB transaction with money involved, just a clean, two-phase app flow:
+booking + save card now; charge later when admin decides what actually happened.
+
+4. RLS, roles, and “one business per user”: what you should do
+
+Given your simplifications, I’d do:
+
+users table (owner only).
+
+businesses table with owner_id FK and a unique constraint UNIQUE(owner_id) to enforce one business per owner.
+
+Everywhere else, rows have business_id and RLS checks business_id in (SELECT business_id FROM businesses WHERE owner_id = current_user_id).
+
+That keeps:
+
+Strict isolation between businesses.
+
+Compatible with a future “multiple businesses per owner” if you ever want it (just drop that unique constraint and adjust UX).
+
+No staff logins at all:
+
+staff table exists purely for availability/labeling.
+
+They never get user accounts; the receptionist uses the owner’s login, as you specified.
+
+
+
+---------
+Notifications and Availability Engine
+
+1. Notifications
+1.1. Template storage format & placeholders
+
+What to do
+
+Store each template in a notification_templates table:
+
+id
+
+owner_id (or business_id)
+
+name (internal label, e.g. “Booking Confirmation”)
+
+channel (email | sms)
+
+trigger (BOOKING_CREATED, REMINDER_24H, etc.)
+
+subject (nullable, email only)
+
+body_markdown (or body_text)
+
+enabled (bool)
+
+created_at, updated_at
+
+Use simple mustache-style placeholders, e.g.:
+
+{{customer_name}}
+
+{{service_name}}
+
+{{service_duration}}
+
+{{service_price}}
+
+{{booking_date}}
+
+{{booking_time}}
+
+{{business_name}}
+
+{{booking_url}}
+
+Keep a hard-coded catalog of allowed placeholders per trigger in the backend and expose that catalog to the UI so the editor can show “available placeholders” like your spec says. 
+
+frontend logistics
+
+Rendering rule: when sending, you:
+
+Look up the template for that business + trigger + channel.
+
+Build a dictionary of values from the booking/business/customer.
+
+Run a very simple template engine: replace("{{customer_name}}", actual_value) etc.
+
+Why this is the right move
+
+It matches your UX (owners can drop placeholders into templates).
+
+It’s simple enough to implement in any backend (Python/Node/Supabase edge function) without bringing in a heavy templating engine.
+
+It keeps all “how to format text” decisions in the DB, so you can change copy without redeploying.
+
+1.2. Channels & providers (v1)
+
+What to do
+
+Support in v1:
+
+Email via SendGrid (or any SMTP wrapper).
+
+SMS via Twilio.
+
+Model channel as a simple enum and behind the scenes have a “notifications service” that dispatches:
+
+send_email(template, to_email, subject, body)
+
+send_sms(template, to_phone, body)
+
+Don’t build push in v1; wire the database and API so you can add it later.
+
+Why
+
+It’s enough to ship your required flows (confirmation, reminders, no-show/fee receipts).
+
+You don’t tie yourself to a specific vendor at the DB level; you just pick one now for implementation.
+
+1.3. Event triggers
+
+What to do
+
+Support these core triggers now (they map perfectly to your flows): 
+
+frontend logistics
+
+BOOKING_CREATED (after checkout, card saved, no charge yet)
+
+BOOKING_CONFIRMED (if you ever separate “created” and “confirmed” states)
+
+REMINDER_24H
+
+REMINDER_1H
+
+BOOKING_CANCELLED
+
+BOOKING_RESCHEDULED
+
+BOOKING_COMPLETED (receipt)
+
+FEE_CHARGED (no-show / cancellation fee)
+
+PAYMENT_ISSUE (off-session charge failed; send pay link)
+
+Internally, you have a simple event bus:
+
+When something happens in the booking system, you emit an event like:
+
+{
+  "type": "BOOKING_CREATED",
+  "booking_id": "...",
+  "business_id": "...",
+  "occurred_at": "..."
+}
+
+
+A background worker consumes events, looks up the relevant templates for that business + trigger, merges placeholders, and dispatches via email/SMS.
+
+Why
+
+You keep business logic simple: “when X happens, emit event”.
+
+You can add new triggers later without changing all your booking code; you only touch the notification worker.
+
+1.4. Retry / backoff
+
+What to do
+
+Every notification send (email/SMS) is a job in a queue (e.g., a Supabase function + cron, or a lightweight queue).
+
+Store jobs in a notification_jobs table:
+
+id
+
+template_id
+
+business_id
+
+recipient_email / recipient_phone
+
+subject
+
+body
+
+channel
+
+status (pending, in_progress, sent, failed, dead)
+
+attempt_count
+
+last_error
+
+scheduled_at
+
+Implement exponential backoff:
+
+1st failure → retry in 5 minutes
+
+2nd failure → retry in 15 minutes
+
+3rd failure → mark as dead and stop
+
+Ensure idempotency by using a composite key like (booking_id, trigger, channel) so you do not send duplicate messages if the same event is retried.
+
+Why
+
+Reliable enough for a SaaS; not over-engineered.
+
+You get observability: you can show “failed notifications” in an internal debug menu if you ever need support tooling.
+
+2. Availability Engine
+
+Your constraints:
+
+Availability is per service, per staff, configured in onboarding. 
+
+frontend logistics
+
+Customers see a calendar that shows per-staff slots with overlap (multiple staff free at the same time).
+
+No staff logins; staff entries are just for scheduling & display.
+
+2.1. Data model / rules
+
+What to do
+
+In Postgres (with RLS):
+
+staff:
+
+id
+
+owner_id
+
+name, role, color, active
+
+services:
+
+id
+
+owner_id
+
+category_id
+
+name, duration_minutes, price_cents, etc.
+
+staff_services (junction):
+
+staff_id, service_id, owner_id
+
+availability_rules:
+
+id
+
+owner_id
+
+service_id
+
+staff_id
+
+weekday (0–6)
+
+start_time (e.g., 09:00)
+
+end_time (e.g., 17:00)
+
+capacity (usually 1)
+
+valid_from / valid_to (nullable; for seasonal changes)
+
+blackouts:
+
+id
+
+owner_id
+
+staff_id (nullable for whole business)
+
+start_at, end_at
+
+reason
+
+All rows carry owner_id for RLS: each owner can only see their own records.
+
+Why
+
+This matches your onboarding UX very closely (service-by-staff rules).
+
+You keep the logic simple: “Here is when this staff offers this service on this weekday”.
+
+2.2. Slot generation strategy
+
+What to do
+
+Granularity: Use 15-minute increments internally.
+
+Given:
+
+business timezone (from onboarding),
+
+service duration,
+
+availability rules,
+
+blackouts,
+
+existing bookings,
+
+generate slots for a given service + date:
+
+For each staff that can perform that service (staff_services), load that staff’s availability_rules for the weekday.
+
+For each rule:
+
+Convert start_time / end_time into that day’s actual timestamps in the business timezone.
+
+Walk in 15-minute steps, building candidate start times.
+
+For each candidate start time:
+
+Ensure it is after the lead time (e.g., now + 2 hours).
+
+Ensure the end time (start + duration) is before the rule end_time.
+
+Ensure it does not overlap any blackouts.
+
+Ensure it does not overlap any existing bookings or held slots for that staff + service.
+
+Return slots like:
+
+[
+  {
+    "staff_id": "...",
+    "staff_name": "...",
+    "start": "2025-11-16T14:00:00-05:00",
+    "end": "2025-11-16T14:30:00-05:00"
+  },
+  ...
+]
+
+
+Do this on the backend and send to the front-end for rendering in columns by staff (so overlapping availability is visually clear).
+
+Lead time & max advance
+
+Add configuration fields on the business:
+
+min_lead_time_minutes (e.g., 120)
+
+max_advance_days (e.g., 60)
+
+At slot generation, filter out slots before now + min_lead_time_minutes and after today + max_advance_days.
+
+Why
+
+It keeps all availability math server-side.
+
+You can change slot granularity or lead times without touching the frontend.
+
+It cleanly supports your overlap requirement (multiple staff can show simultaneous slots).
+
+2.3. Blackouts & exceptions
+
+What to do
+
+Blackouts are just time ranges that subtract from otherwise available ranges.
+
+To handle exceptions (e.g., one-off working Sunday):
+
+Either add explicit availability_rules for that date, or
+
+Add an exceptions table if you need more nuance later.
+
+For v1, you can get far with:
+
+Weekly rules + blackouts.
+
+“Closed days” = blackouts for the whole business (staff_id = null).
+
+Why
+
+It’s simple to implement: “generate from rules, then subtract blackouts”.
+
+It lets owners block out vacations or closed days without reconfiguring all rules.
+
+2.4. Caching strategy
+
+What to do
+
+Do not overcomplicate in v1.
+
+Cache availability per service + date in memory/Redis for a short time (e.g., 30–60 seconds):
+
+Key: avail:{owner_id}:{service_id}:{date}
+
+Invalidate cache whenever:
+
+a new booking is created/held for that day,
+
+availability rules change,
+
+blackouts change.
+
+On the frontend, also cache the response with React Query so switching dates back and forth feels instant.
+
+Why
+
+Slot generation isn’t very heavy for a small number of staff/services.
+
+Short caching reduces DB load without creating consistency headaches.
+
+3. Preventing Double-Booking
+
+This is the “locking vs optimistic” question.
+
+Your world:
+
+Only one owner user is making “money moves” (no staff logins).
+
+Customers can be booking simultaneously, though.
+
+You do not want two customers to end up with the same staff + time.
+
+3.1. Pick: optimistic + DB uniqueness (recommended)
+
+You could do heavyweight locks, but for your scope I would:
+
+What to do
+
+Database uniqueness constraint
+
+On the bookings table, enforce that there cannot be more than one active booking (pending, confirmed, held) for the same staff + start time:
+
+CREATE UNIQUE INDEX unique_active_slot
+ON bookings (staff_id, start_at)
+WHERE status IN ('held', 'pending', 'confirmed');
+
+
+Introduce a short “hold” status during checkout
+
+When the customer chooses a slot and hits “continue to checkout”, you immediately create a booking row:
+
+status = 'held'
+
+holder_expires_at = now() + interval '5 minutes'
+
+This insert is wrapped in a transaction that can fail on the uniqueness constraint:
+
+If the insert succeeds → you own the slot for 5 minutes.
+
+If it fails → tell the user “Sorry, this slot was just taken, choose another one.”
+
+Expire holds
+
+A background job runs every minute to:
+
+UPDATE bookings
+SET status = 'expired'
+WHERE status = 'held'
+  AND holder_expires_at < now();
+
+
+Your availability query ignores expired status.
+
+Finalize at checkout
+
+After the card is saved via SetupIntent and you have the booking all set:
+
+Keep it pending (card saved, no charge yet) OR
+
+Move status = 'pending' and clear the hold expiry (not needed anymore).
+
+The uniqueness constraint still prevents another booking with the same staff/time being created.
+
+Why this is a good fit
+
+It’s simple and plays nicely with Supabase/Postgres.
+
+You don’t need application-level locks or Redis locks; the database guarantees uniqueness for you.
+
+It aligns with your UX: if two people click the same slot around the same time, one will “win” and the other gets a friendly error.
+
+3.2. Why not heavy locking?
+
+You could:
+
+Use SELECT ... FOR UPDATE on an availability table, or
+
+Use Postgres advisory locks or Redis locks.
+
+But:
+
+That’s overkill given your scale and the simplicity of your domain.
+
+A unique partial index and a “held” status already solve the problem in the most maintainable way.
+
+4. How this respects your constraints
+
+One business per user / one admin login
+
+Every table carries owner_id.
+
+RLS simply enforces owner_id = current_user_id.
+
+There’s no concept of “switching businesses” anymore.
+
+No staff logins
+
+staff rows are just scheduling entities; there’s no password, no auth, no roles.
+
+All admin actions (completing, no-show, refund) are done by the single owner account.
+
+Customers don’t sign in
+
+customers table: name, email, phone, stripe_customer_id.
+
+They’re created on each booking; we only tie bookings and notifications to them.
+
+Login goes straight to admin
+
+As you already said, /login → /app/admin (for that owner’s single business).
+
+No dashboard, no multi-tenant switching UI.
+
+Past bookings but no “customer portal”
+
+Admin has a Past Bookings page.
+
+Customers don’t get an account or “history” page; they just see confirmation email/SMS and optionally a one-off confirmation page.
+
+---------
+Gift Cards and Policies and Compliance
+
+
+------------
+
+Operations and Tooling and Environment and Deployment and Testing and Seeding

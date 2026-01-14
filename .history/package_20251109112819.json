@@ -1,0 +1,15 @@
+{
+  "name": "tithi",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --prefix apps/web",
+    "build:web": "npm run build --prefix apps/web",
+    "lint:web": "npm run lint --prefix apps/web",
+    "typecheck:web": "npm run typecheck --prefix apps/web"
+  }
+}
+

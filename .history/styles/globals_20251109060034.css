@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen bg-surface text-white selection:bg-brand/40 selection:text-white;
+  background: radial-gradient(circle at top, rgba(17, 24, 39, 0.92), rgba(10, 15, 29, 0.98)),
+    linear-gradient(180deg, rgba(12, 16, 28, 1) 0%, rgba(4, 7, 14, 1) 100%);
+}
+
+a {
+  @apply transition-colors duration-200;
+}
+
+.landing-backdrop {
+  background-image: theme("backgroundImage.landing-radial");
+}
+
+.blur-accent {
+  filter: blur(80px);
+}
+

@@ -1,0 +1,634 @@
+# TITHI DATABASE MIGRATIONS - CONSOLIDATED REFERENCE
+# Organized by functional areas with key snippets and clear descriptions
+
+## TABLE OF CONTENTS
+1. [CORE INFRASTRUCTURE](#core-infrastructure) - Extensions, types, tenancy
+2. [BUSINESS LOGIC](#business-logic) - Customers, resources, services, bookings
+3. [PAYMENT & BILLING](#payment--billing) - Payment processing, billing, methods
+4. [SECURITY & ACCESS](#security--access) - RLS policies, authentication, audit
+5. [ADVANCED FEATURES](#advanced-features) - Notifications, analytics, staff management
+6. [PRODUCTION HARDENING](#production-hardening) - Security fixes, performance, monitoring
+
+---
+
+## CORE INFRASTRUCTURE
+
+### MIGRATION 0001: Extensions
+**PURPOSE:** Install PostgreSQL extensions required for the application
+**OUTPUT:** Enables UUID generation, case-insensitive text, overlap prevention, and text search
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- UUID generation & crypto functions
+CREATE EXTENSION IF NOT EXISTS citext;        -- Case-insensitive text (emails)
+CREATE EXTENSION IF NOT EXISTS btree_gist;    -- GiST indexes for overlap prevention
+CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- Text search & similarity
+```
+
+### MIGRATION 0002: Custom Types
+**PURPOSE:** Define enum types used throughout the application
+**OUTPUT:** Creates 8 enum types for status tracking and categorization
+
+```sql
+-- Key enum types created:
+CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'checked_in', 'completed', 'canceled', 'no_show', 'failed');
+CREATE TYPE payment_status AS ENUM ('requires_action', 'authorized', 'captured', 'refunded', 'canceled', 'failed');
+CREATE TYPE membership_role AS ENUM ('owner', 'admin', 'staff', 'viewer');
+CREATE TYPE resource_type AS ENUM ('staff', 'room');
+CREATE TYPE notification_channel AS ENUM ('email', 'sms', 'push');
+CREATE TYPE payment_method AS ENUM ('card', 'cash', 'apple_pay', 'paypal', 'other');
+```
+
+### MIGRATION 0003: RLS Helper Functions
+**PURPOSE:** Create JWT claim extraction functions for Row Level Security
+**OUTPUT:** Functions to extract tenant_id and user_id from JWT for RLS policies
+
+```sql
+-- Extract tenant_id from JWT claims with UUID validation
+CREATE OR REPLACE FUNCTION public.current_tenant_id()
+RETURNS uuid AS $$
+  SELECT CASE
+      WHEN (auth.jwt()->>'tenant_id') IS NOT NULL
+       AND (auth.jwt()->>'tenant_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      THEN (auth.jwt()->>'tenant_id')::uuid
+      ELSE NULL::uuid
+    END;
+$$;
+
+-- Extract user_id from JWT claims with UUID validation
+CREATE OR REPLACE FUNCTION public.current_user_id()
+RETURNS uuid AS $$
+  SELECT CASE
+      WHEN (auth.jwt()->>'sub') IS NOT NULL
+       AND (auth.jwt()->>'sub') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      THEN (auth.jwt()->>'sub')::uuid
+      ELSE NULL::uuid
+    END;
+$$;
+```
+
+### MIGRATION 0004: Core Tenancy
+**PURPOSE:** Create multi-tenant infrastructure with users, tenants, and memberships
+**OUTPUT:** Core tables for tenant isolation and user management
+
+```sql
+-- Generic updated_at trigger function
+CREATE OR REPLACE FUNCTION public.touch_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.updated_at := COALESCE(NEW.updated_at, clock_timestamp());
+  ELSIF TG_OP = 'UPDATE' THEN
+    NEW.updated_at := GREATEST(COALESCE(NEW.updated_at, to_timestamp(0)), clock_timestamp());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Core tenant table with soft delete
+CREATE TABLE public.tenants (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug text NOT NULL,
+  tz text NOT NULL DEFAULT 'UTC',
+  is_public_directory boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz NULL
+);
+
+-- Global users (no tenant_id)
+CREATE TABLE public.users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  display_name text,
+  primary_email citext,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- User-tenant relationships with roles
+CREATE TABLE public.memberships (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  user_id uuid NOT NULL REFERENCES public.users(id),
+  role public.membership_role NOT NULL,
+  permissions_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+---
+
+## BUSINESS LOGIC
+
+### MIGRATION 0005: Customers & Resources
+**PURPOSE:** Create customer management and bookable resources
+**OUTPUT:** Customer records with PII handling and resource definitions
+
+```sql
+-- Customer records with soft delete and PII handling
+CREATE TABLE public.customers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  first_name text NOT NULL,
+  last_name text NOT NULL,
+  email citext,
+  phone text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz NULL
+);
+
+-- Bookable resources (staff/rooms)
+CREATE TABLE public.resources (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  name text NOT NULL,
+  type public.resource_type NOT NULL,
+  capacity integer NOT NULL DEFAULT 1,
+  tz text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### MIGRATION 0006: Services
+**PURPOSE:** Create service catalog and resource mapping
+**OUTPUT:** Service definitions with pricing and resource associations
+
+```sql
+-- Service definitions with pricing and duration
+CREATE TABLE public.services (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  name text NOT NULL,
+  description text,
+  price_cents integer NOT NULL DEFAULT 0,
+  duration_minutes integer NOT NULL,
+  buffer_minutes integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Many-to-many service-resource mapping
+CREATE TABLE public.service_resources (
+  service_id uuid NOT NULL REFERENCES public.services(id),
+  resource_id uuid NOT NULL REFERENCES public.resources(id),
+  tenant_id uuid NOT NULL,
+  PRIMARY KEY (service_id, resource_id),
+  FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
+);
+```
+
+### MIGRATION 0007: Availability
+**PURPOSE:** Create availability scheduling system
+**OUTPUT:** Recurring availability patterns and exception handling
+
+```sql
+-- Recurring weekly availability patterns
+CREATE TABLE public.availability_rules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  resource_id uuid NOT NULL REFERENCES public.resources(id),
+  day_of_week integer NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  start_minute integer NOT NULL CHECK (start_minute BETWEEN 0 AND 1439),
+  end_minute integer NOT NULL CHECK (end_minute BETWEEN 0 AND 1439),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Specific date overrides (closures, special hours)
+CREATE TABLE public.availability_exceptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  resource_id uuid NOT NULL REFERENCES public.resources(id),
+  exception_date date NOT NULL,
+  start_minute integer CHECK (start_minute BETWEEN 0 AND 1439),
+  end_minute integer CHECK (end_minute BETWEEN 0 AND 1439),
+  is_closed boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### MIGRATION 0008: Bookings
+**PURPOSE:** Create booking system with overlap prevention
+**OUTPUT:** Booking records with status management and conflict prevention
+
+```sql
+-- Main booking records with status lifecycle
+CREATE TABLE public.bookings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  customer_id uuid NOT NULL REFERENCES public.customers(id),
+  resource_id uuid NOT NULL REFERENCES public.resources(id),
+  service_id uuid NOT NULL REFERENCES public.services(id),
+  start_at timestamptz NOT NULL,
+  end_at timestamptz NOT NULL,
+  booking_tz text NOT NULL,
+  status public.booking_status NOT NULL DEFAULT 'pending',
+  client_generated_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- GiST exclusion constraint for overlap prevention
+ALTER TABLE public.bookings
+ADD CONSTRAINT bookings_excl_resource_time
+EXCLUDE USING gist (
+  resource_id WITH =,
+  tstzrange(start_at, end_at, '[)') WITH &&
+) WHERE (status IN ('pending', 'confirmed', 'checked_in'));
+
+-- Status sync trigger
+CREATE OR REPLACE FUNCTION public.sync_booking_status()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.canceled_at IS NOT NULL THEN
+    NEW.status = 'canceled';
+  ELSIF NEW.no_show_flag = true THEN
+    NEW.status = 'no_show';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+```
+
+---
+
+## PAYMENT & BILLING
+
+### MIGRATION 0009: Payments & Billing
+**PURPOSE:** Create payment processing and tenant billing
+**OUTPUT:** Payment records with Stripe integration and tenant billing
+
+```sql
+-- Payment records with Stripe integration
+CREATE TABLE public.payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  booking_id uuid REFERENCES public.bookings(id),
+  amount_cents integer NOT NULL,
+  currency text NOT NULL DEFAULT 'USD',
+  status public.payment_status NOT NULL DEFAULT 'requires_action',
+  stripe_payment_intent_id text,
+  payment_method public.payment_method,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Tenant-level billing configuration
+CREATE TABLE public.tenant_billing (
+  tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id),
+  stripe_account_id text,
+  stripe_connect_enabled boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### MIGRATION 0024: Payment Methods
+**PURPOSE:** Add card-on-file functionality with Stripe PaymentMethod storage
+**OUTPUT:** Persistent payment method storage for recurring payments
+
+```sql
+-- Stripe PaymentMethod storage for card-on-file
+CREATE TABLE public.payment_methods (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  customer_id uuid NOT NULL REFERENCES public.customers(id),
+  stripe_payment_method_id text NOT NULL,
+  type text NOT NULL,
+  last4 text,
+  exp_month integer,
+  exp_year integer,
+  brand text,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+---
+
+## SECURITY & ACCESS
+
+### MIGRATION 0014: Enable RLS
+**PURPOSE:** Enable Row Level Security on all tables
+**OUTPUT:** Deny-by-default security model activated
+
+```sql
+-- Enable RLS on all application tables
+ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+-- ... (all other tables)
+```
+
+### MIGRATION 0015: Standard RLS Policies
+**PURPOSE:** Create tenant-scoped RLS policies for data isolation
+**OUTPUT:** Comprehensive access control with tenant isolation
+
+```sql
+-- Standard tenant-scoped policies pattern:
+-- SELECT: USING (tenant_id = current_tenant_id())
+-- INSERT: WITH CHECK (tenant_id = current_tenant_id())
+-- UPDATE: USING (tenant_id = current_tenant_id()) WITH CHECK (tenant_id = current_tenant_id())
+-- DELETE: USING (tenant_id = current_tenant_id())
+
+-- Example for customers table:
+CREATE POLICY "customers_sel" ON public.customers
+  FOR SELECT USING (tenant_id = public.current_tenant_id());
+
+CREATE POLICY "customers_ins" ON public.customers
+  FOR INSERT WITH CHECK (tenant_id = public.current_tenant_id());
+
+CREATE POLICY "customers_upd" ON public.customers
+  FOR UPDATE 
+  USING (tenant_id = public.current_tenant_id())
+  WITH CHECK (tenant_id = public.current_tenant_id());
+
+CREATE POLICY "customers_del" ON public.customers
+  FOR DELETE USING (tenant_id = public.current_tenant_id());
+```
+
+### MIGRATION 0013: Audit Logs
+**PURPOSE:** Create comprehensive audit logging and event system
+**OUTPUT:** Complete audit trail for compliance and event delivery
+
+```sql
+-- Comprehensive audit trail
+CREATE TABLE public.audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid REFERENCES public.tenants(id),
+  table_name text NOT NULL,
+  operation text NOT NULL,
+  record_id uuid,
+  user_id uuid REFERENCES public.users(id),
+  old_values jsonb,
+  new_values jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Generic audit trigger function
+CREATE OR REPLACE FUNCTION public.log_audit()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.audit_logs (
+    tenant_id, table_name, operation, record_id, user_id, old_values, new_values
+  ) VALUES (
+    COALESCE(NEW.tenant_id, OLD.tenant_id),
+    TG_TABLE_NAME,
+    TG_OP,
+    COALESCE(NEW.id, OLD.id),
+    public.current_user_id(),
+    CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE NULL END,
+    CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END
+  );
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+```
+
+---
+
+## ADVANCED FEATURES
+
+### MIGRATION 0011: Notifications
+**PURPOSE:** Create notification system with templates and queue
+**OUTPUT:** Template-based messaging with multi-channel support
+
+```sql
+-- Notification templates per tenant
+CREATE TABLE public.notification_templates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  event_type text NOT NULL,
+  channel public.notification_channel NOT NULL,
+  subject text,
+  body text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Queued notifications with retry logic
+CREATE TABLE public.notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  template_id uuid REFERENCES public.notification_templates(id),
+  recipient text NOT NULL,
+  channel public.notification_channel NOT NULL,
+  status public.notification_status NOT NULL DEFAULT 'queued',
+  scheduled_for timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz,
+  error_message text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### MIGRATION 0026: Staff Management
+**PURPOSE:** Add staff assignment and shift scheduling system
+**OUTPUT:** Staff profiles, work schedules, and assignment tracking
+
+```sql
+-- Staff profiles linking memberships to resources
+CREATE TABLE public.staff_profiles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  membership_id uuid NOT NULL REFERENCES public.memberships(id),
+  resource_id uuid NOT NULL REFERENCES public.resources(id),
+  hourly_rate_cents integer,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Work schedules and time off management
+CREATE TABLE public.work_schedules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  staff_profile_id uuid NOT NULL REFERENCES public.staff_profiles(id),
+  schedule_type public.schedule_type NOT NULL,
+  start_date date NOT NULL,
+  end_date date,
+  day_of_week integer CHECK (day_of_week BETWEEN 0 AND 6),
+  start_time time,
+  end_time time,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### MIGRATION 0028: Analytics
+**PURPOSE:** Create analytics materialized views and aggregated counters
+**OUTPUT:** Pre-computed analytics for dashboards and reporting
+
+```sql
+-- Revenue analytics materialized view
+CREATE MATERIALIZED VIEW public.revenue_analytics AS
+SELECT 
+  tenant_id,
+  DATE_TRUNC('day', created_at) as date,
+  COUNT(*) as booking_count,
+  SUM(amount_cents) as total_revenue_cents,
+  AVG(amount_cents) as avg_booking_value_cents
+FROM public.payments
+WHERE status = 'captured'
+GROUP BY tenant_id, DATE_TRUNC('day', created_at);
+
+-- Customer analytics materialized view
+CREATE MATERIALIZED VIEW public.customer_analytics AS
+SELECT 
+  tenant_id,
+  customer_id,
+  COUNT(*) as total_bookings,
+  SUM(amount_cents) as lifetime_value_cents,
+  MAX(created_at) as last_booking_date
+FROM public.payments p
+JOIN public.bookings b ON p.booking_id = b.id
+WHERE p.status = 'captured'
+GROUP BY tenant_id, customer_id;
+```
+
+---
+
+## PRODUCTION HARDENING
+
+### MIGRATION 0029: Database Hardening
+**PURPOSE:** Critical fixes and performance optimizations
+**OUTPUT:** Production-ready security, performance, and compliance features
+
+```sql
+-- Enhanced RLS helper functions with better error handling
+CREATE OR REPLACE FUNCTION public.current_tenant_id()
+RETURNS uuid AS $$
+DECLARE
+  tenant_id_value text;
+  jwt_claims jsonb;
+BEGIN
+  BEGIN
+    jwt_claims := auth.jwt();
+  EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+  END;
+  
+  tenant_id_value := jwt_claims->>'tenant_id';
+  
+  IF tenant_id_value IS NOT NULL 
+     AND tenant_id_value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    RETURN tenant_id_value::uuid;
+  END IF;
+  
+  RETURN NULL;
+END;
+$$;
+
+-- PCI compliance audit function
+CREATE OR REPLACE FUNCTION public.validate_payment_method_compliance(
+  p_tenant_id uuid,
+  p_payment_method_id uuid
+)
+RETURNS TABLE(is_compliant boolean, violations text[], recommendations text[])
+LANGUAGE plpgsql AS $$
+-- Validates payment method data for PCI compliance
+-- Checks for proper format and absence of sensitive data
+$$;
+```
+
+### MIGRATION 0030: Critical Security Hardening
+**PURPOSE:** Production readiness and comprehensive security
+**OUTPUT:** Enhanced security, monitoring, and operational improvements
+
+```sql
+-- Comprehensive booking overlap validation
+CREATE OR REPLACE FUNCTION public.validate_booking_slot_availability(
+  p_tenant_id uuid,
+  p_resource_id uuid,
+  p_start_at timestamptz,
+  p_end_at timestamptz,
+  p_exclude_booking_id uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  is_available boolean,
+  conflicting_booking_id uuid,
+  conflict_type text,
+  suggested_slots timestamptz[]
+) AS $$
+-- Validates booking availability and suggests alternatives
+$$;
+
+-- Production readiness monitoring
+CREATE OR REPLACE FUNCTION public.get_production_readiness_status()
+RETURNS TABLE(
+  component text,
+  status text,
+  details text,
+  critical boolean
+) AS $$
+-- Monitors system health and readiness for production
+$$;
+```
+
+### MIGRATION 0031: Enhanced Notifications
+**PURPOSE:** Comprehensive notification system with templates and provider management
+**OUTPUT:** Advanced notification system with analytics and multi-provider support
+
+```sql
+-- Notification settings per tenant
+CREATE TABLE public.notification_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  notification_type text NOT NULL,
+  timing_hours integer NOT NULL DEFAULT 24,
+  template_id uuid REFERENCES public.notification_templates(id),
+  is_enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Encrypted provider credentials
+CREATE TABLE public.notification_providers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+  provider_name text NOT NULL,
+  encrypted_credentials text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+---
+
+## SUMMARY
+
+This database schema implements a comprehensive multi-tenant booking and scheduling system with:
+
+### CORE CAPABILITIES
+- **Multi-tenant Architecture**: Complete tenant isolation with RLS
+- **User Management**: Global users with tenant-specific memberships and roles
+- **Resource Management**: Staff and room resources with capacity and timezone support
+- **Service Catalog**: Flexible service definitions with pricing and duration
+- **Booking System**: Overlap prevention, status management, and multi-resource support
+
+### BUSINESS FEATURES
+- **Customer Management**: PII handling with soft delete and metrics
+- **Payment Processing**: Stripe integration with PCI compliance
+- **Availability Scheduling**: Recurring patterns with exception handling
+- **Staff Management**: Assignment tracking and shift scheduling
+- **Notifications**: Template-based messaging with multi-channel support
+
+### SECURITY & COMPLIANCE
+- **Row Level Security**: Comprehensive RLS policies for tenant isolation
+- **Audit Logging**: Complete audit trail with 12-month retention
+- **PCI Compliance**: Automated validation and security scanning
+- **Data Encryption**: PII protection and secure credential storage
+
+### PRODUCTION READINESS
+- **Performance Optimization**: Materialized views and comprehensive indexing
+- **Monitoring**: Health checks and production readiness reporting
+- **Error Handling**: Robust validation and conflict resolution
+- **Scalability**: Partitioned tables and efficient query patterns
+
+The system is designed for enterprise-scale deployment with proper security, compliance, and operational excellence.

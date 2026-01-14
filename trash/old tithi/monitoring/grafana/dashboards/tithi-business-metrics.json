@@ -1,0 +1,210 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Tithi Business Metrics",
+    "tags": ["tithi", "business"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Booking Conversion Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(booking_created_total[5m]) / rate(booking_attempt_total[5m]) * 100",
+            "legendFormat": "Conversion Rate %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "No-Show Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(booking_no_show_total[5m]) / rate(booking_completed_total[5m]) * 100",
+            "legendFormat": "No-Show Rate %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Revenue by Service",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum by (service_name) (rate(payment_completed_total[5m]))",
+            "legendFormat": "{{service_name}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Revenue/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Customer Satisfaction",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "avg(rating_score)",
+            "legendFormat": "Average Rating"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Rating (1-5)",
+            "min": 1,
+            "max": 5
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Peak Hours",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum by (hour) (rate(booking_created_total[1h]))",
+            "legendFormat": "Hour {{hour}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bookings/hour",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 6,
+        "title": "Provider Utilization",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum by (provider_id) (rate(booking_created_total[5m]))",
+            "legendFormat": "Provider {{provider_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bookings/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 7,
+        "title": "Promotion Effectiveness",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(booking_created_total{promotion_id!=\"\"}[5m]) / rate(booking_created_total[5m]) * 100",
+            "legendFormat": "Promotion Usage %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "Loyalty Program Engagement",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(loyalty_points_earned_total[5m])",
+            "legendFormat": "Points Earned/sec"
+          },
+          {
+            "expr": "rate(loyalty_points_redeemed_total[5m])",
+            "legendFormat": "Points Redeemed/sec"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Points/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      }
+    ],
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "1m",
+    "schemaVersion": 16,
+    "version": 1
+  }
+}

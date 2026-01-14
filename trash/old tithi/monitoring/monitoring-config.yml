@@ -1,0 +1,315 @@
+# Tithi Platform Monitoring Configuration
+# Comprehensive monitoring setup for observability and alerting
+
+# Monitoring Service Configuration
+monitoring:
+  # Health check intervals (seconds)
+  health_check_interval: 60
+  detailed_health_check_interval: 300
+  
+  # Alert thresholds
+  thresholds:
+    error_rate_percent: 5.0
+    response_time_seconds: 2.0
+    cpu_usage_percent: 80.0
+    memory_usage_percent: 85.0
+    disk_usage_percent: 90.0
+    no_show_rate_percent: 20.0
+    
+  # Alert cooldown periods (seconds)
+  alert_cooldowns:
+    error_rate: 300
+    response_time: 300
+    resource_usage: 600
+    business_metrics: 1800
+    external_services: 300
+
+# Prometheus Configuration
+prometheus:
+  # Scrape intervals
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  
+  # Retention
+  retention_time: 30d
+  
+  # Alert rules
+  alert_rules:
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status_code=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 5
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High error rate detected"
+        description: "Error rate is {{ $value }}% for the last 5 minutes"
+    
+    - alert: HighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High response time detected"
+        description: "95th percentile response time is {{ $value }}s"
+    
+    - alert: HighCPUUsage
+      expr: system_cpu_usage_percent > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage"
+        description: "CPU usage is {{ $value }}%"
+    
+    - alert: HighMemoryUsage
+      expr: system_memory_usage_bytes / (1024^3) > 8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage"
+        description: "Memory usage is {{ $value }}GB"
+    
+    - alert: HighDiskUsage
+      expr: system_disk_usage_bytes / (1024^3) > 90
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High disk usage"
+        description: "Disk usage is {{ $value }}GB"
+    
+    - alert: HighNoShowRate
+      expr: rate(bookings_total{status="no_show"}[1h]) / rate(bookings_total[1h]) * 100 > 20
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High no-show rate"
+        description: "No-show rate is {{ $value }}%"
+
+# Grafana Configuration
+grafana:
+  # Dashboard settings
+  dashboard:
+    title: "Tithi Platform Monitoring"
+    refresh: "30s"
+    time_range: "1h"
+    
+  # Panel configurations
+  panels:
+    system_overview:
+      type: stat
+      refresh: 10s
+      
+    http_metrics:
+      type: graph
+      refresh: 30s
+      
+    business_metrics:
+      type: graph
+      refresh: 60s
+      
+    database_metrics:
+      type: graph
+      refresh: 30s
+      
+    external_services:
+      type: graph
+      refresh: 60s
+
+# Alerting Configuration
+alerting:
+  # Alert channels
+  channels:
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#alerts"
+      
+    email:
+      enabled: true
+      smtp_server: "${ALERT_SMTP_SERVER}"
+      smtp_port: 587
+      username: "${ALERT_EMAIL_USERNAME}"
+      password: "${ALERT_EMAIL_PASSWORD}"
+      from_email: "${ALERT_FROM_EMAIL}"
+      to_emails: "${ALERT_TO_EMAILS}"
+      
+    webhook:
+      enabled: true
+      url: "${ALERT_WEBHOOK_URL}"
+      
+  # Alert routing
+  routing:
+    critical:
+      channels: ["slack", "email", "webhook"]
+      cooldown: 300s
+      
+    warning:
+      channels: ["slack"]
+      cooldown: 600s
+      
+    info:
+      channels: ["slack"]
+      cooldown: 1800s
+
+# Health Check Configuration
+health_checks:
+  # Database health check
+  database:
+    enabled: true
+    timeout: 5s
+    retries: 3
+    
+  # Redis health check
+  redis:
+    enabled: true
+    timeout: 3s
+    retries: 3
+    
+  # Celery health check
+  celery:
+    enabled: true
+    timeout: 5s
+    retries: 3
+    
+  # External services health check
+  external_services:
+    stripe:
+      enabled: true
+      timeout: 10s
+      retries: 2
+      
+    twilio:
+      enabled: true
+      timeout: 10s
+      retries: 2
+      
+    sendgrid:
+      enabled: true
+      timeout: 10s
+      retries: 2
+
+# Metrics Configuration
+metrics:
+  # Collection intervals
+  collection_interval: 15s
+  
+  # Metric retention
+  retention:
+    raw_metrics: 7d
+    aggregated_metrics: 30d
+    
+  # Metric labels
+  labels:
+    environment: "${ENVIRONMENT}"
+    service: "tithi-backend"
+    version: "${VERSION}"
+    
+  # Custom metrics
+  custom_metrics:
+    business_metrics:
+      enabled: true
+      collection_interval: 60s
+      
+    performance_metrics:
+      enabled: true
+      collection_interval: 15s
+      
+    system_metrics:
+      enabled: true
+      collection_interval: 30s
+
+# Logging Configuration
+logging:
+  # Log levels
+  level: "INFO"
+  
+  # Log formats
+  format: "json"
+  
+  # Log destinations
+  destinations:
+    console:
+      enabled: true
+      
+    file:
+      enabled: true
+      path: "/var/log/tithi/monitoring.log"
+      max_size: "100MB"
+      max_files: 5
+      
+    syslog:
+      enabled: false
+      
+  # Structured logging
+  structured:
+    enabled: true
+    fields:
+      - timestamp
+      - level
+      - service
+      - tenant_id
+      - user_id
+      - request_id
+      - trace_id
+      - span_id
+
+# Performance Monitoring
+performance:
+  # Profiling
+  profiling:
+    enabled: false
+    sample_rate: 0.1
+    
+  # Tracing
+  tracing:
+    enabled: true
+    sample_rate: 0.1
+    jaeger_endpoint: "${JAEGER_ENDPOINT}"
+    
+  # APM
+  apm:
+    enabled: true
+    service_name: "tithi-backend"
+    environment: "${ENVIRONMENT}"
+
+# Security Monitoring
+security:
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: "INFO"
+    
+  # Security events
+  security_events:
+    enabled: true
+    alert_on_failure: true
+    
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000
+    burst_size: 100
+
+# Compliance Monitoring
+compliance:
+  # GDPR compliance
+  gdpr:
+    enabled: true
+    audit_data_access: true
+    audit_data_deletion: true
+    
+  # PCI compliance
+  pci:
+    enabled: true
+    audit_payment_data: true
+    encrypt_sensitive_data: true
+    
+  # Audit trails
+  audit_trails:
+    enabled: true
+    retention_period: "12M"
+    log_all_operations: true

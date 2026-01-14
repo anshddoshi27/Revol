@@ -1,0 +1,117 @@
+# 0. New Files Added in Phase 3
+
+| File | Purpose |
+| --- | --- |
+| `apps/web/src/lib/onboarding-types.ts` | Shared type definitions consumed by onboarding, admin workspace, and fake stores. |
+| `apps/web/src/lib/admin-workspace.ts` | Generates fake business workspace data (bookings, payments, analytics, templates) and exports helper types/utilities. |
+| `apps/web/src/components/admin/bookings/money-board.tsx` | Card-based money board with action buttons, payment breakdowns, and booking detail overlay. |
+| `apps/web/src/app/app/b/[businessId]/layout.tsx` | Admin shell with top header, left navigation, and session guard routing to tabs. |
+| `apps/web/src/app/app/b/[businessId]/page.tsx` | Past bookings home (money board) with metric highlights. |
+| `apps/web/src/app/app/b/[businessId]/analytics/page.tsx` | Analytics dashboard (trend charts, booking mix donut, utilization bars, fee breakdown). |
+| `apps/web/src/app/app/b/[businessId]/calendar/page.tsx` | Service-by-staff availability editor with copy/paste templates. |
+| `apps/web/src/app/app/b/[businessId]/catalog/page.tsx` | Category/service manager including staff assignment and service CRUD. |
+| `apps/web/src/app/app/b/[businessId]/staff/page.tsx` | Staff roster editor (color, role, status) with add staff form. |
+| `apps/web/src/app/app/b/[businessId]/availability/page.tsx` | Availability template library with rename/copy/paste controls. |
+| `apps/web/src/app/app/b/[businessId]/notifications/page.tsx` | Notification template editor with placeholder chips and live preview. |
+| `apps/web/src/app/app/b/[businessId]/policies/page.tsx` | Policy + fee configuration mirror with checkout preview. |
+| `apps/web/src/app/app/b/[businessId]/gift-cards/page.tsx` | Gift card program configuration and ledger preview. |
+| `apps/web/src/app/app/b/[businessId]/payments/page.tsx` | Payments ledger view flattening authorization/capture/fee/refund events. |
+| `apps/web/src/app/app/b/[businessId]/customers/page.tsx` | Customer directory summarizing bookings per customer. |
+| `apps/web/src/app/app/b/[businessId]/account/page.tsx` | Subscription controls (start trial, activate, pause, cancel, delete). |
+
+# 0.1 Phase 3 Implementation Summary
+
+1. **Admin shell & routing**
+   - Added dedicated layout for `/app/b/{businessId}` with persistent top header, booking-page shortcut, sign-out, and a left nav exposing all admin modules. Past Bookings is the default route; other surfaces live under nested routes.
+2. **Fake data workspace**
+   - Expanded `FakeBusinessProvider` to manage a full `workspace`: catalog, staff, availability, notifications, policies, gift cards, bookings, payments, customers, analytics, templates, subscription state, and idempotent money board actions.
+   - Introducing `admin-workspace.ts` to generate seeded bookings (captured, authorized, fees, refunds), payment breakdowns, analytics snapshots, availability templates, and gift card ledger fixtures.
+3. **Money board**
+   - Implemented actionable booking cards with top-aligned `Completed`, `No-Show`, `Cancelled`, and `Refund` buttons respecting policy fees and idempotency.
+   - Full-screen booking inspector displays customer data, policy consent metadata, payment ledger, and financial breakdowns.
+   - Toast copy handles success versus `requires_action` branches (with pay link clipboard support).
+4. **Operational modules**
+   - **Calendar**: service-by-staff slot editor with add/remove slots, per-day/time inputs, and template copy/paste workflow.
+   - **Catalog & Staff**: inline editing for categories/services, staff assignment checkboxes, service creation form (duration, price, instructions) with availability reconciliation; staff roster updates color/role/active state.
+   - **Availability library**: template renaming, clipboard status indicator, and paste-to-service action (shared with calendar).
+   - **Notifications**: channel-specific forms, placeholder chips, enable toggles, and modal preview with mock merge data.
+   - **Policies**: admin mirror of onboarding with fee configurators, validation, and checkout modal preview.
+   - **Gift cards**: program toggles (amount/percent, expiration), refund restore option, ledger table.
+   - **Payments & Customers**: ledger table flattening booking payments, searchable by booking code; customer directory aggregates booking counts.
+   - **Analytics**: futuristic trend line chart, donut chart, utilization bars, and fee summary cards pulling from fake analytics snapshot.
+   - **Account**: subscription controls (start trial adds 7 days, activate sets next bill, pause, cancel, delete) updating both business metadata and payment state.
+5. **Onboarding enhancements**
+   - Start Trial button added to Go Live step (updates trial/bill dates, surfaces toast) before admin launch.
+6. **Dev login + seeded workspace**
+   - Added hard-coded dev owner credentials (`owner@tithi.dev` / `Ready4Tithi!`) that auto-login, seed the Studio Nova business, and skip the onboarding redirect for faster QA.
+   - Exposed a `loadSeedBusiness` helper in `FakeBusinessProvider` so dev login and onboarding both hydrate the same fake workspace.
+7. **Docs**
+   - Authored this Phase 3 spec capturing new modules, fake data plumbing, dev login flow, and UX behavior.
+
+# 1. Admin Surface Overview
+
+| Tab | Purpose | Notes |
+| --- | --- | --- |
+| Past bookings | Default landing with money board cards | Buttons interact with fake workspace and analytics refresh automatically. |
+| Calendar | Service-specific availability editor | Staff lanes, add/remove slot forms, template copy/paste. |
+| Analytics | Revenue + utilization insights | Trend SVG, donut mix, fee breakdown, staff utilization bars. |
+| Catalog | Category/service CRUD | Staff assignment syncs to availability; service add/remove within cards. |
+| Staff | Scheduling-only roster manager | Toggle active, color pickers, add new members. |
+| Availability | Template library | Rename, copy, paste templates; clipboard status indicator. |
+| Notifications | Template editor | Placeholder chips, email subject, preview modal, enable toggle. |
+| Policies | Fee + consent configuration | Mirrors onboarding, saves to fake workspace, preview pane. |
+| Gift cards | Program configuration | Amount/percent toggle, restore balance option, ledger preview. |
+| Payments | Flattened payment ledger | Authorization/capture/fee/refund timeline (fake). |
+| Customers | Customer directory | Booking counts, created date, contact info. |
+| Account | Subscription controls | Start trial, activate, pause, cancel, delete business (clears fake state). |
+
+# 2. Money Board Behavior
+
+- Cards emphasize manual capture rule: top buttons trigger `performBookingAction`.
+- Payment breakdown surfaces list price, gift card deduction, platform fee (1%), Stripe fee estimate, net payout.
+- Customer + consent metadata displayed inline (hash, timestamp, IP, user agent).
+- Full-screen detail overlay replicates ledger history and notes.
+- Actions adjust booking status, financials, analytics, customers, and optionally gift card ledger (refund restores balance when configured).
+- `requires_action` responses simulate pay-link flows with clipboard button.
+
+# 3. Availability & Templates
+
+- Calendar tab enforces service selection, provides staff cards with slot list (sorted by weekday/time), and add-slot form (day/start/end with validation).
+- Copy template copies `template_{serviceId}` into clipboard; paste applies across services and rebuilds availability entry.
+- Template library surfaces saved templates, allows renaming (persisted via workspace update), shows staff slot previews, and shares clipboard tooling.
+- Provider auto-aligns availability entries when catalog or staff change (adds missing staff with empty slots, removes unassigned staff, removes orphaned services).
+
+# 4. Subscription Controls
+
+- Account tab syncs payment state with business metadata:
+  - **Start trial**: sets status to `trial`, pushes `trialEndsAt`/`nextBillDate` seven days ahead, logs status change timestamp.
+  - **Activate**: switches to `active`, schedules next bill 30 days out.
+  - **Pause**: marks payment as paused and business status as paused (site banner copy handled in layout).
+  - **Cancel**: marks canceled, clears future billing; UI copy notes cards won’t be charged when canceled pre-bill.
+  - **Delete business**: clears fake store and routes back to onboarding.
+- Go Live step offers the same Start Trial CTA before hitting admin.
+
+# 5. Fake Data Model Extensions
+
+- `FakeBusinessWorkspace` now holds:
+  - Catalog, staff, availability, notifications, policies, gift card program (with ledger + balance restore toggle), payment control state, bookings, customers, analytics, availability templates, clipboard state.
+- `createWorkspaceFromOnboarding` seeds:
+  - Bookings across multiple states (captured, authorized, requires action, no-show, canceled) with payments ledger entries and policy consent snapshots.
+  - Derived customers and analytics snapshot (revenue by month, booking mix, staff utilization, fee breakdown).
+  - Gift card ledger sample entries (issued + redeemed).
+- Provider exposes update functions (`setCatalog`, `setStaff`, `setAvailability`, `setNotifications`, `setPolicies`, `setGiftCards`, `setPayment`, `setIdentity`, `performBookingAction`, template copy helpers, analytics refresh).
+
+# 6. UX & Copy Highlights
+
+- Layout carries gradient/glass aesthetic from previous phases with futuristic yet mature styling.
+- Metric cards and charts maintain neon-on-midnight palette without leaning playful.
+- Calendar editors and forms reuse tailwind-based inputs for consistent visual language.
+- Helper text blocks clarify manual capture principle, trial behavior, and fake-data nature where relevant.
+
+# 7. Testing & Dev Notes
+
+- All admin interactions mutate the in-memory fake store; refreshing resets.
+- No backend calls are made yet; modules are UI contracts ready for API wiring (booking actions, analytics, gift card APIs, etc.).
+- The ledger, analytics, and template utilities centralize logic in `admin-workspace.ts`, minimizing duplication when backend integration begins.
+
+

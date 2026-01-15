@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/db';
 
+// Force dynamic rendering since this route uses request.headers
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/cron/cleanup
  * 

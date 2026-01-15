@@ -3,6 +3,9 @@ import { createServerClient } from '@/lib/db';
 import { getCurrentUserId } from '@/lib/auth';
 import type { BusinessBasics } from '@/lib/onboarding-types';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/business/onboarding/step-1-business
  * 

@@ -3,6 +3,9 @@ import { createServerClient } from '@/lib/db';
 import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { ServiceAvailability } from '@/lib/onboarding-types';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 // Map day names to weekday numbers (Sunday = 0)
 const WEEKDAY_MAP: Record<string, number> = {
   sunday: 0,

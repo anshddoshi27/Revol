@@ -9,6 +9,9 @@ import {
   createSubscription,
 } from '@/lib/stripe';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/business/onboarding/step-11-payment-setup
  * 

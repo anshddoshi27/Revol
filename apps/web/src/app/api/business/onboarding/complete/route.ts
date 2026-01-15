@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/db';
 import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/business/onboarding/complete
  * 

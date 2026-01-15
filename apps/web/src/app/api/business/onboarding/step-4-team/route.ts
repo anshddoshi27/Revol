@@ -3,6 +3,9 @@ import { createServerClient } from '@/lib/db';
 import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { StaffMember } from '@/lib/onboarding-types';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/business/onboarding/step-4-team
  * 

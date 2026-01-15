@@ -4,6 +4,9 @@ import { getCurrentUserId, getCurrentBusinessId } from '@/lib/auth';
 import type { NotificationTemplate } from '@/lib/onboarding-types';
 import { getEffectiveNotificationsEnabled } from '@/lib/feature-flags';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/business/onboarding/step-8-notifications
  * 

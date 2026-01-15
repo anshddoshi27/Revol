@@ -3,6 +3,9 @@ import { createServerClient } from '@/lib/db';
 import { getCurrentUserId } from '@/lib/auth';
 import type { BrandingConfig, ButtonShape, FontFamily } from '@/lib/onboarding-types';
 
+// Force dynamic rendering since this route uses cookies
+export const dynamic = 'force-dynamic';
+
 // Valid font families
 const VALID_FONTS: FontFamily[] = [
   'Inter',

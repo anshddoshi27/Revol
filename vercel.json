@@ -1,8 +1,4 @@
 {
-  "buildCommand": "npm run build",
-  "installCommand": "cd ../.. && npm ci",
-  "framework": "nextjs",
-  "rootDirectory": "apps/web",
   "crons": [
     {
       "path": "/api/cron/cleanup",
